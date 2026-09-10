@@ -1,0 +1,151 @@
+
+################################################
+#  plumed.dat for Funnel MetaD in the WTE + PT #
+################################################
+RESTART
+
+#################################################
+### DEFINE RADIUS + CALC PROT-LIG VECTOR COMP ###
+#################################################
+MOLINFO STRUCTURE=../whole.pdb
+protein: GROUP ATOMS=1-2121
+ligand: GROUP ATOMS=2122-2195
+WHOLEMOLECULES STRIDE=1 ENTITY0=protein ENTITY1=ligand
+WRAPAROUND ATOMS=ligand AROUND=1586 GROUPBY=74 #random CA close to the binding pocket for pmas_d in chain B
+##########################
+### DEFINITION_OF_COMs ###
+##########################
+lig: COM ATOMS=ligand
+p0: COM ATOMS=1105,1461,1473,1521
+p1: COM ATOMS=824,846,1122,1586,1739,1774
+
+WO: GROUP ATOMS=2196-30551:3
+
+# Ligand atoms to solvate
+G1: GROUP ATOMS=2149
+G2: GROUP ATOMS=2138
+G3: GROUP ATOMS=2139
+
+NG1: COORDINATION GROUPA=G1 GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+NG2: COORDINATION GROUPA=G2 GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+NG3:  COORDINATION GROUPA=G3  GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+
+# Protein atoms to solvate
+P1: GROUP ATOMS=1590 # CYS 95
+P2: GROUP ATOMS=1647 # TYR 98
+P3: GROUP ATOMS=934 # TYR 56
+P4: GROUP ATOMS=1528 # MET 91
+
+
+NP1: COORDINATION GROUPA=P1 GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+NP2: COORDINATION GROUPA=P2 GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+NP3:  COORDINATION GROUPA=P3  GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+NP4:  COORDINATION GROUPA=P4  GROUPB=WO SWITCH={RATIONAL D_0=0.0 R_0=0.25 NN=6 MM=10 D_MAX=0.6} NLIST NL_CUTOFF=2.0 NL_STRIDE=20
+
+#########################
+### DEFINITION_OF_CVs ###
+#########################
+# CV1: pp.proj = projection on the axis. The distance from the axis to the origin (along the axis) (biased)
+# CV2: pp.ext = orthogonal distance between the ATOM(=lig) to the axis. (not biased - just monitored)
+# CV4: CMAP of 5 protein-ligand contacts
+# CV3: RMSD just monitored 
+##############################
+pp: PROJECTION_ON_AXIS AXIS_ATOMS=p0,p1 ATOM=lig
+
+################
+#RMSD WALLS ####
+################
+rmsd_protCA: RMSD REFERENCE=../rmsd_ref.pdb TYPE=OPTIMAL
+uwall_rmsd_protCA: UPPER_WALLS ARG=rmsd_protCA AT=0.4 KAPPA=200000
+
+rmsd_pocket_1: RMSD REFERENCE=../rmsd_ref_pocket_1.pdb TYPE=OPTIMAL
+uwall_rmsd_pocket_1: UPPER_WALLS ARG=rmsd_pocket_1 AT=0.3 KAPPA=200000
+
+rmsd_pocket_2: RMSD REFERENCE=../rmsd_ref_pocket_2.pdb TYPE=OPTIMAL
+uwall_rmsd_pocket_2: UPPER_WALLS ARG=rmsd_pocket_2 AT=0.2 KAPPA=200000
+
+rmsd_pocket_3: RMSD REFERENCE=../rmsd_ref_pocket_3.pdb TYPE=OPTIMAL
+uwall_rmsd_pocket_3: UPPER_WALLS ARG=rmsd_pocket_3 AT=0.22 KAPPA=200000
+
+rmsd_tail: RMSD REFERENCE=../rmsd_ref_tail.pdb TYPE=OPTIMAL
+uwall_rmsd_tail: UPPER_WALLS ARG=rmsd_tail AT=0.3 KAPPA=200000
+
+##########################
+### CMAP #################
+##########################
+INCLUDE FILE=../cmap.dat
+
+
+##########################
+# Stiff lig torsions #####
+##########################
+
+lig_torsion1: TORSION ATOMS=2173,2138,2123,2128
+lig_torsion2: TORSION ATOMS=2153,2154,2173,2138
+lig_torsion3: TORSION ATOMS=2174,2140,2156,2157
+lig_torsion4: TORSION ATOMS=2136,2135,2174,2140
+
+#########################
+### FUNNEL_PARAMETERS ###
+#########################
+s_cent: CONSTANT VALUES=2.6                              # INFLEXION
+beta_cent: CONSTANT VALUES=0.8                            # STEEPNESS
+wall_width: CONSTANT VALUES=0.1                                  # WIDTH (h)
+wall_buffer: CONSTANT VALUES=0.25                                 # BUFFER (f, total width = WIDTH + BUFFER)
+lwall: LOWER_WALLS ARG=pp.proj AT=1.65 KAPPA=2000         # Lower Wall 
+uwall: UPPER_WALLS ARG=pp.proj AT=3.3 KAPPA=2000     # Upper Wall 
+
+####################################
+########### CALCULATE FUNNEL #######
+# Returns the radius of the funnel
+# at the current value of the cv
+####################################
+MATHEVAL ...
+    LABEL=wall_center
+    ARG=pp.proj,s_cent,beta_cent,wall_width,wall_buffer
+    VAR=s,sc,b,h,f
+    FUNC=h*(1./(1.+exp(b*(s-sc))))+f
+    PERIODIC=NO
+... MATHEVAL
+
+################################
+##### POTENTIAL_PARAMETERS #####
+################################
+scaling: CONSTANT VALUES=1.0
+spring: CONSTANT VALUES=10000.0
+
+################################
+####### DEFINE_POTENTIAL #######
+################################
+MATHEVAL ...
+    LABEL=wall_bias
+    ARG=pp.ext,spring,wall_center,scaling
+    VAR=z,k,zc,sf
+    FUNC=step(z-zc)*k*(z-zc)*(z-zc)/(sf*sf)
+    PERIODIC=NO
+... MATHEVAL
+finalbias: BIASVALUE ARG=wall_bias
+
+#################################
+######## DEFINE_OPES_EXPLORE ####
+#################################
+
+ene: ENERGY
+
+
+
+METAD ...
+  LABEL=metad
+  ARG=pp.proj,cmap
+  SIGMA=0.03,0.1
+  PACE=1000
+  HEIGHT=1.5
+  BIASFACTOR=10
+  GRID_MIN=0.0,0.0
+  GRID_MAX=3.8,5.0
+  GRID_BIN=100,50
+  CALC_RCT
+... METAD
+
+
+PRINT ARG=* STRIDE=500 FILE=COLVAR FMT=%8.4f

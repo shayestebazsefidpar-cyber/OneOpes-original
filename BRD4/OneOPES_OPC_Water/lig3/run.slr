@@ -1,0 +1,17 @@
+#!/bin/bash -l
+
+export OMP_NUM_THREADS=2
+
+source $HOME/source_4_gromacs.sh
+
+# OPES 
+if [ ! -e run0/run.tpr ]; then
+  for i in $(seq 0 7); do
+    gmx_mpi grompp -f prod.mdp -p top.top -c npt2.gro -o run$i/run.tpr -n index.ndx -maxwarn 100 -t run$i/run.cpt
+  done
+fi
+if [ ! -e run0/run.gro ]; then
+  mpirun -n 8 --cpus-per-proc $OMP_NUM_THREADS gmx_mpi mdrun -deffnm run -plumed ./plumed.dat -hrex -multidir run{0..7} -replex 2000 -pin on -cpi -bonded gpu -nb gpu
+fi
+
+#sed -i "s/#RESTART/RESTART/g" run*/plumed.dat

@@ -1,0 +1,35 @@
+#!/bin/bash -l
+#SBATCH --job-name="opes9"
+#SBATCH --time=72:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8
+#SBATCH --cpus-per-task=4
+#SBATCH --partition=private-gervasio-gpu
+#SBATCH --gres=gpu:2
+#SBATCH --mem=24G
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+module load GCC/12.2.0 && module load OpenMPI && module load CUDA/12.0.0 && module load Python && source /srv/beegfs/scratch/shares/flg/programs/plumed2-master_libtorch1.8_0523/libtorch/sourceme.sh; source /srv/beegfs/scratch/shares/flg/programs/plumed2-master_libtorch1.8_0523/sourceme.sh; source /srv/beegfs/scratch/shares/flg/programs/gromacs-2022.5/install_mpi_0523/bin/GMXRC && module load OpenMPI
+
+
+# OPES 
+if [ ! -e run0/run.tpr ]; then
+  for i in $(seq 0 7); do
+    srun gmx_mpi grompp -f prod.mdp -p top.top -c npt2.gro -o run$i/run.tpr -n index.ndx -maxwarn 100 #-t run$i/run.cpt
+  done
+fi
+
+if [ ! -e run0/run.gro ]; then
+  srun gmx_mpi mdrun -deffnm run -plumed ./plumed.dat -hrex -multidir run{0..7} -replex 2000 -pin on -cpi -maxh 23.5
+fi
+
+sed -i "s/#RESTART/RESTART/g" run*/plumed.dat
+
+# Resubmit script if unfinished
+if [ ! -e run0/run.gro ]; then
+
+	sbatch run.slr
+
+fi
+

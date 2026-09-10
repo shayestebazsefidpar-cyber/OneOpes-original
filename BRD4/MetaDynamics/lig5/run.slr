@@ -1,0 +1,42 @@
+#!/bin/bash -l
+#SBATCH --job-name="opes5"
+#SBATCH --account="s1228"
+#SBATCH --time=24:00:00
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-core=1
+#SBATCH --ntasks-per-node=2
+#SBATCH --cpus-per-task=6
+#SBATCH --partition=normal
+#SBATCH --constraint=gpu
+#SBATCH --hint=nomultithread
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export CRAY_CUDA_MPS=1
+
+source $HOME/spack/share/spack/setup-env.sh
+# activate daint spack configuration
+module load daint-gpu
+module load spack-config
+spack env activate gromacs-plumed
+
+
+# OPES 
+if [ ! -e run0/run.tpr ]; then
+  for i in $(seq 0 7); do
+    srun gmx_mpi grompp -f prod.mdp -p top.top -c npt2.gro -o run$i/run.tpr -n index.ndx -maxwarn 100 #-t run$i/run.cpt
+  done
+fi
+
+if [ ! -e run0/run.gro ]; then
+  srun gmx_mpi mdrun -deffnm run -plumed ./plumed.dat -hrex -multidir run{0..7} -replex 2000 -pin on -cpi -maxh 23.5
+fi
+
+sed -i "s/#RESTART/RESTART/g" run*/plumed.dat
+
+# Resubmit script if unfinished
+if [ ! -e run0/run.gro ]; then
+
+	sbatch run.slr
+
+fi
+

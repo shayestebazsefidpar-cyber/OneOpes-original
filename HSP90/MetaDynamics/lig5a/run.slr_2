@@ -1,0 +1,37 @@
+#!/bin/bash -l
+#SBATCH --job-name="2wi2"
+#SBATCH --time=72:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8
+#SBATCH --cpus-per-task=4
+#SBATCH --partition=private-gervasio-gpu
+#SBATCH --gres=gpu:2
+#SBATCH --mem=24G
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+module load GCC/12.2.0 && module load OpenMPI && module load CUDA/12.0.0 && module load Python && source $HOME/plumed2-2.9/sourceme.sh; source $HOME/gromacs-2023/install_single_cuda/bin/GMXRC && module load OpenMPI
+
+
+export REPL="2"
+
+# OPES 
+if [ ! -e replicate$REPL/run.tpr ]; then
+    srun gmx_mpi grompp -f prod.mdp -p top.top -c npt.gro -o replicate$REPL/run.tpr -n index.ndx -maxwarn 100 #-t run$i/run.cpt
+fi
+
+if [ ! -e replicate$REPL/run.gro ]; then
+  cd replicate$REPL
+  srun gmx_mpi mdrun -deffnm run -plumed ../plumed.dat -pin on -cpi -maxh 71.5
+  cd ..
+fi
+
+sed -i "s/#RESTART/RESTART/g" plumed.dat
+
+# Resubmit script if unfinished
+if [ ! -e replicate$REPL/run.gro ]; then
+
+	sbatch run.slr_$REPL
+
+fi
+

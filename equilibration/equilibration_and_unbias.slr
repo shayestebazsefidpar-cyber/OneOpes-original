@@ -1,0 +1,58 @@
+#!/bin/bash -l
+#SBATCH --job-name="eqFF"
+#SBATCH --time=72:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=6
+#SBATCH --gres=gpu:1
+#SBATCH --partition=private-gervasio-gpu
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+module load GCC/12.2.0 && module load OpenMPI && module load CUDA/12.0.0 && module load Python && source /srv/beegfs/scratch/shares/flg/programs/plumed2-master_libtorch1.8_0523/libtorch/sourceme.sh; source /srv/beegfs/scratch/shares/flg/programs/plumed2-master_libtorch1.8_0523/sourceme.sh; source /srv/beegfs/scratch/shares/flg/programs/gromacs-2022.5/install_mpi_0523/bin/GMXRC && module load OpenMPI
+
+
+# CG can help sometimes with equilibrating off-center charges, add only if needed
+#if [ ! -e cg.gro  ]; then
+
+#srun gmx_mpi grompp -f ../cg.mdp   -c complex.pdb  -p top.top   -o cg.tpr -maxwarn 1000 -r complex.pdb -n index.ndx
+#srun gmx_mpi mdrun  -s cg.tpr -deffnm cg -pin on -cpi
+
+#fi
+
+
+if [ ! -e complex_minimization.gro  ]; then
+
+#srun gmx_mpi grompp -f ../minimization.mdp   -c cg.gro  -p top.top   -o minimization.tpr -maxwarn 1000 -r cg.gro -n index.ndx
+srun gmx_mpi grompp -f ../minimization.mdp   -c complex.pdb  -p top.top   -o minimization.tpr -maxwarn 1000 -r complex.pdb -n index.ndx
+srun gmx_mpi mdrun  -s minimization.tpr -deffnm complex_minimization -pin on -cpi complex_minimization.cpt
+
+fi
+
+if [ ! -e nvt.gro  ]; then
+srun gmx_mpi grompp -f ../nvt.mdp   -c complex_minimization.gro  -p top.top   -o complex_nvt.tpr -maxwarn 1000 -n index.ndx -r complex_minimization.gro
+srun gmx_mpi mdrun  -s complex_nvt.tpr -deffnm nvt -pin on -ntomp $OMP_NUM_THREADS   -cpi nvt.cpt 
+
+fi
+
+if [ ! -e npt.gro  ]; then
+srun gmx_mpi grompp -f ../npt.mdp   -c nvt.gro  -p top.top   -o complex_npt.tpr -maxwarn 1000 -n index.ndx -r complex_minimization.gro
+
+srun gmx_mpi mdrun  -s complex_npt.tpr -deffnm npt -pin on -ntomp $OMP_NUM_THREADS  -cpi npt.cpt 
+
+fi
+
+if [ ! -e npt2.gro  ]; then
+srun gmx_mpi grompp -f ../npt2.mdp   -c npt.gro  -p top.top   -o complex_npt.tpr -maxwarn 1000 -n index.ndx -r complex_minimization.gro
+
+srun gmx_mpi mdrun  -s complex_npt.tpr -deffnm npt2 -pin on -ntomp $OMP_NUM_THREADS  -cpi npt2.cpt
+
+fi
+
+# This is the long unbias run to get the correct sigmas for the OneOPES runs
+if [ ! -e unbias.gro  ]; then
+gmx_mpi grompp -f ../unbiased.mdp   -c npt2.gro  -p top.top   -o complex_unbias.tpr -maxwarn 1000 -n index.ndx
+
+gmx_mpi mdrun  -s complex_unbias.tpr -deffnm unbias -pin on -ntomp $OMP_NUM_THREADS -cpi
+fi
+
