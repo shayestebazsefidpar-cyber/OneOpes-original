@@ -1,0 +1,34 @@
+integrator      = md
+dt              = 0.002
+nsteps          = 50000000      ; 100 ns cap - the convergence monitor in
+                                 ; 02_waterfp_and_convergence/ will normally
+                                 ; stop the run long before this is reached
+nstxout         = 0
+nstvout         = 0
+nstxout-compressed = 5000       ; xtc frame every 10 ps
+nstenergy       = 5000
+nstlog          = 5000
+
+continuation    = yes
+constraint_algorithm = lincs
+constraints     = h-bonds
+
+cutoff-scheme   = Verlet
+coulombtype     = PME
+rcoulomb        = 1.0
+rvdw            = 1.0
+pbc             = xyz
+DispCorr        = EnerPres
+
+tcoupl          = V-rescale
+tc-grps         = System
+tau_t           = 0.1
+ref_t           = 300
+
+pcoupl          = C-rescale
+pcoupltype      = isotropic
+tau_p           = 2.0
+ref_p           = 1.0
+compressibility = 4.5e-5
+
+gen_vel         = no

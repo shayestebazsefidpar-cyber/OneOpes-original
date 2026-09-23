@@ -1,0 +1,42 @@
+# Generated simulation and analysis output - never commit scientific
+# results from a specific system/ligand run into this workflow's code tree.
+outputs/
+results/
+plots/
+
+# MD trajectory/checkpoint/energy binaries (per-run, regenerable, never
+# reproducibility inputs on their own)
+*.xtc
+*.trr
+*.tpr
+*.edr
+*.cpt
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Rendered images / session files that a run of this workflow produces
+*.png
+*.jpg
+*.pse
+*.py~
+
+# Do NOT blanket-ignore *.top, *.itp, or *.mdp - the mdp/ templates in
+# src/ligand_waterfp/system_setup/mdp/ are legitimate, generic
+# reproducibility inputs and must stay tracked (and are bundled into the
+# built package - see pyproject.toml). Per-system topologies you build
+# with prepare_ligand_system.py belong under outputs/ (already ignored
+# above), not this tree.
+
+# pytest
+.pytest_cache/

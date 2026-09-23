@@ -1,0 +1,44 @@
+# Generic configuration template for the ligand_waterfp workflow.
+#
+# This file defines PARAMETERS only, not results: it is safe to commit and
+# reuse across ligands/systems. Copy it per-system (e.g.
+# outputs/<system>/config.yaml, git-ignored) and fill in the paths/names
+# for your own ligand - do not put actual FP values, rankings, atom
+# selections, or convergence outcomes here.
+
+system:
+  # Free-text identifier used as --system-id in stage 4/5 and stored
+  # alongside outputs. Not used in any calculation.
+  id: null                     # e.g. "my_project-ligand_A"
+  ligand_resname: MOL
+  water_resname: SOL
+  water_atom_name: O
+
+paths:
+  ligand_gro: null             # input to stage 1 (prepare_ligand_system.py)
+  ligand_top: null
+  tpr: null                    # prod.tpr, used from stage 2 onward
+  xtc: null                    # prod.xtc
+
+system_setup:                  # stage 1
+  box_distance_nm: 1.2
+  box_type: cubic
+  water_model: spc216
+  ion_conc: 0.0
+  pname: NA
+  nname: CL
+
+rdf:                           # stage 2 / stage 3
+  rmax_nm: 2.001
+  binwidth_nm: 0.001
+  norm_tail_bins: 500
+
+convergence:                   # stage 2
+  block_ns: 5.0
+  fp_rel_tol: 0.10
+  rdf_nrmsd_tol: 0.15
+  spearman_tol: 0.90
+  n_stable: 3
+
+official_selection:            # stage 4
+  fp_round_decimals: 1
