@@ -1,0 +1,316 @@
+WaterFP-style hydration convergence monitor - workflow hypothesis
+===================================================================
+System: HSP90 lig1 ligand (resname MOL), alone in TIP3P water, unbiased MD
+Location: original/HSP90/OneOPES/lig1/WaterFP_ligand/
+Reference method: https://github.com/valeriorizzi/WaterFP/tree/main/Scripts
+                  (calc_rdf.sh + fp.py - RDF/FP calculation only; the
+                  block-wise convergence/auto-stop logic below is not part
+                  of that repo and was designed for this task)
+
+
+1. WHY RUN THIS AT ALL - THE CORE HYPOTHESIS
+---------------------------------------------
+A ligand's local hydration structure (how water oxygens are radially
+arranged around each of its heavy atoms) is what the WaterFP method uses to
+build a per-atom "fingerprint" (FP), intended - in later, NOT-yet-performed
+steps - to help pick which ligand atoms are good candidates for
+hydration-monitoring collective variables (the P#/G# COORDINATION CVs seen
+elsewhere in this repo's plumed.dat files).
+
+For that fingerprint to be meaningful, it must be computed from a
+trajectory in which the ligand's local water shell has actually equilibrated
+- i.e. water has had enough time to rearrange around every heavy atom and
+settle into its steady-state radial distribution, given the ligand's current
+conformation and position in the box.
+
+The hypothesis of this workflow is:
+
+    "Once the per-atom RDF shape, the per-atom scalar FP derived from it,
+     and the FP-based ranking of all heavy atoms all stop changing
+     block-to-block (within defined tolerances) over several consecutive
+     blocks, the local hydration structure has converged, and further
+     simulation time is not needed for hydration-fingerprint purposes."
+
+This lets the run stop as soon as hydration is converged, rather than always
+running a fixed, possibly wasteful, duration (the original request was a
+100 ns production; this monitor can - and in this run did - stop it much
+earlier once convergence was detected).
+
+This hypothesis says nothing about, and is NOT a substitute for, checking
+convergence of other quantities (e.g. ligand conformational/torsional
+sampling, RMSD, radius of gyration) - see "Limitations" below.
+
+
+2. WHAT IS MEASURED, PER LIGAND HEAVY ATOM
+---------------------------------------------
+(a) RDF: g(r) of that atom to all water oxygens (atom name "O" in this
+    topology, despite atom type OW - resname SOL, TIP3P), r in
+    [0, 2.001] nm, bin width 0.001 nm (2001 bins) - matching WaterFP's
+    calc_rdf.sh settings (gmx rdf -bin 0.001 -norm number_density
+    -rmax 2.001) exactly, but recomputed per trajectory block instead of
+    once over a whole fixed trajectory.
+
+    Per block: n(r) = mean neighbour count per radial shell per frame,
+    divided by the shell volume (waters/nm^3) - a raw, un-normalised
+    number-density profile.
+
+(b) FP (fingerprint): reimplemented exactly from WaterFP's fp.py.
+        norm  = mean of the last 500 of the 2001 n(r) bins
+                (empirical bulk-water-density plateau; no external/
+                theoretical bulk density value is assumed)
+        g(r)  = n(r) / norm                      (dimensionless RDF)
+        FP    = integral_0^2.001nm  -2*pi*norm*(g*ln(g) - g + 1)*r^2 dr
+                (trapezoidal rule, dx = 0.001 nm; where g=0 the integrand's
+                well-defined limit, 1, is substituted for (g*ln(g)-g+1))
+
+    This integrand is the standard water excess/relative-entropy density
+    relative to bulk (same functional form used in inhomogeneous solvation
+    theory / GIST-style analyses): it grows wherever a heavy atom's presence
+    makes local water systematically denser or sparser than bulk, either
+    direction contributing a nonzero (negative, by this sign convention)
+    contribution to FP. It is NOT a simple coordination number - two atoms
+    can have similar coordination but different FP if the shape of their
+    water shell differs from a bulk-like distribution.
+
+(c) Ranking: within each block, all 19 ligand heavy atoms are ranked by FP
+    (rank 1 = most negative / most bulk-perturbing, in this sign
+    convention). This ranking, not just the raw FP scalar, is what a
+    downstream atom-selection step would actually use.
+
+
+3. WHY THREE SEPARATE STABILITY CHECKS, NOT ONE
+---------------------------------------------
+A single criterion can be misleading on its own:
+  - FP scalar alone could coincidentally match between two blocks while the
+    underlying RDF shape is still drifting (e.g. a shifted peak that
+    integrates to the same value).
+  - RDF shape alone says nothing about whether the derived FP values (what
+    matters for ranking/selection) have actually stabilised.
+  - Ranking alone can look "stable" even while absolute values are still
+    drifting substantially, if all atoms drift together.
+
+Requiring RDF shape, FP value, AND ranking to be simultaneously stable is a
+stronger, more defensible convergence claim than any one of them alone -
+this is the compound criterion actually implemented.
+
+Definitions and code (verbatim from monitor_convergence.py):
+
+  RDF-profile stability (per atom, block n vs n-1):
+      RMSD_i  = sqrt( mean_k ( g_i^n(r_k) - g_i^(n-1)(r_k) )^2 )
+      nRMSD_i = RMSD_i / max( max_k g_i^n(r_k), max_k g_i^(n-1)(r_k), 1e-8 )
+      criterion: max_i nRMSD_i <= RDF_NRMSD_TOL (0.15, i.e. 15%)
+
+  FP stability (per atom, block n vs n-1):
+      rel_change_i = |FP_i^n - FP_i^(n-1)| / max(|FP_i^(n-1)|, 1e-6)
+      criterion: max_i rel_change_i <= VALUE_REL_TOL (0.10, i.e. 10%)
+
+  Ranking stability (block n vs n-1):
+      rho = Spearman rank correlation between the two blocks' FP-based
+            atom rankings (scipy.stats.spearmanr)
+      criterion: rho >= RANK_SPEARMAN_TOL (0.90)
+
+A block-transition is "stable" only if all three criteria hold at once.
+
+
+4. THE STOPPING RULE
+---------------------------------------------
+A single stable transition could be a coincidence (e.g. two noisy blocks
+happening to agree). The workflow therefore requires N_STABLE_NEEDED = 3
+CONSECUTIVE stable block-transitions in a row before declaring convergence
+- a lucky one-off match is very unlikely to repeat three times running.
+
+Block size: BLOCK_NS = 5.0 ns of newly-accumulated trajectory per check.
+This is a practical choice (fast enough to check convergence often; long
+enough for the ~1000-water box to give a reasonably converged per-block
+RDF/FP estimate on its own) - not a value taken from the WaterFP reference.
+
+On convergence, the monitor sends SIGTERM to the running `gmx mdrun`
+production process, stopping the MD early; whatever trajectory exists up to
+that point (prod.xtc) is kept as the final result.
+
+IMPORTANT: all numeric thresholds above (15% RDF nRMSD, 10% FP change, 0.90
+Spearman rho, 3 consecutive transitions, 5 ns blocks) are reasonable,
+transparently-documented choices made for this task. They are NOT specified
+anywhere in the WaterFP reference repository (which only defines how to
+compute RDF/FP, not how to judge block-to-block convergence) and are not
+derived from any statistical error analysis - they should be treated as a
+starting heuristic, adjustable if a stricter or looser convergence
+definition is wanted.
+
+
+5. WHAT THIS RUN ACTUALLY FOUND
+---------------------------------------------
+Converged at simulation time 19.99 ns (block index 3), after 3 consecutive
+stable transitions (block 0->1 at 10 ns, 1->2 at 15 ns, 2->3 at 20 ns), all
+well inside every threshold (worst-case FP change 2.3%, worst-case RDF
+nRMSD 8.5%, Spearman rho >= 0.96 throughout). The ranking of the 5
+most/least water-perturbing atoms (O3, O2, O1, C13 at the top; N1 at the
+bottom) was identical in every single block from the very first one,
+suggesting the hydration structure around this ligand's heavy atoms settles
+quickly relative to the originally planned 100 ns.
+
+
+6. LIMITATIONS / WHAT THIS DOES NOT CLAIM
+---------------------------------------------
+- This checks convergence of WATER STRUCTURE around a fixed ligand only. It
+  does not check whether the ligand itself has adequately sampled its own
+  conformational/torsional space - a ligand frozen in one rotamer for the
+  whole (short) run could show perfectly "converged" hydration around that
+  one conformation without that conformation being representative.
+- The FP integral's bulk reference ("norm") is estimated per atom, per
+  block, from that block's own outer-shell density - a noisy box density
+  fluctuation (e.g. under NPT) could shift norm block-to-block independent
+  of any real change in local structure; this is only implicitly guarded
+  against by requiring 3 consecutive passes.
+- Convergence of the FP/ranking does not itself constitute or perform POI
+  (point-of-interest atom) selection, OPES setup, or any other downstream
+  analysis - per the task's explicit instructions, none of that was done
+  here.
+
+
+7. ONE-SENTENCE SUMMARY, AS THREE YES/NO QUESTIONS
+---------------------------------------------
+The monitor is really asking three separate questions every block, and only
+stops the run once all three have been "yes" for 3 blocks running:
+
+  (1) Have the FP numbers themselves stopped changing?        -> YES
+  (2) Has the shape of the RDF curves stopped changing?        -> YES
+  (3) Has the FP-based ranking of the 19 heavy atoms stopped
+      changing?                                                -> YES
+
+  => "The MD does not need to run to the full 100 ns; for this hydration
+      check, about 20 ns was enough."
+
+Why check all three instead of trusting one: Spearman's rho only measures
+whether the ORDER of atoms is preserved, not whether their FP magnitudes
+are stable, and a stable-looking RDF nRMSD says nothing about whether the
+scalar FP or the ranking derived from it are stable either. Requiring all
+three at once is a stronger, more defensible convergence claim than relying
+on any single one of them (see section 3 above for the full reasoning).
+
+
+8. EQUATIONS AND CODE BEHIND EACH OF THE THREE METRICS
+---------------------------------------------
+
+(1) FP change (relative change of the fingerprint)
+    ------------------------------------------------
+    FP itself, for heavy atom i (from WaterFP's fp.py, reimplemented in
+    fp_from_density_profile()):
+
+        FP_i = integral_0^{2.001 nm}  -2*pi*rho_bulk * [ g_i(r) ln g_i(r)
+                                                          - g_i(r) + 1 ] * r^2  dr
+
+        where g_i(r) = n_i(r) / rho_bulk, n_i(r) is the raw water-oxygen
+        number-density profile around atom i, and rho_bulk is that block's
+        own empirical bulk-density estimate (mean of the outer 500 of 2001
+        radial bins - not a theoretical density value).
+
+    Code (monitor_convergence.py):
+
+        def fp_from_density_profile(n_r, norm):
+            g = n_r / norm
+            r = RDF_CENTERS_NM
+            integrand = np.empty_like(g)
+            mask0 = (g == 0)
+            integrand[mask0] = -2*np.pi*norm*(r[mask0]**2)
+            gnz = g[~mask0]
+            integrand[~mask0] = -2*np.pi*norm*(gnz*np.log(gnz)-gnz+1)*(r[~mask0]**2)
+            fp = np.trapz(integrand, dx=RDF_BINWIDTH_NM)
+            return fp, g
+
+    Block-to-block relative change and the pass/fail test actually used:
+
+        Delta_FP_i(%) = |FP_i^new - FP_i^old| / max(|FP_i^old|, 1e-6) * 100
+        criterion:      max_i Delta_FP_i <= 10%
+
+    Code:
+
+        rel_changes = {name: abs(fp_this_block[name]-prev_fp[name])
+                             / max(abs(prev_fp[name]), 1e-6)
+                       for name in heavy_names}
+        max_rel_change = max(rel_changes.values())
+        value_ok = max_rel_change <= VALUE_REL_TOL   # VALUE_REL_TOL = 0.10
+
+    Example from this run: worst-case values were 2.3%, 1.3%, 1.3% at the
+    10/15/20 ns transitions - all comfortably under the 10% bar.
+
+
+(2) RDF nRMSD (stability of the RDF curve's shape)
+    ------------------------------------------------
+    This compares the full g(r) curve between two blocks, not just the
+    single FP number derived from it:
+
+        RMSD_i  = sqrt( mean_k [ g_i^new(r_k) - g_i^old(r_k) ]^2 )
+        nRMSD_i = RMSD_i / max( max_k g_i^new(r_k), max_k g_i^old(r_k), 1e-8 )
+
+    i.e. the RMSD between the two curves, normalised by the taller of the
+    two curves' own peak height (their first-hydration-shell peak) - so
+    nRMSD reads as "the curves differ by at most X% of the peak height."
+    This exact normalisation choice (by peak height, rather than e.g. mean
+    or a fixed reference density) is this workflow's own design decision -
+    it is not part of the WaterFP reference repository, which does not
+    define any block-stability metric at all.
+
+    Code:
+
+        def nrmsd(g_a, g_b):
+            rmsd = np.sqrt(np.mean((g_a - g_b) ** 2))
+            norm = max(np.max(g_a), np.max(g_b), 1e-8)
+            return rmsd / norm
+
+        nrmsds = {name: nrmsd(g_this_block[name], prev_g[name]) for name in heavy_names}
+        max_nrmsd = max(nrmsds.values())
+        rdf_ok = max_nrmsd <= RDF_NRMSD_TOL   # RDF_NRMSD_TOL = 0.15
+
+    Example from this run: worst-case nRMSD was 8.3%, 8.4%, 8.5% at the
+    10/15/20 ns transitions - under the 15% bar throughout, and notably
+    almost flat block-to-block (not still trending down), which is itself
+    a good sign of genuine convergence rather than a lucky single pass.
+
+
+(3) Spearman rho (stability of the FP-based atom ranking)
+    ------------------------------------------------
+    Standard Spearman rank correlation between the two blocks' FP-based
+    rankings of all 19 heavy atoms (computed with scipy.stats.spearmanr,
+    which is tie-corrected; in the tie-free case - guaranteed here since FP
+    values are continuous floats - it reduces to the classic formula):
+
+        rho = 1 - [ 6 * sum_i(d_i^2) ] / [ n*(n^2 - 1) ]
+
+        where d_i = rank_i^new - rank_i^old for atom i, and n = 19 (heavy
+        atom count). rho = 1 means identical ranking; rho = 0 means no
+        rank relationship; rho < 0 means an inverted ranking.
+
+    Code:
+
+        rank_now = pd.Series(fp_this_block).rank(ascending=False)
+        ...
+        rho, _ = spearmanr(rank_now.values, prev_rank.values)
+        rank_ok = rho >= RANK_SPEARMAN_TOL   # RANK_SPEARMAN_TOL = 0.90
+
+    Example from this run: rho = 0.960, 0.960, 0.968 at the 10/15/20 ns
+    transitions - well above the 0.90 bar; the top 4 atoms (O3, O2, O1,
+    C13) and the bottom atom (N1) held the exact same rank in every single
+    block from the very first one.
+
+
+9. WHAT THE CODE ACTUALLY DOES, BLOCK BY BLOCK
+---------------------------------------------
+    for each new 5 ns block of trajectory:
+        for each of the 19 ligand heavy atoms:
+            trajectory -> raw water-O density profile n(r)
+                       -> g(r) = n(r) / (block's own bulk-tail estimate)
+                       -> FP   = entropy-integral of g(r)   [section 8.1]
+        rank all 19 atoms by FP
+
+        if a previous block exists:
+            compare current vs. previous block:
+                Delta_FP  for every atom      [section 8.1]
+                RDF nRMSD for every atom      [section 8.2]
+                Spearman rho of the rankings  [section 8.3]
+            block_transition_stable = (all three criteria pass)
+            stable_streak = stable_streak+1 if stable else reset to 0
+
+        if stable_streak >= 3 consecutive transitions:
+            declare convergence, record stop block/time,
+            send SIGTERM to the running mdrun process, stop monitoring

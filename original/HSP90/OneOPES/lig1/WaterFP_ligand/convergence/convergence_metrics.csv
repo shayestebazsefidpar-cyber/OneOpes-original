@@ -1,0 +1,4 @@
+block_transition,t_end_ns,max_FP_relative_change,max_RDF_nRMSD,spearman_rank_corr,value_stable,rdf_stable,rank_stable,block_stable,stable_streak
+0->1,9.99,0.022728441328748843,0.08331721159955185,0.9596491228070174,True,True,True,True,1
+1->2,14.99,0.0131168298651393,0.08389715526563624,0.9596491228070174,True,True,True,True,2
+2->3,19.99,0.012947945611772893,0.08484017814424583,0.9684210526315788,True,True,True,True,3

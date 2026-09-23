@@ -1,0 +1,11 @@
+WaterFP-style hydration RDF/FP block-wise convergence monitor summary
+======================================================================
+Converged: True
+Stop block: 3
+Stop simulation time: 19.99 ns
+Reason: RDF profile, FP values, and FP-based heavy-atom ranking were all stable (max FP relative change <= 10%, max RDF normalised RMSD <= 15%, Spearman rank correlation >= 0.9) across 3 consecutive block-to-block transitions.
+Block size: 5.0 ns
+Consecutive stable transitions required: 3
+Thresholds: FP rel. change <= 0.1, RDF nRMSD <= 0.15, Spearman rho >= 0.9
+FP method: WaterFP (github.com/valeriorizzi/WaterFP, Scripts/fp.py): FP = trapz(-2*pi*norm*(g*ln(g)-g+1)*r^2, dx=0.001 nm) over r in [0,2.001] nm, g(r)=n(r)/norm, norm=mean of last 500 of 2001 bins of the raw water-O number-density profile n(r) around the ligand heavy atom.
+Ligand heavy atoms monitored (19): N1, C1, C2, C3, C4, O1, C5, C6, C7, C8, C9, C10, C11, O2, C12, C13, C14, C15, O3

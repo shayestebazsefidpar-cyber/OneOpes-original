@@ -1,0 +1,37 @@
+======================================================================
+Ranking table (ascending FP, as used by ranking()):
+      name  atom atom_name         fp  fp_round
+HSP90-lig1     1        N1 -20.161148     -20.2
+HSP90-lig1     5        C4 -19.913398     -19.9
+HSP90-lig1     3        C2 -19.850042     -19.9
+HSP90-lig1     4        C3 -19.784818     -19.8
+HSP90-lig1    10        C8 -19.673929     -19.7
+HSP90-lig1     7        C5 -19.630297     -19.6
+HSP90-lig1     8        C6 -19.621815     -19.6
+HSP90-lig1     9        C7 -19.611098     -19.6
+HSP90-lig1     2        C1 -19.590498     -19.6
+HSP90-lig1    13       C11 -19.516265     -19.5
+HSP90-lig1    18       C15 -19.464677     -19.5
+HSP90-lig1    15       C12 -19.397406     -19.4
+HSP90-lig1    11        C9 -19.386422     -19.4
+HSP90-lig1    12       C10 -19.316390     -19.3
+HSP90-lig1    17       C14 -19.264925     -19.3
+HSP90-lig1    16       C13 -19.227626     -19.2
+HSP90-lig1     6        O1 -18.994243     -19.0
+HSP90-lig1    14        O2 -18.825792     -18.8
+HSP90-lig1    19        O3 -18.697418     -18.7
+======================================================================
+select_next_atom (anti-bulk fp pair):
+Highest-ranking atom: N1 (1) with fp_round -20.2
+2: C2 connected to N1 -> rejected
+3: C3 connected to N1 -> rejected
+4: C8 beats C4 (longer path 3 > 2)
+5: C5 shorter path than C8 -> ignored
+6: C6 shorter path than C8 -> ignored
+7: C7 and C8 are equidistant and have same fp -> choose either
+anti-bulk fp selection: N1 (1), C8 (10)
+======================================================================
+select_bulk_atom (bulk fp pair):
+Lowest-ranking atom: O3 (19) with fp_round -18.7
+bulk fp selection: O3 (19), O2 (14)
+======================================================================
