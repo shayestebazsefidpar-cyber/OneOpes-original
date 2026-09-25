@@ -23,26 +23,37 @@ Usage (after `pip install -e .` from the package root):
         [--ligand-resname MOL] [--water-resname SOL] [--water-atom-name O] \\
         [--start-frame 0] [--end-frame N]
 """
+
 import argparse
 import os
+
 import MDAnalysis as mda
 import pandas as pd
 
 from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
-from .calculate_rdf import make_bins, compute_density_profile
+
 from .calculate_fingerprint import fingerprints_from_rdf_table
+from .calculate_rdf import compute_density_profile, make_bins
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--tpr", required=True)
     p.add_argument("--xtc", required=True)
     p.add_argument("--outdir", required=True)
     p.add_argument("--ligand-resname", default="MOL")
-    p.add_argument("--water-resname", default=None,
-                   help="Default: auto-detect via MDAnalysis's 'water' selection keyword")
-    p.add_argument("--water-atom-name", default=None,
-                   help="Default: atoms named O* within the water residues")
+    p.add_argument(
+        "--water-resname",
+        default=None,
+        help="Default: auto-detect via MDAnalysis's 'water' selection keyword",
+    )
+    p.add_argument(
+        "--water-atom-name",
+        default=None,
+        help="Default: atoms named O* within the water residues",
+    )
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None)
     p.add_argument("--rmax-nm", type=float, default=2.001)
@@ -60,9 +71,12 @@ def main():
     water = select_water_oxygens(u, args.tpr, args.water_resname, args.water_atom_name)
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-    n_r = compute_density_profile(solute, water, args.start_frame, end_frame,
-                                  edges_a, shell_vol_nm3)
+    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(
+        args.rmax_nm, args.binwidth_nm
+    )
+    n_r = compute_density_profile(
+        solute, water, args.start_frame, end_frame, edges_a, shell_vol_nm3
+    )
 
     rdf_rows = []
     for ai, name in enumerate(solute.names):
@@ -76,7 +90,9 @@ def main():
     fp_csv = os.path.join(args.outdir, "fingerprints.csv")
     fp_df.to_csv(fp_csv, index=False)
 
-    print(f"[run_waterfp] {len(solute)} ligand heavy atoms, frames [{args.start_frame},{end_frame})")
+    print(
+        f"[run_waterfp] {len(solute)} ligand heavy atoms, frames [{args.start_frame},{end_frame})"
+    )
     print(f"[run_waterfp] wrote {rdf_csv}")
     print(f"[run_waterfp] wrote {fp_csv}")
 
