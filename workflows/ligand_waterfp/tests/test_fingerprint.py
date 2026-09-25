@@ -115,6 +115,15 @@ def test_fp_is_nonzero_for_a_depleted_shell():
     assert fp < 0
 
 
+def test_fp_rejects_profile_that_never_reaches_bulk():
+    # all-zero tail -> norm = 0 -> must raise instead of returning NaN FPs
+    n_r, r_centers = _uniform_bulk_profile()
+    n_r = n_r.copy()
+    n_r[-500:] = 0.0
+    with pytest.raises(ValueError, match="[Bb]ulk"):
+        fp_from_density_profile(n_r, r_centers)
+
+
 def test_fingerprints_from_rdf_table_groups_by_atom():
     n_r, r_centers = _uniform_bulk_profile(n_bins=600)
     rows = []

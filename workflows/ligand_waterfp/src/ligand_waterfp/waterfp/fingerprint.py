@@ -81,6 +81,12 @@ def fp_from_density_profile(
     xlogy(0, 0) = 0, so empty bins get the integrand's well-defined
     g -> 0 limit (g ln g - g + 1 -> 1) with no special-casing."""
     norm = float(np.mean(n_r[-norm_tail_bins:]))
+    if norm <= 0:
+        raise ValueError(
+            f"Bulk water density is 0 (mean of the last {norm_tail_bins} bins of "
+            "n(r)) - the profile never reaches bulk water. Likely causes: rmax too "
+            "small for this system, too few frames, or a buried/misselected atom."
+        )
     g = n_r / norm
     entropy_term = xlogy(g, g) - g + 1.0  # g ln(g) - g + 1
     integrand = -2.0 * np.pi * norm * entropy_term * r_centers_nm**2
