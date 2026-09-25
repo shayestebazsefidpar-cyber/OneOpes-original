@@ -1,7 +1,7 @@
 """
 Command-line interface for the WaterFP stage, as one command with three
-subcommands (the math itself lives in calculate_rdf.py and
-calculate_fingerprint.py, which stay importable library modules):
+subcommands (the math itself lives in fingerprint.py, which stays an
+importable library module):
 
     ligand-waterfp run          - trajectory -> rdf.csv + fingerprints.csv
                                   (the single-shot stage the workflow uses)
@@ -22,14 +22,12 @@ import MDAnalysis as mda
 import pandas as pd
 
 from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
-from ligand_waterfp.waterfp.calculate_fingerprint import (
+from ligand_waterfp.waterfp.fingerprint import (
     NORM_TAIL_BINS_DEFAULT,
-    fingerprints_from_rdf_table,
-)
-from ligand_waterfp.waterfp.calculate_rdf import (
     RDF_BINWIDTH_NM_DEFAULT,
     RDF_RMAX_NM_DEFAULT,
     compute_density_profile,
+    fingerprints_from_rdf_table,
     make_bins,
 )
 

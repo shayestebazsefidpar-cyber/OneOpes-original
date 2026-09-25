@@ -5,12 +5,11 @@ per-atom water radial density profile (RDF) and the WaterFP fingerprint
 (FP) derived from it, exactly matching the reference implementation
 (github.com/valeriorizzi/WaterFP, `Scripts/calc_rdf.sh` + `fp.py`).
 
-- **`calculate_rdf.py`** (library): given solute/water AtomGroups + a
-  frame range, computes each solute atom's raw water number-density
-  profile n(r) (`compute_density_profile()`, `make_bins()`).
-- **`calculate_fingerprint.py`** (library): given n(r), computes the
-  scalar FP and g(r) per atom (`fp_from_density_profile()`,
-  `fingerprints_from_rdf_table()`).
+- **`fingerprint.py`** (library): the whole method. Given solute/water
+  AtomGroups + a frame range, computes each solute atom's raw water
+  number-density profile n(r) (`compute_density_profile()`,
+  `make_bins()`), and from n(r) the scalar FP and g(r) per atom
+  (`fp_from_density_profile()`, `fingerprints_from_rdf_table()`).
 - **`cli.py`**: the `ligand-waterfp` command wrapping both, with
   subcommands `run` (trajectory -> rdf.csv + fingerprints.csv, the
   single-shot counterpart to

@@ -9,8 +9,8 @@ duplicated here - it is imported from the sibling `waterfp` subpackage,
 which implements those calculations independently of any
 convergence/blocking concept:
 
-  - waterfp.calculate_rdf.compute_density_profile()   - per-atom water density n(r)
-  - waterfp.calculate_fingerprint.fp_from_density_profile() - n(r) -> FP, g(r)
+  - waterfp.fingerprint.compute_density_profile()    - per-atom water density n(r)
+  - waterfp.fingerprint.fp_from_density_profile()    - n(r) -> FP, g(r)
 
 For each block of --block-ns newly-accumulated nanoseconds, this script
 tracks, per ligand heavy atom:
@@ -53,8 +53,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
-from ..waterfp.calculate_rdf import make_bins, compute_density_profile
-from ..waterfp.calculate_fingerprint import fp_from_density_profile, NORM_TAIL_BINS_DEFAULT
+from ..waterfp.fingerprint import (
+    NORM_TAIL_BINS_DEFAULT,
+    compute_density_profile,
+    fp_from_density_profile,
+    make_bins,
+)
 
 
 def parse_args():

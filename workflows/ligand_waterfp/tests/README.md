@@ -11,11 +11,11 @@ pytest
 
 ## What's covered here
 
-- `test_calculate_fingerprint.py` - pure-math checks of the FP integral
-  (a uniform bulk profile must give FP=0; a depleted shell must give a
-  nonzero FP) and the RDF-table -> per-atom-FP grouping logic.
-- `test_calculate_rdf.py` - the bin-geometry helper (`make_bins`):
-  bin/edge counts, Angstrom/nm scaling, shell-volume monotonicity.
+- `test_fingerprint.py` - pure-math checks of the WaterFP method: the
+  bin-geometry helper (`make_bins`: bin/edge counts, Angstrom/nm scaling,
+  shell-volume monotonicity) and the FP integral (a uniform bulk profile
+  must give FP=0; a depleted shell must give a nonzero FP), plus the
+  RDF-table -> per-atom-FP grouping logic.
 - `test_g1_g2_selection.py` - the regex parser that turns the official
   selection algorithm's two printed result lines into structured G1/G2
   data, including noisy surrounding log text.
@@ -25,8 +25,7 @@ pytest
   crashing with `OSError`/`FileNotFoundError` the first time anyone ran
   them into a fresh `outputs/` tree. Fixed in `select_g1_g2.py`,
   `build_ligand_cv.py`, `add_legend.py`, `prepare_ranking_csv.py`,
-  `run_official_selection.py`, `calculate_rdf.py`, and
-  `calculate_fingerprint.py`.
+  `run_official_selection.py`, and the waterfp CLI (now `waterfp/cli.py`).
 
 ## What's intentionally NOT covered by automated tests
 

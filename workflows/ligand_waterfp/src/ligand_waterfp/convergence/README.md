@@ -6,8 +6,7 @@ converged enough to stop early or to trust for the next stage.
 
 - **What it does**: splits the trajectory into consecutive blocks, computes
   each ligand heavy atom's water RDF + WaterFP fingerprint per block (via
-  `ligand_waterfp.waterfp.calculate_rdf` and
-  `ligand_waterfp.waterfp.calculate_fingerprint`), and
+  `ligand_waterfp.waterfp.fingerprint`), and
   checks three stability criteria between consecutive blocks. See
   `METHOD_RATIONALE.md` for the full reasoning and formulas.
 - **Script**: `monitor_convergence.py`
