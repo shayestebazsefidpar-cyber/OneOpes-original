@@ -17,8 +17,10 @@ block - see ../convergence/README.md's "Next stage" section.
 
 import argparse
 import os
+from collections.abc import Sequence
 
 import MDAnalysis as mda
+import numpy as np
 import pandas as pd
 
 from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
@@ -27,7 +29,7 @@ from ligand_waterfp.waterfp.fingerprint import (
     RDF_BINWIDTH_NM_DEFAULT,
     RDF_RMAX_NM_DEFAULT,
     compute_density_profile,
-    fingerprints_from_rdf_table,
+    fp_from_density_profile,
     make_bins,
 )
 
@@ -57,10 +59,9 @@ def _add_trajectory_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--binwidth-nm", type=float, default=RDF_BINWIDTH_NM_DEFAULT)
 
 
-def _compute_rdf_table(args: argparse.Namespace):
-    """Shared trajectory pass for `rdf` and `run`: returns the long-format
-    RDF table (columns atom,r_nm,n_r) plus (n_atoms, n_bins, end_frame)
-    for the summary lines."""
+def _compute_density_profiles(args: argparse.Namespace):
+    """Shared trajectory pass for `rdf` and `run`: returns
+    (atom_names, centers_nm, n_r, end_frame)."""
     u = mda.Universe(args.tpr, args.xtc)
     solute = select_heavy_atoms(u, args.ligand_resname, args.tpr)
     water = select_water_oxygens(u, args.tpr, args.water_resname, args.water_atom_name)
@@ -70,27 +71,56 @@ def _compute_rdf_table(args: argparse.Namespace):
     n_r = compute_density_profile(
         solute, water, args.start_frame, end_frame, edges_a, shell_vol_nm3
     )
+    return list(solute.names), centers_nm, n_r, end_frame
 
-    rows = []
-    for name, profile in zip(solute.names, n_r):
-        for r_nm, val in zip(centers_nm, profile):
-            rows.append({"atom": name, "r_nm": r_nm, "n_r": val})
-    return pd.DataFrame(rows), len(solute), len(centers_nm), end_frame
+
+def _profiles_to_table(
+    atom_names: Sequence[str], centers_nm: np.ndarray, n_r: np.ndarray
+) -> pd.DataFrame:
+    """The long-format rdf.csv table: one row per atom per radial bin
+    (columns atom,r_nm,n_r)."""
+    atom_names = list(atom_names)
+    return pd.DataFrame({
+        "atom": np.repeat(atom_names, len(centers_nm)),
+        "r_nm": np.tile(centers_nm, len(atom_names)),
+        "n_r": np.asarray(n_r).ravel(),
+    })
+
+
+def _fingerprints_from_rdf_table(
+    rdf_df: pd.DataFrame, norm_tail_bins: int
+) -> pd.DataFrame:
+    """Parse an rdf.csv table (columns atom,r_nm,n_r, possibly extras)
+    into per-atom arrays and compute each atom's FP (columns atom,fp)."""
+
+    def atom_fp(profile: pd.DataFrame) -> float:
+        profile = profile.sort_values("r_nm")
+        return fp_from_density_profile(
+            profile["n_r"].to_numpy(), profile["r_nm"].to_numpy(), norm_tail_bins
+        ).fp
+
+    return pd.DataFrame(
+        [
+            {"atom": atom, "fp": atom_fp(profile)}
+            for atom, profile in rdf_df.groupby("atom", sort=False)
+        ]
+    )
 
 
 def cmd_rdf(args: argparse.Namespace) -> None:
-    rdf_df, n_atoms, n_bins, end_frame = _compute_rdf_table(args)
+    atom_names, centers_nm, n_r, end_frame = _compute_density_profiles(args)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    rdf_df.to_csv(args.out, index=False)
+    _profiles_to_table(atom_names, centers_nm, n_r).to_csv(args.out, index=False)
     print(
         f"[waterfp rdf] wrote {args.out} "
-        f"({n_atoms} atoms x {n_bins} bins, frames [{args.start_frame},{end_frame}))"
+        f"({len(atom_names)} atoms x {len(centers_nm)} bins, "
+        f"frames [{args.start_frame},{end_frame}))"
     )
 
 
 def cmd_fingerprint(args: argparse.Namespace) -> None:
     rdf_df = pd.read_csv(args.rdf_csv)
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.norm_tail_bins)
+    fp_df = _fingerprints_from_rdf_table(rdf_df, args.norm_tail_bins)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fp_df.to_csv(args.out, index=False)
     print(f"[waterfp fingerprint] wrote {args.out} ({len(fp_df)} atoms)")
@@ -99,16 +129,22 @@ def cmd_fingerprint(args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     os.makedirs(args.outdir, exist_ok=True)
 
-    rdf_df, n_atoms, _, end_frame = _compute_rdf_table(args)
+    atom_names, centers_nm, n_r, end_frame = _compute_density_profiles(args)
     rdf_csv = os.path.join(args.outdir, "rdf.csv")
-    rdf_df.to_csv(rdf_csv, index=False)
+    _profiles_to_table(atom_names, centers_nm, n_r).to_csv(rdf_csv, index=False)
 
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.norm_tail_bins)
+    fp_df = pd.DataFrame({
+        "atom": atom_names,
+        "fp": [
+            fp_from_density_profile(profile, centers_nm, args.norm_tail_bins).fp
+            for profile in n_r
+        ],
+    })
     fp_csv = os.path.join(args.outdir, "fingerprints.csv")
     fp_df.to_csv(fp_csv, index=False)
 
     print(
-        f"[waterfp run] {n_atoms} ligand heavy atoms, "
+        f"[waterfp run] {len(atom_names)} ligand heavy atoms, "
         f"frames [{args.start_frame},{end_frame})"
     )
     print(f"[waterfp run] wrote {rdf_csv}")

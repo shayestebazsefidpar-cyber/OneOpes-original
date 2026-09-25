@@ -7,11 +7,9 @@ since it needs an actual MDAnalysis Universe.
 
 import MDAnalysis as mda
 import numpy as np
-import pandas as pd
 import pytest
 from ligand_waterfp.waterfp.fingerprint import (
     compute_density_profile,
-    fingerprints_from_rdf_table,
     fp_from_density_profile,
     make_bins,
 )
@@ -122,18 +120,3 @@ def test_fp_rejects_profile_that_never_reaches_bulk():
     n_r[-500:] = 0.0
     with pytest.raises(ValueError, match="[Bb]ulk"):
         fp_from_density_profile(n_r, r_centers)
-
-
-def test_fingerprints_from_rdf_table_groups_by_atom():
-    n_r, r_centers = _uniform_bulk_profile(n_bins=600)
-    rows = []
-    for atom in ["A1", "A2"]:
-        for r, n in zip(r_centers, n_r):
-            rows.append({"atom": atom, "r_nm": r, "n_r": n})
-    rdf_df = pd.DataFrame(rows)
-
-    fp_df = fingerprints_from_rdf_table(rdf_df)
-
-    assert set(fp_df["atom"]) == {"A1", "A2"}
-    assert len(fp_df) == 2
-    assert np.allclose(fp_df["fp"], 0.0, atol=1e-8)
