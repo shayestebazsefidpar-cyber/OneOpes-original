@@ -19,8 +19,8 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 from MDAnalysis.lib.distances import distance_array
-
-_trapz = getattr(np, "trapezoid", None) or np.trapz
+from scipy.integrate import trapezoid
+from scipy.special import xlogy
 
 RDF_RMAX_NM_DEFAULT = 2.001
 RDF_BINWIDTH_NM_DEFAULT = 0.001
@@ -65,23 +65,21 @@ def compute_density_profile(
 
 
 def fp_from_density_profile(
-    n_r, r_centers_nm, binwidth_nm, norm_tail_bins=NORM_TAIL_BINS_DEFAULT
-):
+    n_r: np.ndarray,
+    r_centers_nm: np.ndarray,
+    binwidth_nm: float,
+    norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT,
+) -> tuple[float, np.ndarray, float]:
     """Given one atom's raw number-density profile n_r (waters/nm^3 per
-    bin) and its radial bin centers, return (FP, g(r), norm)."""
+    bin) and its radial bin centers, return (FP, g(r), norm).
+
+    xlogy(0, 0) = 0, so empty bins get the integrand's well-defined
+    g -> 0 limit (g ln g - g + 1 -> 1) with no special-casing."""
     norm = float(np.mean(n_r[-norm_tail_bins:]))
     g = n_r / norm
-    r = r_centers_nm
-    integrand = np.empty_like(g)
-    mask0 = g == 0
-    integrand[mask0] = (
-        -2 * np.pi * norm * (r[mask0] ** 2)
-    )  # lim g->0 of (g ln g - g + 1) = 1
-    gnz = g[~mask0]
-    integrand[~mask0] = (
-        -2 * np.pi * norm * (gnz * np.log(gnz) - gnz + 1) * (r[~mask0] ** 2)
-    )
-    fp = float(_trapz(integrand, dx=binwidth_nm))
+    entropy_term = xlogy(g, g) - g + 1.0  # g ln(g) - g + 1
+    integrand = -2.0 * np.pi * norm * entropy_term * r_centers_nm**2
+    fp = float(trapezoid(integrand, dx=binwidth_nm))
     return fp, g, norm
 
 
