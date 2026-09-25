@@ -52,6 +52,12 @@ def compute_density_profile(
     Returns an array of shape (len(solute), len(edges_a) - 1).
     """
     hist_sum = np.zeros((len(solute), len(edges_a) - 1))
+    n_trajectory = len(solute.universe.trajectory)
+    if not 0 <= start_frame < end_frame <= n_trajectory:
+        raise ValueError(
+            f"Invalid frame range [{start_frame}, {end_frame}) for a trajectory "
+            f"of {n_trajectory} frames"
+        )
     n_frames = end_frame - start_frame
     for ts in solute.universe.trajectory[start_frame:end_frame]:
         distances = distance_array(

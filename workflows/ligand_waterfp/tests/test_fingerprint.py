@@ -5,11 +5,12 @@ indirectly by the real-data validation described in tests/README.md,
 since it needs an actual MDAnalysis Universe.
 """
 
+import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import pytest
-
 from ligand_waterfp.waterfp.fingerprint import (
+    compute_density_profile,
     fingerprints_from_rdf_table,
     fp_from_density_profile,
     make_bins,
@@ -41,6 +42,47 @@ def test_make_bins_custom_binwidth():
     edges_nm, centers_nm, _, _ = make_bins(rmax_nm=1.0, binwidth_nm=0.1)
     assert len(centers_nm) == 10
     assert np.allclose(np.diff(edges_nm), 0.1)
+
+
+def _tiny_universe():
+    """3 frames of 1 'solute' atom at the origin and 2 'waters' held at
+    fixed distances (5.5 A and 12.5 A, mid-bin for 1 A bins) in a 100 A
+    cubic box, all in memory."""
+    n_frames = 3
+    coords = np.zeros((n_frames, 3, 3), dtype=np.float32)
+    coords[:, 1] = [5.5, 0.0, 0.0]
+    coords[:, 2] = [0.0, 12.5, 0.0]
+    u = mda.Universe.empty(3, trajectory=True)
+    u.load_new(coords, dimensions=np.tile([100, 100, 100, 90, 90, 90], (n_frames, 1)))
+    return u
+
+
+def test_compute_density_profile_counts_waters_in_the_right_shells():
+    u = _tiny_universe()
+    solute, water = u.atoms[:1], u.atoms[1:]
+    # 20 bins of 0.1 nm -> one bin edge every 1 A
+    _, _, edges_a, shell_vol_nm3 = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
+
+    n_r = compute_density_profile(solute, water, 0, 3, edges_a, shell_vol_nm3)
+
+    assert n_r.shape == (1, 20)
+    counts = n_r[0] * shell_vol_nm3  # back to mean neighbour count per frame
+    assert counts[5] == pytest.approx(1.0)  # the water 5.5 A away -> bin [5, 6) A
+    assert counts[12] == pytest.approx(1.0)  # the water 12.5 A away -> bin [12, 13) A
+    assert np.count_nonzero(counts) == 2
+
+
+def test_compute_density_profile_rejects_bad_frame_ranges():
+    u = _tiny_universe()
+    solute, water = u.atoms[:1], u.atoms[1:]
+    _, _, edges_a, shell_vol_nm3 = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
+
+    with pytest.raises(ValueError, match="frame range"):
+        compute_density_profile(solute, water, 2, 2, edges_a, shell_vol_nm3)  # empty
+    with pytest.raises(ValueError, match="frame range"):
+        compute_density_profile(
+            solute, water, 0, 4, edges_a, shell_vol_nm3
+        )  # past the end
 
 
 def _uniform_bulk_profile(n_bins=2001, binwidth_nm=0.001, value=33.4):
