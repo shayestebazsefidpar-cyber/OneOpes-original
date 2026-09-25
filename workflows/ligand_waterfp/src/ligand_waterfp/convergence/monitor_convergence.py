@@ -118,7 +118,8 @@ def main():
     os.makedirs(os.path.join(args.outdir, "rdf_plots"), exist_ok=True)
     os.makedirs(os.path.join(args.outdir, "fp_plots"), exist_ok=True)
 
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
+    bins = make_bins(args.rmax_nm, args.binwidth_nm)
+    centers_nm = bins.centers_nm
 
     def get_universe():
         return mda.Universe(args.tpr, args.xtc)
@@ -190,8 +191,7 @@ def main():
             u.atoms[water_O_idx],
             start_f,
             end_f,
-            edges_a,
-            shell_vol_nm3,
+            bins,
         )
 
         fp_this_block = {}

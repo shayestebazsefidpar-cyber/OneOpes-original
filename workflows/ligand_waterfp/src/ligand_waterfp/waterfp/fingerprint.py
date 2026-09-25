@@ -28,14 +28,25 @@ RDF_BINWIDTH_NM_DEFAULT = 0.001
 NORM_TAIL_BINS_DEFAULT = 500
 
 
-def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
-    """Return (edges_nm, centers_nm, edges_angstrom, shell_volumes_nm3)."""
+class RadialBins(NamedTuple):
+    edges_nm: np.ndarray
+    centers_nm: np.ndarray
+    edges_angstrom: np.ndarray
+    shell_volumes_nm3: np.ndarray
+
+
+def make_bins(
+    rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT
+) -> RadialBins:
+    """The radial grid for the density profile: bin edges/centers in nm,
+    the same edges in Angstrom (MDAnalysis distances), and the spherical
+    shell volume of each bin in nm^3."""
     nbins = int(round(rmax_nm / binwidth_nm))
     edges_nm = np.linspace(0.0, rmax_nm, nbins + 1)
     centers_nm = 0.5 * (edges_nm[:-1] + edges_nm[1:])
-    edges_a = edges_nm * 10.0  # MDAnalysis distances are in Angstrom
-    shell_vol_nm3 = (4.0 / 3.0) * np.pi * (edges_nm[1:] ** 3 - edges_nm[:-1] ** 3)
-    return edges_nm, centers_nm, edges_a, shell_vol_nm3
+    edges_angstrom = edges_nm * 10.0
+    shell_volumes_nm3 = (4.0 / 3.0) * np.pi * (edges_nm[1:] ** 3 - edges_nm[:-1] ** 3)
+    return RadialBins(edges_nm, centers_nm, edges_angstrom, shell_volumes_nm3)
 
 
 def _water_counts_per_shell(
@@ -55,14 +66,14 @@ def compute_density_profile(
     water: mda.AtomGroup,
     start_frame: int,
     end_frame: int,
-    edges_angstrom: np.ndarray,
-    shell_vol_nm3: np.ndarray,
+    bins: RadialBins,
 ) -> np.ndarray:
     """Per-atom raw water number-density profile n(r) (waters/nm^3),
     averaged over all frames in [start_frame, end_frame) of the trajectory
     both AtomGroups belong to.
 
-    Returns an array of shape (len(solute), len(edges_angstrom) - 1).
+    Returns an array of shape (len(solute), n_bins): one row per solute
+    atom, one column per radial bin of `bins`.
     """
     trajectory = solute.universe.trajectory
     if not 0 <= start_frame < end_frame <= len(trajectory):
@@ -71,12 +82,14 @@ def compute_density_profile(
             f"of {len(trajectory)} frames"
         )
 
-    counts = np.zeros((len(solute), len(edges_angstrom) - 1))
+    counts = np.zeros((len(solute), len(bins.centers_nm)))
     for ts in trajectory[start_frame:end_frame]:
-        counts += _water_counts_per_shell(solute, water, edges_angstrom, ts.dimensions)
+        counts += _water_counts_per_shell(
+            solute, water, bins.edges_angstrom, ts.dimensions
+        )
 
     mean_counts = counts / (end_frame - start_frame)  # per shell, per frame
-    return mean_counts / shell_vol_nm3  # -> number density, waters/nm^3
+    return mean_counts / bins.shell_volumes_nm3  # -> number density, waters/nm^3
 
 
 class FingerprintResult(NamedTuple):

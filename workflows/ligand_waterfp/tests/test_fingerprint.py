@@ -16,30 +16,28 @@ from ligand_waterfp.waterfp.fingerprint import (
 
 
 def test_make_bins_matches_waterfp_default_settings():
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(
-        rmax_nm=2.001, binwidth_nm=0.001
-    )
+    bins = make_bins(rmax_nm=2.001, binwidth_nm=0.001)
 
-    assert len(edges_nm) == 2002  # 2001 bins -> 2002 edges
-    assert len(centers_nm) == 2001
-    assert len(shell_vol_nm3) == 2001
-    assert np.isclose(edges_nm[0], 0.0)
-    assert np.isclose(edges_nm[-1], 2.001)
-    # MDAnalysis distances are in Angstrom - edges_a must be a 10x scale of edges_nm
-    assert np.allclose(edges_a, edges_nm * 10.0)
+    assert len(bins.edges_nm) == 2002  # 2001 bins -> 2002 edges
+    assert len(bins.centers_nm) == 2001
+    assert len(bins.shell_volumes_nm3) == 2001
+    assert np.isclose(bins.edges_nm[0], 0.0)
+    assert np.isclose(bins.edges_nm[-1], 2.001)
+    # MDAnalysis distances are in Angstrom - a 10x scale of the nm edges
+    assert np.allclose(bins.edges_angstrom, bins.edges_nm * 10.0)
 
 
 def test_make_bins_shell_volumes_are_positive_and_increasing():
-    _, _, _, shell_vol_nm3 = make_bins(rmax_nm=1.0, binwidth_nm=0.1)
-    assert np.all(shell_vol_nm3 > 0)
+    bins = make_bins(rmax_nm=1.0, binwidth_nm=0.1)
+    assert np.all(bins.shell_volumes_nm3 > 0)
     # spherical shell volume grows with radius for equal-width bins
-    assert np.all(np.diff(shell_vol_nm3) > 0)
+    assert np.all(np.diff(bins.shell_volumes_nm3) > 0)
 
 
 def test_make_bins_custom_binwidth():
-    edges_nm, centers_nm, _, _ = make_bins(rmax_nm=1.0, binwidth_nm=0.1)
-    assert len(centers_nm) == 10
-    assert np.allclose(np.diff(edges_nm), 0.1)
+    bins = make_bins(rmax_nm=1.0, binwidth_nm=0.1)
+    assert len(bins.centers_nm) == 10
+    assert np.allclose(np.diff(bins.edges_nm), 0.1)
 
 
 def _tiny_universe():
@@ -59,12 +57,12 @@ def test_compute_density_profile_counts_waters_in_the_right_shells():
     u = _tiny_universe()
     solute, water = u.atoms[:1], u.atoms[1:]
     # 20 bins of 0.1 nm -> one bin edge every 1 A
-    _, _, edges_a, shell_vol_nm3 = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
+    bins = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
 
-    n_r = compute_density_profile(solute, water, 0, 3, edges_a, shell_vol_nm3)
+    n_r = compute_density_profile(solute, water, 0, 3, bins)
 
     assert n_r.shape == (1, 20)
-    counts = n_r[0] * shell_vol_nm3  # back to mean neighbour count per frame
+    counts = n_r[0] * bins.shell_volumes_nm3  # back to mean count per frame
     assert counts[5] == pytest.approx(1.0)  # the water 5.5 A away -> bin [5, 6) A
     assert counts[12] == pytest.approx(1.0)  # the water 12.5 A away -> bin [12, 13) A
     assert np.count_nonzero(counts) == 2
@@ -73,14 +71,12 @@ def test_compute_density_profile_counts_waters_in_the_right_shells():
 def test_compute_density_profile_rejects_bad_frame_ranges():
     u = _tiny_universe()
     solute, water = u.atoms[:1], u.atoms[1:]
-    _, _, edges_a, shell_vol_nm3 = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
+    bins = make_bins(rmax_nm=2.0, binwidth_nm=0.1)
 
-    with pytest.raises(ValueError, match="frame range"):
-        compute_density_profile(solute, water, 2, 2, edges_a, shell_vol_nm3)  # empty
-    with pytest.raises(ValueError, match="frame range"):
-        compute_density_profile(
-            solute, water, 0, 4, edges_a, shell_vol_nm3
-        )  # past the end
+    with pytest.raises(ValueError, match="frame range"):  # empty range
+        compute_density_profile(solute, water, 2, 2, bins)
+    with pytest.raises(ValueError, match="frame range"):  # past the end
+        compute_density_profile(solute, water, 0, 4, bins)
 
 
 def _uniform_bulk_profile(n_bins=2001, binwidth_nm=0.001, value=33.4):

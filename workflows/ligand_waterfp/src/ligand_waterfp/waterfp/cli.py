@@ -67,11 +67,9 @@ def _compute_density_profiles(args: argparse.Namespace):
     water = select_water_oxygens(u, args.tpr, args.water_resname, args.water_atom_name)
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
-    _, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-    n_r = compute_density_profile(
-        solute, water, args.start_frame, end_frame, edges_a, shell_vol_nm3
-    )
-    return list(solute.names), centers_nm, n_r, end_frame
+    bins = make_bins(args.rmax_nm, args.binwidth_nm)
+    n_r = compute_density_profile(solute, water, args.start_frame, end_frame, bins)
+    return list(solute.names), bins.centers_nm, n_r, end_frame
 
 
 def _profiles_to_table(
