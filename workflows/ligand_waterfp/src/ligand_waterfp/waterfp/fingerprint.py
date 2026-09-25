@@ -38,37 +38,45 @@ def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
     return edges_nm, centers_nm, edges_a, shell_vol_nm3
 
 
+def _water_counts_per_shell(
+    solute: mda.AtomGroup,
+    water: mda.AtomGroup,
+    edges_angstrom: np.ndarray,
+    box: np.ndarray,
+) -> np.ndarray:
+    """One frame's histogram of solute-water distances, per solute atom:
+    shape (len(solute), len(edges_angstrom) - 1)."""
+    distances = distance_array(solute.positions, water.positions, box=box)  # Angstrom
+    return np.array([np.histogram(d, bins=edges_angstrom)[0] for d in distances])
+
+
 def compute_density_profile(
     solute: mda.AtomGroup,
     water: mda.AtomGroup,
     start_frame: int,
     end_frame: int,
-    edges_a: np.ndarray,
+    edges_angstrom: np.ndarray,
     shell_vol_nm3: np.ndarray,
 ) -> np.ndarray:
-    """Per-atom raw water number-density histogram n(r) (waters/nm^3),
+    """Per-atom raw water number-density profile n(r) (waters/nm^3),
     averaged over all frames in [start_frame, end_frame) of the trajectory
     both AtomGroups belong to.
 
-    Returns an array of shape (len(solute), len(edges_a) - 1).
+    Returns an array of shape (len(solute), len(edges_angstrom) - 1).
     """
-    hist_sum = np.zeros((len(solute), len(edges_a) - 1))
-    n_trajectory = len(solute.universe.trajectory)
-    if not 0 <= start_frame < end_frame <= n_trajectory:
+    trajectory = solute.universe.trajectory
+    if not 0 <= start_frame < end_frame <= len(trajectory):
         raise ValueError(
             f"Invalid frame range [{start_frame}, {end_frame}) for a trajectory "
-            f"of {n_trajectory} frames"
+            f"of {len(trajectory)} frames"
         )
-    n_frames = end_frame - start_frame
-    for ts in solute.universe.trajectory[start_frame:end_frame]:
-        distances = distance_array(
-            solute.positions, water.positions, box=ts.dimensions
-        )  # Angstrom
-        for ai, atom_distances in enumerate(distances):
-            counts, _ = np.histogram(atom_distances, bins=edges_a)
-            hist_sum[ai] += counts
-    mean_hist = hist_sum / n_frames  # mean neighbour count per bin per frame
-    return mean_hist / shell_vol_nm3  # number density, waters/nm^3
+
+    counts = np.zeros((len(solute), len(edges_angstrom) - 1))
+    for ts in trajectory[start_frame:end_frame]:
+        counts += _water_counts_per_shell(solute, water, edges_angstrom, ts.dimensions)
+
+    mean_counts = counts / (end_frame - start_frame)  # per shell, per frame
+    return mean_counts / shell_vol_nm3  # -> number density, waters/nm^3
 
 
 class FingerprintResult(NamedTuple):
