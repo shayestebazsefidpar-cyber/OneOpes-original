@@ -24,10 +24,14 @@ elsewhere in this workflow.
 
 Only `main()`, below the marked block, is new: it parses CLI args, builds
 the module-level `c` DataFrame from a system-independent ranking CSV
-(instead of the authors' own hardcoded ranking.csv path), and calls the
+(instead of the authors' own hardcoded ranking.csv path), calls the
 verbatim functions - mirroring exactly what running the notebook's cells 0,
 1, 2, 4, 5, 6 in order would do, with cell 1's hardcoded path replaced by
---ranking-csv.
+--ranking-csv - and, if --out is given, parses the two result sentences
+and writes the structured G1/G2 YAML directly (see
+`ligand_waterfp.g1_g2_selection.select_g1_g2`), all in this same process.
+There is no intermediate text file and no separate CLI stage for that
+anymore: the sentences never leave this function.
 
 Input CSV format (--ranking-csv), one row per ligand heavy atom - see
 `ligand_waterfp.official_selection.prepare_ranking_csv` to build this from
@@ -48,16 +52,18 @@ convention. Override with --fp-round-decimals, or precompute your own
 `fp_round` column, if this matters for your use case.
 
 Usage:
-    ligand-waterfp-select --ranking-csv ranking.csv --system-id myproject-ligandA
+    ligand-waterfp-select --ranking-csv ranking.csv --system-id myproject-ligandA \\
+        [--out outputs/selection/g1_g2.yaml]
         (expects my_ligand.tpr - see load_mol()'s docstring note below)
 """
 import argparse
-import os
 import MDAnalysis
 import numpy
 import networkx
 import pandas
 import re
+
+from ..g1_g2_selection.select_g1_g2 import parse_selection_lines, write_g1_g2_yaml
 
 # ============================= BEGIN OFFICIAL CODE =============================
 # verbatim from WaterFP/Scripts/fp_driven_atom_selection.ipynb, cells 2 and 5
@@ -273,7 +279,10 @@ def parse_args():
     p.add_argument("--fp-round-decimals", type=int, default=1,
                    help="If the input CSV has no fp_round column, derive it as round(fp, N) (default: 1).")
     p.add_argument("--out", default=None,
-                   help="Optional path to write the two result lines to (in addition to stdout).")
+                   help="Optional path to write the structured G1/G2 result to, e.g. "
+                        "outputs/selection/g1_g2.yaml (see "
+                        "ligand_waterfp.g1_g2_selection.select_g1_g2.write_g1_g2_yaml). "
+                        "If omitted, the two result sentences are only printed.")
     return p.parse_args()
 
 
@@ -302,9 +311,14 @@ def main():
     print("=" * 70)
 
     if args.out:
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        with open(args.out, "w") as f:
-            f.write(f"{anti_bulk}\n{bulk}\n")
+        result = parse_selection_lines(f"{anti_bulk}\n{bulk}\n")
+        if "G1" not in result or "G2" not in result:
+            raise SystemExit(
+                "Could not parse both an anti-bulk and a bulk selection line from the "
+                "official algorithm's own output above - --out was not written."
+            )
+        write_g1_g2_yaml(result, args.out, system_id=args.system_id)
+        print(f"wrote {args.out}")
 
 
 if __name__ == "__main__":
