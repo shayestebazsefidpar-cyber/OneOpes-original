@@ -5,7 +5,7 @@ description = "Ligand-only WaterFP hydration-CV workflow: unbiased MD -> WaterFP
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "MDAnalysis>=2.0",
+    "MDAnalysis>=2.9",
     "numpy",
     "pandas",
     "scipy",
