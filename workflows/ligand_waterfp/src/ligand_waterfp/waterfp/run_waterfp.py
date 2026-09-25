@@ -61,8 +61,8 @@ def main():
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
     edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-    n_r = compute_density_profile(u, solute.indices, water.indices, args.start_frame, end_frame,
-                                   edges_a, shell_vol_nm3)
+    n_r = compute_density_profile(solute, water, args.start_frame, end_frame,
+                                  edges_a, shell_vol_nm3)
 
     rdf_rows = []
     for ai, name in enumerate(solute.names):

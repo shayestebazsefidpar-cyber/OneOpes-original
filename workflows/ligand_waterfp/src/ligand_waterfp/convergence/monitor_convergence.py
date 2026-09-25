@@ -181,7 +181,14 @@ def main():
         t_start_ns = u.trajectory[start_f].time / 1000.0
         t_end_ns = u.trajectory[end_f - 1].time / 1000.0
 
-        n_r = compute_density_profile(u, heavy_indices, water_O_idx, start_f, end_f, edges_a, shell_vol_nm3)
+        n_r = compute_density_profile(
+            u.atoms[heavy_indices],
+            u.atoms[water_O_idx],
+            start_f,
+            end_f,
+            edges_a,
+            shell_vol_nm3,
+        )
 
         fp_this_block = {}
         g_this_block = {}

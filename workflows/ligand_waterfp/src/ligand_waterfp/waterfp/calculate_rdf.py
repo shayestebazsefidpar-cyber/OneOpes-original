@@ -38,28 +38,29 @@ def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
     return edges_nm, centers_nm, edges_a, shell_vol_nm3
 
 
-def compute_density_profile(u, solute_indices, water_indices, start_frame, end_frame,
-                             edges_a, shell_vol_nm3):
+def compute_density_profile(
+    solute: mda.AtomGroup,
+    water: mda.AtomGroup,
+    start_frame: int,
+    end_frame: int,
+    edges_a: np.ndarray,
+    shell_vol_nm3: np.ndarray,
+) -> np.ndarray:
     """Per-atom raw water number-density histogram n(r) (waters/nm^3),
-    averaged over all frames in [start_frame, end_frame) of trajectory `u`.
+    averaged over all frames in [start_frame, end_frame) of the trajectory
+    both AtomGroups belong to.
 
-    Returns an array of shape (len(solute_indices), len(edges_a) - 1).
+    Returns an array of shape (len(solute), len(edges_a) - 1).
     """
-    n_solute = len(solute_indices)
-    n_bins = len(edges_a) - 1
-    hist_sum = np.zeros((n_solute, n_bins))
+    hist_sum = np.zeros((len(solute), len(edges_a) - 1))
     n_frames = end_frame - start_frame
-    for fi in range(start_frame, end_frame):
-        u.trajectory[fi]
-        solute_pos = u.atoms.positions[solute_indices]
-        water_pos = u.atoms.positions[water_indices]
-        d = distance_array(solute_pos, water_pos, box=u.dimensions)  # Angstrom
-        for ai in range(n_solute):
-            h, _ = np.histogram(d[ai], bins=edges_a)
-            hist_sum[ai] += h
+    for ts in solute.universe.trajectory[start_frame:end_frame]:
+        distances = distance_array(solute.positions, water.positions, box=ts.dimensions)  # Angstrom
+        for ai, atom_distances in enumerate(distances):
+            counts, _ = np.histogram(atom_distances, bins=edges_a)
+            hist_sum[ai] += counts
     mean_hist = hist_sum / n_frames        # mean neighbour count per bin per frame
-    n_r = mean_hist / shell_vol_nm3        # number density, waters/nm^3
-    return n_r
+    return mean_hist / shell_vol_nm3       # number density, waters/nm^3
 
 
 def parse_args():
@@ -87,8 +88,9 @@ def main():
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
     edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-    n_r = compute_density_profile(u, solute.indices, water.indices, args.start_frame, end_frame,
-                                   edges_a, shell_vol_nm3)
+
+    n_r = compute_density_profile(solute, water, args.start_frame, end_frame,
+                                  edges_a, shell_vol_nm3)
 
     rows = []
     for ai, name in enumerate(solute.names):
