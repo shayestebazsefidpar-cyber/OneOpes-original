@@ -25,9 +25,6 @@ the `convergence` subpackage for the block-wise convergence loop
 built on top of this and calculate_rdf.py.
 """
 
-import argparse
-import os
-
 import numpy as np
 import pandas as pd
 
@@ -71,36 +68,3 @@ def fingerprints_from_rdf_table(
         )
         rows.append({"atom": atom, "fp": fp})
     return pd.DataFrame(rows)
-
-
-def parse_args():
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    p.add_argument(
-        "--rdf-csv",
-        required=True,
-        help="Output of calculate_rdf.py (columns: atom,r_nm,n_r)",
-    )
-    p.add_argument(
-        "--binwidth-nm",
-        type=float,
-        default=0.001,
-        help="Must match the bin width used to produce --rdf-csv (default: 0.001)",
-    )
-    p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
-    p.add_argument("--out", required=True, help="Output CSV path (columns: atom,fp)")
-    return p.parse_args()
-
-
-def main():
-    args = parse_args()
-    rdf_df = pd.read_csv(args.rdf_csv)
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.binwidth_nm, args.norm_tail_bins)
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    fp_df.to_csv(args.out, index=False)
-    print(f"[calculate_fingerprint] wrote {args.out} ({len(fp_df)} atoms)")
-
-
-if __name__ == "__main__":
-    main()

@@ -39,7 +39,7 @@ pass them through your own driver.
 Once `convergence_summary.json` reports `"converged": true`, it also
 reports `"stop_block"` and `"block_size_ns"`. **Use those to compute the
 exact frame range of that specific converged block** - not the whole
-trajectory - when calling `ligand_waterfp.waterfp.run_waterfp` next:
+trajectory - when calling `ligand-waterfp run` next:
 
 ```text
 frames_per_block = round(block_size_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line

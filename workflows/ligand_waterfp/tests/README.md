@@ -32,7 +32,7 @@ pytest
 
 `prepare_ranking_csv.py`, `run_official_selection.py` (the vendored
 official WaterFP selection algorithm), `monitor_convergence.py`, and
-`run_waterfp.py` all need a real `.tpr`/`.xtc` with actual bond
+the waterfp `cli.py` all need a real `.tpr`/`.xtc` with actual bond
 connectivity and a real water box - not something worth fabricating as
 synthetic test fixtures, and real trajectory data doesn't belong in this
 repository (see the top-level README's "code only" policy).
