@@ -6,8 +6,7 @@ converged enough to stop early or to trust for the next stage.
 
 - **What it does**: splits the trajectory into consecutive blocks, computes
   each ligand heavy atom's water RDF + WaterFP fingerprint per block (via
-  `ligand_waterfp.waterfp.calculate_rdf` and
-  `ligand_waterfp.waterfp.calculate_fingerprint`), and
+  `ligand_waterfp.waterfp.fingerprint`), and
   checks three stability criteria between consecutive blocks. See
   `METHOD_RATIONALE.md` for the full reasoning and formulas.
 - **Script**: `monitor_convergence.py`
@@ -39,7 +38,7 @@ pass them through your own driver.
 Once `convergence_summary.json` reports `"converged": true`, it also
 reports `"stop_block"` and `"block_size_ns"`. **Use those to compute the
 exact frame range of that specific converged block** - not the whole
-trajectory - when calling `ligand_waterfp.waterfp.run_waterfp` next:
+trajectory - when calling `ligand-waterfp run` next:
 
 ```text
 frames_per_block = round(block_size_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line

@@ -26,12 +26,14 @@ system's data - see tests/README.md.
 """
 import sys
 
+import pandas as pd
 import yaml
 from PIL import Image
 
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_g1_g2_yaml
 from ligand_waterfp.ligand_cv.build_ligand_cv import main as build_ligand_cv_main
 from ligand_waterfp.visualization.add_legend import main as add_legend_main
+from ligand_waterfp.waterfp.cli import main as waterfp_cli_main
 
 
 def test_write_g1_g2_yaml_creates_nested_output_dir(tmp_path):
@@ -86,3 +88,27 @@ def test_add_legend_creates_nested_output_dir(tmp_path, monkeypatch):
     add_legend_main()
 
     assert dst_path.exists()
+
+
+def test_waterfp_fingerprint_subcommand_creates_nested_output_dir(tmp_path, monkeypatch):
+    # 600 flat bulk bins for one atom - enough for the default 500-bin tail
+    rdf_csv = tmp_path / "rdf.csv"
+    pd.DataFrame({
+        "atom": "C1",
+        "r_nm": [(i + 0.5) * 0.001 for i in range(600)],
+        "n_r": 33.4,
+    }).to_csv(rdf_csv, index=False)
+    out_path = tmp_path / "does" / "not" / "exist" / "fingerprints.csv"
+    assert not out_path.parent.exists()
+
+    monkeypatch.setattr(sys, "argv", [
+        "ligand-waterfp", "fingerprint",
+        "--rdf-csv", str(rdf_csv),
+        "--out", str(out_path),
+    ])
+    waterfp_cli_main()
+
+    assert out_path.exists()
+    fp_df = pd.read_csv(out_path)
+    assert list(fp_df["atom"]) == ["C1"]
+    assert abs(fp_df["fp"][0]) < 1e-8  # flat bulk profile -> FP == 0

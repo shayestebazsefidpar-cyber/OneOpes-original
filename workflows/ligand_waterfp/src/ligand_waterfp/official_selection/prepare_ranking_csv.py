@@ -26,6 +26,8 @@ import os
 import pandas as pd
 import MDAnalysis as mda
 
+from ligand_waterfp.selections import select_heavy_atoms
+
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -45,9 +47,7 @@ def main():
     args = parse_args()
 
     u = mda.Universe(args.tpr)
-    heavy = u.select_atoms(f"resname {args.ligand_resname} and not name H*")
-    if len(heavy) == 0:
-        raise SystemExit(f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}")
+    heavy = select_heavy_atoms(u, args.ligand_resname, args.tpr)
     # 1-based serial = position in this exact selection, matching load_mol()'s own convention
     serial_by_name = {atom.name: i + 1 for i, atom in enumerate(heavy)}
 

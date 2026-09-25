@@ -30,8 +30,8 @@ stages:
     outputs: [convergence_summary_json, convergence_metrics_csv, fp_values_by_block_wide_csv]
 
   - id: waterfp
-    module: ligand_waterfp.waterfp.run_waterfp
-    console_script: ligand-waterfp-run-waterfp
+    module: ligand_waterfp.waterfp.cli
+    console_script: ligand-waterfp   # subcommand: run
     depends_on: [convergence]
     inputs: [tpr, xtc]
     outputs: [rdf_csv, fingerprints_csv]

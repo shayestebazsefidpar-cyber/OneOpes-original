@@ -5,7 +5,7 @@ description = "Ligand-only WaterFP hydration-CV workflow: unbiased MD -> WaterFP
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "MDAnalysis>=2.0",
+    "MDAnalysis>=2.9",
     "numpy",
     "pandas",
     "scipy",
@@ -24,9 +24,7 @@ dev = ["pytest>=7"]
 [project.scripts]
 ligand-waterfp-prepare-system = "ligand_waterfp.system_setup.prepare_ligand_system:main"
 ligand-waterfp-monitor = "ligand_waterfp.convergence.monitor_convergence:main"
-ligand-waterfp-rdf = "ligand_waterfp.waterfp.calculate_rdf:main"
-ligand-waterfp-fingerprint = "ligand_waterfp.waterfp.calculate_fingerprint:main"
-ligand-waterfp-run-waterfp = "ligand_waterfp.waterfp.run_waterfp:main"
+ligand-waterfp = "ligand_waterfp.waterfp.cli:main"
 ligand-waterfp-prepare-ranking-csv = "ligand_waterfp.official_selection.prepare_ranking_csv:main"
 ligand-waterfp-select = "ligand_waterfp.official_selection.run_official_selection:main"
 ligand-waterfp-build-cv = "ligand_waterfp.ligand_cv.build_ligand_cv:main"

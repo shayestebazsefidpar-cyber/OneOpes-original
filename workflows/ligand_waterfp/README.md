@@ -120,7 +120,7 @@ ligand-waterfp-monitor $MDRUN_PID \
 # only worked using the converged block's own frame range, not a
 # whole-trajectory average (see convergence's own README for how to read
 # stop_block/block_size_ns back into a frame range).
-ligand-waterfp-run-waterfp \
+ligand-waterfp run \
     --tpr outputs/lig_system/prod.tpr --xtc outputs/lig_system/prod.xtc \
     --start-frame <stop_block * frames_per_block> --end-frame <(stop_block+1) * frames_per_block> \
     --outdir outputs/fingerprints
@@ -155,7 +155,7 @@ flag.
 |---|---|---|---|
 | 1 | `system_setup/` | `ligand-waterfp-prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
 | 2 | `convergence/` | `ligand-waterfp-monitor` | Block-wise hydration convergence monitor + auto-stop |
-| 3 | `waterfp/` | `ligand-waterfp-run-waterfp`, `-rdf`, `-fingerprint` | RDF + WaterFP fingerprint calculation (importable + standalone) |
+| 3 | `waterfp/` | `ligand-waterfp` (`run`/`rdf`/`fingerprint` subcommands) | RDF + WaterFP fingerprint calculation (importable + standalone) |
 | 4+5 | `official_selection/` (+ `g1_g2_selection/` helper) | `ligand-waterfp-prepare-ranking-csv`, `-select` | Official upstream selection algorithm (vendored, verbatim), parsed and written as structured G1/G2 YAML in the same process - see PR1 note below |
 | 6 | `ligand_cv/` | `ligand-waterfp-build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
 | 7 | `visualization/` | `ligand-waterfp-add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
