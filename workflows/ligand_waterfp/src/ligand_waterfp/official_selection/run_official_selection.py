@@ -63,7 +63,7 @@ import networkx
 import pandas
 import re
 
-from ..g1_g2_selection.select_g1_g2 import parse_selection_lines, write_g1_g2_yaml
+from ligand_waterfp.g1_g2_selection.select_g1_g2 import parse_selection_lines, write_g1_g2_yaml
 
 # ============================= BEGIN OFFICIAL CODE =============================
 # verbatim from WaterFP/Scripts/fp_driven_atom_selection.ipynb, cells 2 and 5
