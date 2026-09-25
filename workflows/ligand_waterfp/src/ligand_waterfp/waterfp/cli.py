@@ -90,7 +90,7 @@ def cmd_rdf(args: argparse.Namespace) -> None:
 
 def cmd_fingerprint(args: argparse.Namespace) -> None:
     rdf_df = pd.read_csv(args.rdf_csv)
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.binwidth_nm, args.norm_tail_bins)
+    fp_df = fingerprints_from_rdf_table(rdf_df, args.norm_tail_bins)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fp_df.to_csv(args.out, index=False)
     print(f"[waterfp fingerprint] wrote {args.out} ({len(fp_df)} atoms)")
@@ -103,7 +103,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     rdf_csv = os.path.join(args.outdir, "rdf.csv")
     rdf_df.to_csv(rdf_csv, index=False)
 
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.binwidth_nm, args.norm_tail_bins)
+    fp_df = fingerprints_from_rdf_table(rdf_df, args.norm_tail_bins)
     fp_csv = os.path.join(args.outdir, "fingerprints.csv")
     fp_df.to_csv(fp_csv, index=False)
 
@@ -145,13 +145,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--rdf-csv",
         required=True,
         help="Output of the rdf/run subcommand (columns: atom,r_nm,n_r)",
-    )
-    p_fp.add_argument(
-        "--binwidth-nm",
-        type=float,
-        default=RDF_BINWIDTH_NM_DEFAULT,
-        help="Must match the bin width used to produce --rdf-csv "
-        f"(default: {RDF_BINWIDTH_NM_DEFAULT})",
     )
     p_fp.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     p_fp.add_argument("--out", required=True, help="Output CSV path (columns: atom,fp)")

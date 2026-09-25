@@ -97,7 +97,7 @@ def _uniform_bulk_profile(n_bins=2001, binwidth_nm=0.001, value=33.4):
 
 def test_fp_is_zero_for_uniform_bulk_density():
     n_r, r_centers = _uniform_bulk_profile()
-    fp, g, norm = fp_from_density_profile(n_r, r_centers, binwidth_nm=0.001)
+    fp, g, norm = fp_from_density_profile(n_r, r_centers)
     assert norm == pytest.approx(33.4)
     assert np.allclose(g, 1.0)
     assert abs(fp) < 1e-8
@@ -110,7 +110,7 @@ def test_fp_is_nonzero_for_a_depleted_shell():
     n_r, r_centers = _uniform_bulk_profile()
     n_r = n_r.copy()
     n_r[:50] = 0.0
-    fp, g, norm = fp_from_density_profile(n_r, r_centers, binwidth_nm=0.001)
+    fp, g, norm = fp_from_density_profile(n_r, r_centers)
     assert g[:50].tolist() == [0.0] * 50
     assert fp < 0
 
@@ -123,7 +123,7 @@ def test_fingerprints_from_rdf_table_groups_by_atom():
             rows.append({"atom": atom, "r_nm": r, "n_r": n})
     rdf_df = pd.DataFrame(rows)
 
-    fp_df = fingerprints_from_rdf_table(rdf_df, binwidth_nm=0.001)
+    fp_df = fingerprints_from_rdf_table(rdf_df)
 
     assert set(fp_df["atom"]) == {"A1", "A2"}
     assert len(fp_df) == 2

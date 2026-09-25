@@ -73,7 +73,6 @@ def compute_density_profile(
 def fp_from_density_profile(
     n_r: np.ndarray,
     r_centers_nm: np.ndarray,
-    binwidth_nm: float,
     norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT,
 ) -> tuple[float, np.ndarray, float]:
     """Given one atom's raw number-density profile n_r (waters/nm^3 per
@@ -85,13 +84,11 @@ def fp_from_density_profile(
     g = n_r / norm
     entropy_term = xlogy(g, g) - g + 1.0  # g ln(g) - g + 1
     integrand = -2.0 * np.pi * norm * entropy_term * r_centers_nm**2
-    fp = float(trapezoid(integrand, dx=binwidth_nm))
+    fp = float(trapezoid(integrand, x=r_centers_nm))
     return fp, g, norm
 
 
-def fingerprints_from_rdf_table(
-    rdf_df, binwidth_nm, norm_tail_bins=NORM_TAIL_BINS_DEFAULT
-):
+def fingerprints_from_rdf_table(rdf_df, norm_tail_bins=NORM_TAIL_BINS_DEFAULT):
     """rdf_df: DataFrame with columns atom,r_nm,n_r (the rdf.csv format,
     possibly with extra columns e.g. block - grouped away).
     Returns a DataFrame with columns atom,fp."""
@@ -99,7 +96,7 @@ def fingerprints_from_rdf_table(
     for atom, sub in rdf_df.groupby("atom", sort=False):
         sub = sub.sort_values("r_nm")
         fp, _, _ = fp_from_density_profile(
-            sub["n_r"].to_numpy(), sub["r_nm"].to_numpy(), binwidth_nm, norm_tail_bins
+            sub["n_r"].to_numpy(), sub["r_nm"].to_numpy(), norm_tail_bins
         )
         rows.append({"atom": atom, "fp": fp})
     return pd.DataFrame(rows)

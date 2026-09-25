@@ -197,7 +197,7 @@ def main():
         fp_this_block = {}
         g_this_block = {}
         for ai, name in enumerate(heavy_names):
-            fp_val, g_val, _norm = fp_from_density_profile(n_r[ai], centers_nm, args.binwidth_nm, args.norm_tail_bins)
+            fp_val, g_val, _norm = fp_from_density_profile(n_r[ai], centers_nm, args.norm_tail_bins)
             fp_this_block[name] = float(fp_val)
             g_this_block[name] = g_val
 
