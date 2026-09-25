@@ -22,6 +22,8 @@ import pandas as pd
 import MDAnalysis as mda
 from MDAnalysis.lib.distances import distance_array
 
+from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
+
 RDF_RMAX_NM_DEFAULT = 2.001
 RDF_BINWIDTH_NM_DEFAULT = 0.001
 
@@ -65,8 +67,10 @@ def parse_args():
     p.add_argument("--tpr", required=True)
     p.add_argument("--xtc", required=True)
     p.add_argument("--ligand-resname", default="MOL")
-    p.add_argument("--water-resname", default="SOL")
-    p.add_argument("--water-atom-name", default="O")
+    p.add_argument("--water-resname", default=None,
+                   help="Default: auto-detect via MDAnalysis's 'water' selection keyword")
+    p.add_argument("--water-atom-name", default=None,
+                   help="Default: atoms named O* within the water residues")
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None, help="Default: last frame of the trajectory")
     p.add_argument("--rmax-nm", type=float, default=RDF_RMAX_NM_DEFAULT)
@@ -78,13 +82,8 @@ def parse_args():
 def main():
     args = parse_args()
     u = mda.Universe(args.tpr, args.xtc)
-    solute = u.select_atoms(f"resname {args.ligand_resname} and not name H*")
-    water = u.select_atoms(f"resname {args.water_resname} and name {args.water_atom_name}")
-    if len(solute) == 0:
-        raise SystemExit(f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}")
-    if len(water) == 0:
-        raise SystemExit(f"No water oxygens found for resname '{args.water_resname}' / "
-                          f"atom name '{args.water_atom_name}' in {args.tpr}")
+    solute = select_heavy_atoms(u, args.ligand_resname, args.tpr)
+    water = select_water_oxygens(u, args.tpr, args.water_resname, args.water_atom_name)
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
     edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)

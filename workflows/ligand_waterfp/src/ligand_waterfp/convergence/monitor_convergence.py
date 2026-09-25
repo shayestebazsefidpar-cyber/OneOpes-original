@@ -52,6 +52,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from ligand_waterfp.selections import select_heavy_atoms, select_water_oxygens
 from ..waterfp.calculate_rdf import make_bins, compute_density_profile
 from ..waterfp.calculate_fingerprint import fp_from_density_profile, NORM_TAIL_BINS_DEFAULT
 
@@ -65,14 +66,13 @@ def parse_args():
     p.add_argument("--outdir", default="outputs/convergence")
     p.add_argument("--ligand-resname", default="MOL",
                     help="Residue name of the ligand in the topology (default: MOL)")
-    p.add_argument("--water-resname", default="SOL",
-                    help="Residue name of the solvent (default: SOL)")
-    p.add_argument("--water-atom-name", default="O",
-                    help="Atom name of the water oxygen within --water-resname (default: O). "
-                         "Water naming is NOT guaranteed consistent across force fields/files - "
-                         "e.g. some topologies name the same water residue WAT/HOH with oxygen "
-                         "atom name OW instead of SOL/O. Check your own .tpr before trusting the "
-                         "defaults on a new system.")
+    p.add_argument("--water-resname", default=None,
+                    help="Residue name of the solvent (default: auto-detect via MDAnalysis's "
+                         "'water' selection keyword, which knows the standard water resnames "
+                         "across force fields). Only needed for nonstandard water naming.")
+    p.add_argument("--water-atom-name", default=None,
+                    help="Atom name of the water oxygen (default: atoms named O* within the "
+                         "water residues). Only needed for nonstandard water naming.")
     p.add_argument("--rmax-nm", type=float, default=2.001)
     p.add_argument("--binwidth-nm", type=float, default=0.001)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
@@ -120,26 +120,16 @@ def main():
         return mda.Universe(args.tpr, args.xtc)
 
     u0 = get_universe()
-    lig_heavy = u0.select_atoms(f"resname {args.ligand_resname} and not name H*")
-    if len(lig_heavy) == 0:
-        raise SystemExit(
-            f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}. "
-            "Check --ligand-resname against your own topology."
-        )
+    lig_heavy = select_heavy_atoms(u0, args.ligand_resname, args.tpr)
     heavy_names = list(lig_heavy.names)
     heavy_indices = lig_heavy.indices
-    water_O = u0.select_atoms(f"resname {args.water_resname} and name {args.water_atom_name}")
-    if len(water_O) == 0:
-        raise SystemExit(
-            f"No water oxygens found for resname '{args.water_resname}' / atom name "
-            f"'{args.water_atom_name}' in {args.tpr}. Water naming is not standardized across "
-            "force fields/files - check --water-resname/--water-atom-name against your own topology."
-        )
+    water_O = select_water_oxygens(u0, args.tpr, args.water_resname, args.water_atom_name)
     water_O_idx = water_O.indices
     n_heavy = len(heavy_names)
     print(f"[monitor] {n_heavy} ligand heavy atoms (resname={args.ligand_resname}): {heavy_names}")
     print(f"[monitor] {len(water_O_idx)} water oxygens "
-          f"(resname={args.water_resname}, atom name={args.water_atom_name})")
+          f"(resname={args.water_resname or 'auto (water keyword)'}, "
+          f"atom name={args.water_atom_name or 'O*'})")
     print(f"[monitor] RDF: rmax={args.rmax_nm} nm, bins={len(centers_nm)}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
