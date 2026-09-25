@@ -44,25 +44,23 @@ stages:
         console_script: ligand-waterfp-select
     depends_on: [waterfp]
     inputs: [fingerprints_csv, tpr]
-    outputs: [ranking_csv, selection_output_txt]
+    outputs: [ranking_csv, g1_g2_yaml]
     note: >
       Selection logic in run_official_selection.py is vendored verbatim
       from upstream_method.waterfp_repo - never reimplemented.
       prepare_ranking_csv.py is new glue code (the upstream repo does not
-      publish how its own ranking.csv was built). See
+      publish how its own ranking.csv was built). run_official_selection's
+      main() now also parses the two result sentences and writes the
+      structured G1/G2 YAML directly (via
+      ligand_waterfp.g1_g2_selection.select_g1_g2 - a helper module with
+      no CLI of its own, not a separate pipeline stage) - no intermediate
+      text file, no separate parsing stage. See
       src/ligand_waterfp/official_selection/README.md.
-
-  - id: g1_g2_selection
-    module: ligand_waterfp.g1_g2_selection.select_g1_g2
-    console_script: ligand-waterfp-g1g2
-    depends_on: [official_selection]
-    inputs: [selection_output_txt]
-    outputs: [g1_g2_yaml]
 
   - id: ligand_cv
     module: ligand_waterfp.ligand_cv.build_ligand_cv
     console_script: ligand-waterfp-build-cv
-    depends_on: [g1_g2_selection]
+    depends_on: [official_selection]
     inputs: [g1_g2_yaml]
     outputs: [plumed_fragment_dat]
 
@@ -73,7 +71,7 @@ stages:
       - module: ligand_waterfp.visualization.render_selected_atoms_chimera  # invoked via `chimera --script <path> ...`, not a console script
       - module: ligand_waterfp.visualization.add_legend
         console_script: ligand-waterfp-add-legend
-    depends_on: [g1_g2_selection]
+    depends_on: [official_selection]
     inputs: [complex_pdb, g1_g2_yaml]
     outputs: [selected_atoms_png]
 

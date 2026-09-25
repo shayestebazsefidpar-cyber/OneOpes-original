@@ -16,7 +16,11 @@ vendored commit.
   a real dependency `select_next_atom`/`select_bulk_atom` call internally,
   not optional - see the script's own docstring for the diff confirming
   only whitespace/PEP8 formatting differs from the raw notebook cells).
-  Only `main()`, below the marked block, is new.
+  Only `main()`, below the marked block, is new - and `main()` now also
+  parses the two result sentences and writes the structured G1/G2 YAML
+  directly (via `ligand_waterfp.g1_g2_selection.select_g1_g2`), all in
+  this same process, if `--out` is given. There is no intermediate text
+  file and no separate CLI stage for that anymore.
 - **`prepare_ranking_csv.py`**: builds this stage's required input CSV
   from Stage 3's `fingerprints.csv`. The official notebook never publishes
   how its own `ranking.csv` was built from raw FP values (cell 1 just
@@ -68,18 +72,20 @@ ln -s outputs/lig_system/prod.tpr myprojectligandA.tpr
 ligand-waterfp-select \
     --ranking-csv outputs/selection/ranking_input.csv \
     --system-id myproject-ligandA \
-    --out outputs/selection/selection_output.txt
+    --out outputs/selection/g1_g2.yaml
 ```
 
 ## Output
 
-Two lines describing the anti-bulk pair (this stage's raw "G1") and the
-bulk pair ("G2"), e.g.:
+Prints the anti-bulk pair (this stage's raw "G1") and the bulk pair
+("G2") result sentences to stdout for inspection:
 
 ```
 anti-bulk fp selection: <atom> (<serial>), <atom> (<serial>)
 bulk fp selection: <atom> (<serial>), <atom> (<serial>)
 ```
 
-Feed this directly into `ligand_waterfp.g1_g2_selection.select_g1_g2` to get a
-structured G1/G2 result.
+and, if `--out` is given, parses them in-process and writes the
+structured G1/G2 result straight to that YAML path (via
+`ligand_waterfp.g1_g2_selection.select_g1_g2.write_g1_g2_yaml`) - no
+intermediate text file, no separate parsing stage.

@@ -29,7 +29,6 @@ ligand-waterfp-fingerprint = "ligand_waterfp.waterfp.calculate_fingerprint:main"
 ligand-waterfp-run-waterfp = "ligand_waterfp.waterfp.run_waterfp:main"
 ligand-waterfp-prepare-ranking-csv = "ligand_waterfp.official_selection.prepare_ranking_csv:main"
 ligand-waterfp-select = "ligand_waterfp.official_selection.run_official_selection:main"
-ligand-waterfp-g1g2 = "ligand_waterfp.g1_g2_selection.select_g1_g2:main"
 ligand-waterfp-build-cv = "ligand_waterfp.ligand_cv.build_ligand_cv:main"
 ligand-waterfp-add-legend = "ligand_waterfp.visualization.add_legend:main"
 

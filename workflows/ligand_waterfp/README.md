@@ -55,8 +55,10 @@ ligand_waterfp/
     ├── system_setup/            <- 1. build the ligand-only MD system
     ├── convergence/              <- 2. block-wise hydration convergence monitor
     ├── waterfp/                  <- 3. RDF + WaterFP fingerprint calculation
-    ├── official_selection/       <- 4. vendored upstream selection algorithm
-    ├── g1_g2_selection/           <- 5. formats the result into structured G1/G2
+    ├── official_selection/       <- 4+5. vendored upstream selection algorithm,
+    │                                 writes structured G1/G2 YAML directly
+    ├── g1_g2_selection/           <- helper module used by official_selection
+    │                                 (parse/write functions only, no CLI)
     ├── ligand_cv/                 <- 6. starting-point PLUMED CV fragment
     └── visualization/             <- 7. optional: render selected atoms
 ```
@@ -130,14 +132,11 @@ ligand-waterfp-prepare-ranking-csv \
     --system-id myproject-ligandA --out outputs/selection/ranking_input.csv
 
 ln -s outputs/lig_system/prod.tpr myprojectligandA.tpr
+# Stage 4+5 - official selection, parsed and written as structured G1/G2
+# YAML directly in the same process (no intermediate text file anymore)
 ligand-waterfp-select \
     --ranking-csv outputs/selection/ranking_input.csv \
-    --system-id myproject-ligandA --out outputs/selection/selection_output.txt
-
-# Stage 5 - structured G1/G2 result
-ligand-waterfp-g1g2 \
-    --selection-output outputs/selection/selection_output.txt \
-    --out outputs/selection/g1_g2.yaml
+    --system-id myproject-ligandA --out outputs/selection/g1_g2.yaml
 
 # Stage 6 - ligand-side CV fragment
 ligand-waterfp-build-cv \
@@ -157,8 +156,7 @@ flag.
 | 1 | `system_setup/` | `ligand-waterfp-prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
 | 2 | `convergence/` | `ligand-waterfp-monitor` | Block-wise hydration convergence monitor + auto-stop |
 | 3 | `waterfp/` | `ligand-waterfp-run-waterfp`, `-rdf`, `-fingerprint` | RDF + WaterFP fingerprint calculation (importable + standalone) |
-| 4 | `official_selection/` | `ligand-waterfp-prepare-ranking-csv`, `-select` | Official upstream selection algorithm (vendored, verbatim) |
-| 5 | `g1_g2_selection/` | `ligand-waterfp-g1g2` | Formats the raw selection result into structured G1/G2 |
+| 4+5 | `official_selection/` (+ `g1_g2_selection/` helper) | `ligand-waterfp-prepare-ranking-csv`, `-select` | Official upstream selection algorithm (vendored, verbatim), parsed and written as structured G1/G2 YAML in the same process - see PR1 note below |
 | 6 | `ligand_cv/` | `ligand-waterfp-build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
 | 7 | `visualization/` | `ligand-waterfp-add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
 
@@ -192,8 +190,11 @@ WaterFP fingerprint plus a partner atom chosen by the official algorithm's
 graph-distance / FP-grouping tie-break rule (`select_next_atom`). G2 (the
 "bulk" pair) is the same procedure applied from the opposite end of the FP
 ranking (`select_bulk_atom`), representing the most solvent-like region of
-the ligand. Both come directly out of Stage 4 and are only reformatted, not
-recomputed, in Stage 5.
+the ligand. Both come directly out of the official algorithm; the only
+work done afterward is parsing its two result sentences into the
+structured YAML shape (`ligand_waterfp.g1_g2_selection.select_g1_g2`,
+called in-process by `run_official_selection`'s own `main()` - no
+recomputation, no intermediate file).
 
 ## 10. How the resulting ligand CV is constructed
 
