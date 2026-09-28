@@ -57,6 +57,7 @@ Usage:
         (expects my_ligand.tpr - see load_mol()'s docstring note below)
 """
 import argparse
+from pathlib import Path
 import MDAnalysis
 import numpy
 import networkx
@@ -290,11 +291,37 @@ def main():
     global c
     args = parse_args()
 
-    c = pandas.read_csv(args.ranking_csv, header=[0])
-    if "fp_round" not in c.columns:
-        c["fp_round"] = c["fp"].round(args.fp_round_decimals)
+    # Validate required inputs before any processing. The .tpr path is
+    # derived from --system-id the same way load_mol() (vendored) does,
+    # replicated here read-only so a missing file fails clearly and early
+    # instead of deep inside the vendored code.
+    ranking_csv_path = Path(args.ranking_csv)
+    if not ranking_csv_path.is_file():
+        raise SystemExit(f"--ranking-csv file not found: {ranking_csv_path.resolve()}")
 
     mol = args.system_id
+    mol_parts = mol.split('-')
+    if len(mol_parts) < 2:
+        raise SystemExit(
+            f"--system-id '{mol}' must contain a '-' (e.g. 'SystemA-lig1'), per "
+            "load_mol()'s own naming convention: mol.split('-')[0]+mol.split('-')[1]+'.tpr'"
+        )
+    expected_tpr_path = Path(mol_parts[0] + mol_parts[1] + ".tpr")
+    if not expected_tpr_path.is_file():
+        raise SystemExit(
+            f"Expected topology file not found: {expected_tpr_path.resolve()} "
+            f"(derived from --system-id '{mol}' per load_mol()'s naming convention: "
+            "mol.split('-')[0]+mol.split('-')[1]+'.tpr')"
+        )
+
+    print(f"[select] ranking_csv: {ranking_csv_path.resolve()}")
+    print(f"[select] tpr (derived from --system-id): {expected_tpr_path.resolve()}")
+    if args.out:
+        print(f"[select] out: {Path(args.out).resolve()}")
+
+    c = pandas.read_csv(ranking_csv_path, header=[0])
+    if "fp_round" not in c.columns:
+        c["fp_round"] = c["fp"].round(args.fp_round_decimals)
 
     print("=" * 70)
     print("Ranking table (ascending FP, as used by ranking()):")

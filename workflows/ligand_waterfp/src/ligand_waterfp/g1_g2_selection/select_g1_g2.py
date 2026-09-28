@@ -27,9 +27,9 @@ a validated in-process type. `parse_selection_lines()` still returns the
 original dict; `write_g1_g2_yaml()` accepts either and always writes the
 same YAML.
 """
-import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 import yaml
 
 LINE_RE = re.compile(r"(anti-bulk|bulk) fp selection:\s*(\w+)\s*\((\d+)\),\s*(\w+)\s*\((\d+)\)")
@@ -95,9 +95,10 @@ def parse_selection_lines(text):
 def write_g1_g2_yaml(result, out_path, system_id=None):
     """Write a G1/G2 result to YAML, creating the parent directory if
     needed. Accepts either the original {'G1': [...], 'G2': [...]} dict
-    or a SelectionResult - both produce the same YAML shape. A dict
-    `result` is assumed to already have both keys; callers should
-    validate that first (see official_selection.run_official_selection.main).
+    or a SelectionResult - both produce the same YAML shape. `out_path`
+    may be a str or a Path. A dict `result` is assumed to already have
+    both keys; callers should validate that first (see
+    official_selection.run_official_selection.main).
     """
     if isinstance(result, SelectionResult):
         payload = result.to_yaml_dict()
@@ -108,6 +109,7 @@ def write_g1_g2_yaml(result, out_path, system_id=None):
         if system_id:
             payload["system_id"] = system_id
 
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    with open(out_path, "w") as f:
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as f:
         yaml.safe_dump(payload, f, sort_keys=False)
