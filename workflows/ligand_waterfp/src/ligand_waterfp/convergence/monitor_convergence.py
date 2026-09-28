@@ -56,14 +56,10 @@ No formula, threshold, output filename, CSV/JSON schema, or printed
 message was changed by this refactor - see METHOD_RATIONALE.md for the
 science, which this change does not touch.
 
---- Structured values (code-review Rule 3) ---
-check_stability()'s return value and the 4 tolerance/streak values are now
-small frozen dataclasses, `StabilityResult` and `Tolerances`, instead of a
-dict and 4 independently-passed floats/int - main() builds one `Tolerances`
-from the parsed CLI args and passes it through. The existing
-convergence_metrics.csv/convergence_summary.json/.txt field names are
-UNCHANGED - they are mapped explicitly from these dataclasses' fields at
-the point each report is built, never via dataclasses.asdict().
+--- Structured values ---
+check_stability() returns a StabilityResult; Tolerances bundles the 4
+threshold/streak values main() builds once from the CLI args. Report
+field names are unchanged - mapped explicitly from these dataclasses.
 """
 import argparse
 import os
@@ -93,15 +89,12 @@ FP_METHOD_TEXT = (
 
 @dataclass(frozen=True)
 class Tolerances:
-    """The 4 values that define "stable"/"converged" for this monitor -
-    bundled here (code-review Rule 3) so they travel together instead of as
-    4 separate parameters threaded independently through check_stability()
-    and write_reports(). Same values, same CLI flags, same defaults as
-    before - this only changes how they're passed around in-process.
+    """Convergence thresholds used by check_stability(): max FP relative
+    change, max RDF nRMSD, min Spearman rank correlation, and the number
+    of consecutive stable transitions required for convergence.
 
-    block_ns is deliberately NOT included here: it's a block *size*, not a
-    stability tolerance, and stays a separate parameter in main(), exactly
-    as before.
+    block_ns (block size) is not a tolerance and stays a separate
+    parameter in main().
     """
     fp_rel_tol: float
     rdf_nrmsd_tol: float
@@ -111,15 +104,14 @@ class Tolerances:
 
 @dataclass(frozen=True)
 class StabilityResult:
-    """The verdict check_stability() computes for one block-to-block
-    transition. Same 7 values check_stability() has always produced (see
-    its docstring) - now a frozen dataclass instead of a dict, per
-    code-review feedback on PR2. Field names here are lower_snake_case;
-    the existing CSV/JSON output keys (max_FP_relative_change,
-    max_RDF_nRMSD, ...) are UNCHANGED and are mapped explicitly from these
-    fields at the point main() builds convergence_metrics.csv's rows and
-    write_reports()'s summary dict - never via dataclasses.asdict(), which
-    would emit these lower_snake_case names into the reports instead.
+    """The three convergence metrics (FP relative change, RDF nRMSD,
+    Spearman rank correlation), each one's pass/fail flag, and the
+    combined block_stable verdict - returned by check_stability() for one
+    block-to-block transition.
+
+    Field names are lower_snake_case; the CSV/JSON report keys
+    (max_FP_relative_change, max_RDF_nRMSD, ...) differ and are mapped
+    explicitly where each report is built, not via dataclasses.asdict().
     """
     max_fp_relative_change: float
     max_rdf_nrmsd: float
@@ -183,19 +175,12 @@ def nrmsd(g_a, g_b):
 
 def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end_frame,
                    edges_a, shell_vol_nm3, centers_nm, binwidth_nm, norm_tail_bins):
-    """One trajectory block -> per-atom FP/g(r) and the FP-based ranking.
+    """Compute the FP, g(r), and FP-based ranking for one trajectory block
+    (frames start_frame:end_frame), one value per ligand heavy atom.
 
-    Exactly the computation main()'s loop body used to do inline: RDF via
-    waterfp.calculate_rdf.compute_density_profile(), then FP/g(r) per atom
-    via waterfp.calculate_fingerprint.fp_from_density_profile(), then an
-    FP-descending rank (pandas .rank(ascending=False), matching the
-    original convention exactly). No printing, no file I/O - just the
-    trajectory read (already a side effect of compute_density_profile)
-    and the returned data.
-
-    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns) -
-    fp_this_block/g_this_block are {atom_name: value} dicts, rank_now is
-    the pandas Series main() already builds and compares block to block.
+    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns):
+    fp_this_block/g_this_block are {atom_name: value}; rank_now is the
+    FP-descending rank check_stability() compares block to block.
     """
     t_start_ns = u.trajectory[start_frame].time / 1000.0
     t_end_ns = u.trajectory[end_frame - 1].time / 1000.0
@@ -217,18 +202,10 @@ def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end
 
 def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
                      tol: Tolerances):
-    """Compare the current block against the previous one using the
-    existing three-criterion rule, exactly as main() used to compute it
-    inline. Pure function: numbers in, verdict out - no printing, no
-    streak bookkeeping (that stays in main(), since it's state that spans
-    multiple calls, not a property of a single transition).
-
-    Returns a StabilityResult with the same 7 values this function has
-    always produced (max_FP_relative_change, max_RDF_nRMSD,
-    spearman_rank_corr, value_stable, rdf_stable, rank_stable,
-    block_stable = value_stable and rdf_stable and rank_stable) - only the
-    dict was replaced by a frozen dataclass (code-review feedback on PR2);
-    no formula or threshold changed.
+    """Compare the current block to the previous one against `tol`'s three
+    criteria (FP relative change, RDF nRMSD, Spearman rank correlation)
+    and return the resulting StabilityResult. Streak bookkeeping across
+    transitions stays in main(), not here.
     """
     heavy_names = list(fp_this_block.keys())
 
@@ -309,10 +286,8 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
     schema, same field names, same text - only extracted out of main().
     No printing (Rule 5) - returns the summary dict main() prints from.
 
-    tol bundles the 4 values previously passed as separate n_stable,
-    fp_rel_tol, rdf_nrmsd_tol, spearman_tol parameters (code-review Rule
-    3) - the JSON/TXT output keys/labels below are unchanged, built
-    explicitly from tol's fields rather than via dataclasses.asdict().
+    tol supplies the threshold/streak values written into the JSON/TXT
+    summary below.
 
     Does not write the per-block incremental CSVs (fp_values_per_block.csv,
     rdf_profiles_per_block.csv, convergence_metrics.csv) - those are
