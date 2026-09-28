@@ -32,9 +32,21 @@ G2:
   - {name: <atom>, serial: <n>}
 ```
 
+**`serial` is 1-based.** It matches the official vendored algorithm's own
+printed output and the ranking CSV's `atom` column (see
+`../official_selection/README.md`'s "Input format" section) - not
+MDAnalysis's own 0-based `Atom.index`/`AtomGroup.indices`. For the
+`resname <ligand> and not name H*` selection used throughout this
+pipeline, `serial == mdanalysis_index + 1`, but the two are distinct
+conventions and nothing in this module converts between them.
+
 This step does not re-run or reinterpret the selection algorithm itself
 (that's entirely `official_selection`'s job) - it only reformats its
 output.
+
+`AtomRef`/`SelectionResult` (frozen dataclasses in `select_g1_g2.py`) give
+this same shape a validated in-process representation, used internally by
+`write_g1_g2_yaml()` - the YAML shape above is unchanged either way.
 
 ## Usage
 

@@ -55,12 +55,22 @@ that prints progress or writes the human-facing summary text, per Rule 5.
 No formula, threshold, output filename, CSV/JSON schema, or printed
 message was changed by this refactor - see METHOD_RATIONALE.md for the
 science, which this change does not touch.
+
+--- Structured values (code-review Rule 3) ---
+check_stability()'s return value and the 4 tolerance/streak values are now
+small frozen dataclasses, `StabilityResult` and `Tolerances`, instead of a
+dict and 4 independently-passed floats/int - main() builds one `Tolerances`
+from the parsed CLI args and passes it through. The existing
+convergence_metrics.csv/convergence_summary.json/.txt field names are
+UNCHANGED - they are mapped explicitly from these dataclasses' fields at
+the point each report is built, never via dataclasses.asdict().
 """
 import argparse
 import os
 import json
 import time
 import signal
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -79,6 +89,45 @@ FP_METHOD_TEXT = (
     "g(r)=n(r)/norm, norm=mean of the last norm_tail_bins bins of the raw "
     "water-O number-density profile n(r) around the ligand heavy atom."
 )
+
+
+@dataclass(frozen=True)
+class Tolerances:
+    """The 4 values that define "stable"/"converged" for this monitor -
+    bundled here (code-review Rule 3) so they travel together instead of as
+    4 separate parameters threaded independently through check_stability()
+    and write_reports(). Same values, same CLI flags, same defaults as
+    before - this only changes how they're passed around in-process.
+
+    block_ns is deliberately NOT included here: it's a block *size*, not a
+    stability tolerance, and stays a separate parameter in main(), exactly
+    as before.
+    """
+    fp_rel_tol: float
+    rdf_nrmsd_tol: float
+    spearman_tol: float
+    n_stable: int
+
+
+@dataclass(frozen=True)
+class StabilityResult:
+    """The verdict check_stability() computes for one block-to-block
+    transition. Same 7 values check_stability() has always produced (see
+    its docstring) - now a frozen dataclass instead of a dict, per
+    code-review feedback on PR2. Field names here are lower_snake_case;
+    the existing CSV/JSON output keys (max_FP_relative_change,
+    max_RDF_nRMSD, ...) are UNCHANGED and are mapped explicitly from these
+    fields at the point main() builds convergence_metrics.csv's rows and
+    write_reports()'s summary dict - never via dataclasses.asdict(), which
+    would emit these lower_snake_case names into the reports instead.
+    """
+    max_fp_relative_change: float
+    max_rdf_nrmsd: float
+    spearman_rank_corr: float
+    value_stable: bool
+    rdf_stable: bool
+    rank_stable: bool
+    block_stable: bool
 
 
 def parse_args():
@@ -167,17 +216,19 @@ def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end
 
 
 def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                     fp_rel_tol, rdf_nrmsd_tol, spearman_tol):
+                     tol: Tolerances):
     """Compare the current block against the previous one using the
     existing three-criterion rule, exactly as main() used to compute it
     inline. Pure function: numbers in, verdict out - no printing, no
     streak bookkeeping (that stays in main(), since it's state that spans
     multiple calls, not a property of a single transition).
 
-    Returns a dict with the same fields main() has always recorded into
-    convergence_metrics.csv's rows (max_FP_relative_change, max_RDF_nRMSD,
-    spearman_rank_corr, value_stable, rdf_stable, rank_stable), plus
-    block_stable (value_stable and rdf_stable and rank_stable).
+    Returns a StabilityResult with the same 7 values this function has
+    always produced (max_FP_relative_change, max_RDF_nRMSD,
+    spearman_rank_corr, value_stable, rdf_stable, rank_stable,
+    block_stable = value_stable and rdf_stable and rank_stable) - only the
+    dict was replaced by a frozen dataclass (code-review feedback on PR2);
+    no formula or threshold changed.
     """
     heavy_names = list(fp_this_block.keys())
 
@@ -192,20 +243,20 @@ def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev
 
     rho, _ = spearmanr(rank_now.values, prev_rank.values)
 
-    value_ok = max_rel_change <= fp_rel_tol
-    rank_ok = rho >= spearman_tol
-    rdf_ok = max_nrmsd <= rdf_nrmsd_tol
+    value_ok = max_rel_change <= tol.fp_rel_tol
+    rank_ok = rho >= tol.spearman_tol
+    rdf_ok = max_nrmsd <= tol.rdf_nrmsd_tol
     block_stable = value_ok and rank_ok and rdf_ok
 
-    return {
-        "max_FP_relative_change": max_rel_change,
-        "max_RDF_nRMSD": max_nrmsd,
-        "spearman_rank_corr": rho,
-        "value_stable": value_ok,
-        "rdf_stable": rdf_ok,
-        "rank_stable": rank_ok,
-        "block_stable": block_stable,
-    }
+    return StabilityResult(
+        max_fp_relative_change=max_rel_change,
+        max_rdf_nrmsd=max_nrmsd,
+        spearman_rank_corr=rho,
+        value_stable=value_ok,
+        rdf_stable=rdf_ok,
+        rank_stable=rank_ok,
+        block_stable=block_stable,
+    )
 
 
 def plot_atom(atom_name, fp_df, rdf_df, outdir):
@@ -251,13 +302,17 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
 
 
 def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-                   block_ns, n_stable, fp_rel_tol, rdf_nrmsd_tol, spearman_tol,
-                   ligand_resname, heavy_names, n_blocks_completed):
+                   block_ns, tol: Tolerances, ligand_resname, heavy_names, n_blocks_completed):
     """Write the end-of-run report files, exactly as main() used to build
     them inline: the wide-format FP/ranking-by-block CSVs (pivoted from
     fp_df), convergence_summary.json, and convergence_summary.txt. Same
     schema, same field names, same text - only extracted out of main().
     No printing (Rule 5) - returns the summary dict main() prints from.
+
+    tol bundles the 4 values previously passed as separate n_stable,
+    fp_rel_tol, rdf_nrmsd_tol, spearman_tol parameters (code-review Rule
+    3) - the JSON/TXT output keys/labels below are unchanged, built
+    explicitly from tol's fields rather than via dataclasses.asdict().
 
     Does not write the per-block incremental CSVs (fp_values_per_block.csv,
     rdf_profiles_per_block.csv, convergence_metrics.csv) - those are
@@ -276,11 +331,11 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
         "stop_block": stop_block,
         "stop_time_ns": stop_time_ns,
         "block_size_ns": block_ns,
-        "n_stable_transitions_required": n_stable,
+        "n_stable_transitions_required": tol.n_stable,
         "thresholds": {
-            "FP_relative_change_tol": fp_rel_tol,
-            "RDF_normalised_RMSD_tol": rdf_nrmsd_tol,
-            "spearman_rank_corr_tol": spearman_tol,
+            "FP_relative_change_tol": tol.fp_rel_tol,
+            "RDF_normalised_RMSD_tol": tol.rdf_nrmsd_tol,
+            "spearman_rank_corr_tol": tol.spearman_tol,
         },
         "FP_method": FP_METHOD_TEXT,
         "ligand_resname": ligand_resname,
@@ -297,9 +352,9 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
         f.write(f"Stop simulation time: {stop_time_ns} ns\n")
         f.write(f"Reason: {stop_reason}\n")
         f.write(f"Block size: {block_ns} ns\n")
-        f.write(f"Consecutive stable transitions required: {n_stable}\n")
-        f.write(f"Thresholds: FP rel. change <= {fp_rel_tol}, RDF nRMSD <= {rdf_nrmsd_tol}, "
-                f"Spearman rho >= {spearman_tol}\n")
+        f.write(f"Consecutive stable transitions required: {tol.n_stable}\n")
+        f.write(f"Thresholds: FP rel. change <= {tol.fp_rel_tol}, RDF nRMSD <= {tol.rdf_nrmsd_tol}, "
+                f"Spearman rho >= {tol.spearman_tol}\n")
         f.write(f"FP method: {summary['FP_method']}\n")
         f.write(f"Ligand heavy atoms monitored ({len(heavy_names)}): {', '.join(heavy_names)}\n")
 
@@ -308,6 +363,12 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
 
 def main():
     args = parse_args()
+    tol = Tolerances(
+        fp_rel_tol=args.fp_rel_tol,
+        rdf_nrmsd_tol=args.rdf_nrmsd_tol,
+        spearman_tol=args.spearman_tol,
+        n_stable=args.n_stable,
+    )
 
     os.makedirs(args.outdir, exist_ok=True)
     os.makedirs(os.path.join(args.outdir, "rdf_plots"), exist_ok=True)
@@ -403,36 +464,35 @@ def main():
 
         if prev_fp is not None:
             stability = check_stability(
-                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                args.fp_rel_tol, args.rdf_nrmsd_tol, args.spearman_tol,
+                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank, tol,
             )
-            block_stable = stability["block_stable"]
+            block_stable = stability.block_stable
             stable_streak = stable_streak + 1 if block_stable else 0
 
             metric_rows.append({
                 "block_transition": f"{block_idx-1}->{block_idx}",
                 "t_end_ns": t_end_ns,
-                "max_FP_relative_change": stability["max_FP_relative_change"],
-                "max_RDF_nRMSD": stability["max_RDF_nRMSD"],
-                "spearman_rank_corr": stability["spearman_rank_corr"],
-                "value_stable": stability["value_stable"],
-                "rdf_stable": stability["rdf_stable"],
-                "rank_stable": stability["rank_stable"],
+                "max_FP_relative_change": stability.max_fp_relative_change,
+                "max_RDF_nRMSD": stability.max_rdf_nrmsd,
+                "spearman_rank_corr": stability.spearman_rank_corr,
+                "value_stable": stability.value_stable,
+                "rdf_stable": stability.rdf_stable,
+                "rank_stable": stability.rank_stable,
                 "block_stable": block_stable,
                 "stable_streak": stable_streak,
             })
             print(f"[monitor] block {block_idx} (t={t_end_ns:.1f} ns): "
-                  f"max|dFP/FP|={stability['max_FP_relative_change']:.3f} "
-                  f"max_nRMSD_RDF={stability['max_RDF_nRMSD']:.3f} "
-                  f"spearman={stability['spearman_rank_corr']:.3f} stable={block_stable} streak={stable_streak}")
+                  f"max|dFP/FP|={stability.max_fp_relative_change:.3f} "
+                  f"max_nRMSD_RDF={stability.max_rdf_nrmsd:.3f} "
+                  f"spearman={stability.spearman_rank_corr:.3f} stable={block_stable} streak={stable_streak}")
 
-            if stable_streak >= args.n_stable:
+            if stable_streak >= tol.n_stable:
                 converged = True
                 stop_reason = (
                     f"RDF profile, FP values, and FP-based heavy-atom ranking were all stable "
-                    f"(max FP relative change <= {args.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
-                    f"<= {args.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {args.spearman_tol}) "
-                    f"across {args.n_stable} consecutive block-to-block transitions."
+                    f"(max FP relative change <= {tol.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
+                    f"<= {tol.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {tol.spearman_tol}) "
+                    f"across {tol.n_stable} consecutive block-to-block transitions."
                 )
                 stop_time_ns = t_end_ns
                 stop_block = block_idx
@@ -457,8 +517,7 @@ def main():
 
     summary = write_reports(
         args.outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-        args.block_ns, args.n_stable, args.fp_rel_tol, args.rdf_nrmsd_tol, args.spearman_tol,
-        args.ligand_resname, heavy_names, block_idx,
+        args.block_ns, tol, args.ligand_resname, heavy_names, block_idx,
     )
 
     print(f"[monitor] DONE. converged={summary['converged']} stop_block={summary['stop_block']} "
