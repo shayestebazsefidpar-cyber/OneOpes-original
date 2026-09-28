@@ -273,7 +273,7 @@ def test_plot_atom_writes_expected_files(tmp_path):
 
     fp_plot_path, rdf_plot_path = plot_atom("A", fp_df, rdf_df, str(tmp_path))
 
-    assert fp_plot_path == str(tmp_path / "fp_plots" / "FP_vs_time_A.png")
-    assert rdf_plot_path == str(tmp_path / "rdf_plots" / "RDF_per_block_A.png")
+    assert fp_plot_path == tmp_path / "fp_plots" / "FP_vs_time_A.png"
+    assert rdf_plot_path == tmp_path / "rdf_plots" / "RDF_per_block_A.png"
     assert (tmp_path / "fp_plots" / "FP_vs_time_A.png").exists()
     assert (tmp_path / "rdf_plots" / "RDF_per_block_A.png").exists()

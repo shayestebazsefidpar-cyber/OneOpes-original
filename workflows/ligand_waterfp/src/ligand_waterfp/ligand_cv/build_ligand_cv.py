@@ -18,7 +18,7 @@ Usage:
         --out outputs/ligand_cv/plumed_fragment.dat
 """
 import argparse
-import os
+from pathlib import Path
 import yaml
 
 FRAGMENT_TEMPLATE = """\
@@ -58,7 +58,19 @@ def parse_args():
 
 def main():
     args = parse_args()
-    with open(args.g1_g2) as f:
+
+    # Validate the required input before processing, and echo the
+    # resolved paths this run is using.
+    g1_g2_path = Path(args.g1_g2)
+    out_path = Path(args.out)
+
+    if not g1_g2_path.is_file():
+        raise SystemExit(f"[build_ligand_cv] --g1-g2 file not found: {g1_g2_path.resolve()}")
+
+    print(f"[build_ligand_cv] g1_g2: {g1_g2_path.resolve()}")
+    print(f"[build_ligand_cv] out: {out_path.resolve()}")
+
+    with g1_g2_path.open() as f:
         data = yaml.safe_load(f)
 
     g1_serials = ",".join(str(a["serial"]) for a in data["G1"])
@@ -79,13 +91,13 @@ def main():
         water_group_ref=water_group_ref,
     )
 
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w") as f:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as f:
         f.write(fragment)
 
     print(f"[build_ligand_cv] G1 atoms (serials): {g1_serials}")
     print(f"[build_ligand_cv] G2 atoms (serials): {g2_serials}")
-    print(f"[build_ligand_cv] wrote {args.out}")
+    print(f"[build_ligand_cv] wrote {out_path.resolve()}")
 
 
 if __name__ == "__main__":

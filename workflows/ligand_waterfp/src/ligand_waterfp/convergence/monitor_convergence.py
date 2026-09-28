@@ -67,6 +67,7 @@ import json
 import time
 import signal
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -245,10 +246,11 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
 
     fp_df: the accumulated fp_rows DataFrame (columns include t_mid_ns,
     atom, FP). rdf_df: the accumulated rdf_rows DataFrame (columns
-    include block, atom, r_nm, g_r).
+    include block, atom, r_nm, g_r). outdir may be a str or a Path.
     """
-    fp_plot_path = os.path.join(outdir, "fp_plots", f"FP_vs_time_{atom_name}.png")
-    rdf_plot_path = os.path.join(outdir, "rdf_plots", f"RDF_per_block_{atom_name}.png")
+    outdir = Path(outdir)
+    fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
+    rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
 
     sub = fp_df[fp_df["atom"] == atom_name].sort_values("t_mid_ns")
     fig, ax = plt.subplots(figsize=(5, 3.5))
@@ -295,10 +297,11 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
     a different concern from this end-of-run reporting step; main() still
     writes them directly (see the loop body), same as before.
     """
+    outdir = Path(outdir)
     rank_table = fp_df.pivot(index="atom", columns="block", values="FP")
     rank_table_ranked = rank_table.rank(ascending=False, axis=0)
-    rank_table.to_csv(os.path.join(outdir, "fp_values_by_block_wide.csv"))
-    rank_table_ranked.to_csv(os.path.join(outdir, "fp_ranking_by_block_wide.csv"))
+    rank_table.to_csv(outdir / "fp_values_by_block_wide.csv")
+    rank_table_ranked.to_csv(outdir / "fp_ranking_by_block_wide.csv")
 
     summary = {
         "converged": converged,
@@ -317,9 +320,9 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
         "ligand_heavy_atoms": heavy_names,
         "n_blocks_completed": n_blocks_completed,
     }
-    with open(os.path.join(outdir, "convergence_summary.json"), "w") as f:
+    with open(outdir / "convergence_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    with open(os.path.join(outdir, "convergence_summary.txt"), "w") as f:
+    with open(outdir / "convergence_summary.txt", "w") as f:
         f.write("WaterFP-style hydration RDF/FP block-wise convergence monitor summary\n")
         f.write("=" * 70 + "\n")
         f.write(f"Converged: {converged}\n")
@@ -345,14 +348,29 @@ def main():
         n_stable=args.n_stable,
     )
 
-    os.makedirs(args.outdir, exist_ok=True)
-    os.makedirs(os.path.join(args.outdir, "rdf_plots"), exist_ok=True)
-    os.makedirs(os.path.join(args.outdir, "fp_plots"), exist_ok=True)
+    # Validate the required trajectory files before any expensive
+    # processing, and echo the resolved paths this run is using.
+    tpr_path = Path(args.tpr)
+    xtc_path = Path(args.xtc)
+    outdir = Path(args.outdir)
+
+    if not tpr_path.is_file():
+        raise SystemExit(f"[monitor] --tpr file not found: {tpr_path.resolve()}")
+    if not xtc_path.is_file():
+        raise SystemExit(f"[monitor] --xtc file not found: {xtc_path.resolve()}")
+
+    print(f"[monitor] tpr: {tpr_path.resolve()}")
+    print(f"[monitor] xtc: {xtc_path.resolve()}")
+    print(f"[monitor] outdir: {outdir.resolve()}")
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
+    (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
 
     edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
 
     def get_universe():
-        return mda.Universe(args.tpr, args.xtc)
+        return mda.Universe(str(tpr_path), str(xtc_path))
 
     u0 = get_universe()
     lig_heavy = u0.select_atoms(f"resname {args.ligand_resname} and not name H*")
@@ -472,9 +490,9 @@ def main():
                 stop_time_ns = t_end_ns
                 stop_block = block_idx
 
-        pd.DataFrame(fp_rows).to_csv(os.path.join(args.outdir, "fp_values_per_block.csv"), index=False)
-        pd.DataFrame(rdf_rows).to_csv(os.path.join(args.outdir, "rdf_profiles_per_block.csv"), index=False)
-        pd.DataFrame(metric_rows).to_csv(os.path.join(args.outdir, "convergence_metrics.csv"), index=False)
+        pd.DataFrame(fp_rows).to_csv(outdir / "fp_values_per_block.csv", index=False)
+        pd.DataFrame(rdf_rows).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+        pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
 
         prev_fp = fp_this_block
         prev_g = g_this_block
@@ -488,10 +506,10 @@ def main():
     rdf_df = pd.DataFrame(rdf_rows)
 
     for name in heavy_names:
-        plot_atom(name, fp_df, rdf_df, args.outdir)
+        plot_atom(name, fp_df, rdf_df, outdir)
 
     summary = write_reports(
-        args.outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
+        outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
         args.block_ns, tol, args.ligand_resname, heavy_names, block_idx,
     )
 
