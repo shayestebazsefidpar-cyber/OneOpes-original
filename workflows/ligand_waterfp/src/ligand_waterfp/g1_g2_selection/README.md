@@ -32,9 +32,15 @@ G2:
   - {name: <atom>, serial: <n>}
 ```
 
+**`serial` is 1-based** (see `../official_selection/README.md`'s "Input
+format" section) - not MDAnalysis's 0-based `Atom.index`.
+
 This step does not re-run or reinterpret the selection algorithm itself
 (that's entirely `official_selection`'s job) - it only reformats its
 output.
+
+`AtomRef`/`SelectionResult` (frozen dataclasses in `select_g1_g2.py`) give
+this shape an in-process type; the YAML above is unchanged either way.
 
 ## Usage
 

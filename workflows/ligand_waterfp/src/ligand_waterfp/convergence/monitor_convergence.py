@@ -55,12 +55,18 @@ that prints progress or writes the human-facing summary text, per Rule 5.
 No formula, threshold, output filename, CSV/JSON schema, or printed
 message was changed by this refactor - see METHOD_RATIONALE.md for the
 science, which this change does not touch.
+
+--- Structured values ---
+check_stability() returns a StabilityResult; Tolerances bundles the 4
+threshold/streak values main() builds once from the CLI args. Report
+field names are unchanged - mapped explicitly from these dataclasses.
 """
 import argparse
 import os
 import json
 import time
 import signal
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -79,6 +85,41 @@ FP_METHOD_TEXT = (
     "g(r)=n(r)/norm, norm=mean of the last norm_tail_bins bins of the raw "
     "water-O number-density profile n(r) around the ligand heavy atom."
 )
+
+
+@dataclass(frozen=True)
+class Tolerances:
+    """Convergence thresholds used by check_stability(): max FP relative
+    change, max RDF nRMSD, min Spearman rank correlation, and the number
+    of consecutive stable transitions required for convergence.
+
+    block_ns (block size) is not a tolerance and stays a separate
+    parameter in main().
+    """
+    fp_rel_tol: float
+    rdf_nrmsd_tol: float
+    spearman_tol: float
+    n_stable: int
+
+
+@dataclass(frozen=True)
+class StabilityResult:
+    """The three convergence metrics (FP relative change, RDF nRMSD,
+    Spearman rank correlation), each one's pass/fail flag, and the
+    combined block_stable verdict - returned by check_stability() for one
+    block-to-block transition.
+
+    Field names are lower_snake_case; the CSV/JSON report keys
+    (max_FP_relative_change, max_RDF_nRMSD, ...) differ and are mapped
+    explicitly where each report is built, not via dataclasses.asdict().
+    """
+    max_fp_relative_change: float
+    max_rdf_nrmsd: float
+    spearman_rank_corr: float
+    value_stable: bool
+    rdf_stable: bool
+    rank_stable: bool
+    block_stable: bool
 
 
 def parse_args():
@@ -134,19 +175,12 @@ def nrmsd(g_a, g_b):
 
 def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end_frame,
                    edges_a, shell_vol_nm3, centers_nm, binwidth_nm, norm_tail_bins):
-    """One trajectory block -> per-atom FP/g(r) and the FP-based ranking.
+    """Compute the FP, g(r), and FP-based ranking for one trajectory block
+    (frames start_frame:end_frame), one value per ligand heavy atom.
 
-    Exactly the computation main()'s loop body used to do inline: RDF via
-    waterfp.calculate_rdf.compute_density_profile(), then FP/g(r) per atom
-    via waterfp.calculate_fingerprint.fp_from_density_profile(), then an
-    FP-descending rank (pandas .rank(ascending=False), matching the
-    original convention exactly). No printing, no file I/O - just the
-    trajectory read (already a side effect of compute_density_profile)
-    and the returned data.
-
-    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns) -
-    fp_this_block/g_this_block are {atom_name: value} dicts, rank_now is
-    the pandas Series main() already builds and compares block to block.
+    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns):
+    fp_this_block/g_this_block are {atom_name: value}; rank_now is the
+    FP-descending rank check_stability() compares block to block.
     """
     t_start_ns = u.trajectory[start_frame].time / 1000.0
     t_end_ns = u.trajectory[end_frame - 1].time / 1000.0
@@ -167,17 +201,11 @@ def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end
 
 
 def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                     fp_rel_tol, rdf_nrmsd_tol, spearman_tol):
-    """Compare the current block against the previous one using the
-    existing three-criterion rule, exactly as main() used to compute it
-    inline. Pure function: numbers in, verdict out - no printing, no
-    streak bookkeeping (that stays in main(), since it's state that spans
-    multiple calls, not a property of a single transition).
-
-    Returns a dict with the same fields main() has always recorded into
-    convergence_metrics.csv's rows (max_FP_relative_change, max_RDF_nRMSD,
-    spearman_rank_corr, value_stable, rdf_stable, rank_stable), plus
-    block_stable (value_stable and rdf_stable and rank_stable).
+                     tol: Tolerances):
+    """Compare the current block to the previous one against `tol`'s three
+    criteria (FP relative change, RDF nRMSD, Spearman rank correlation)
+    and return the resulting StabilityResult. Streak bookkeeping across
+    transitions stays in main(), not here.
     """
     heavy_names = list(fp_this_block.keys())
 
@@ -192,20 +220,20 @@ def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev
 
     rho, _ = spearmanr(rank_now.values, prev_rank.values)
 
-    value_ok = max_rel_change <= fp_rel_tol
-    rank_ok = rho >= spearman_tol
-    rdf_ok = max_nrmsd <= rdf_nrmsd_tol
+    value_ok = max_rel_change <= tol.fp_rel_tol
+    rank_ok = rho >= tol.spearman_tol
+    rdf_ok = max_nrmsd <= tol.rdf_nrmsd_tol
     block_stable = value_ok and rank_ok and rdf_ok
 
-    return {
-        "max_FP_relative_change": max_rel_change,
-        "max_RDF_nRMSD": max_nrmsd,
-        "spearman_rank_corr": rho,
-        "value_stable": value_ok,
-        "rdf_stable": rdf_ok,
-        "rank_stable": rank_ok,
-        "block_stable": block_stable,
-    }
+    return StabilityResult(
+        max_fp_relative_change=max_rel_change,
+        max_rdf_nrmsd=max_nrmsd,
+        spearman_rank_corr=rho,
+        value_stable=value_ok,
+        rdf_stable=rdf_ok,
+        rank_stable=rank_ok,
+        block_stable=block_stable,
+    )
 
 
 def plot_atom(atom_name, fp_df, rdf_df, outdir):
@@ -251,13 +279,15 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
 
 
 def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-                   block_ns, n_stable, fp_rel_tol, rdf_nrmsd_tol, spearman_tol,
-                   ligand_resname, heavy_names, n_blocks_completed):
+                   block_ns, tol: Tolerances, ligand_resname, heavy_names, n_blocks_completed):
     """Write the end-of-run report files, exactly as main() used to build
     them inline: the wide-format FP/ranking-by-block CSVs (pivoted from
     fp_df), convergence_summary.json, and convergence_summary.txt. Same
     schema, same field names, same text - only extracted out of main().
     No printing (Rule 5) - returns the summary dict main() prints from.
+
+    tol supplies the threshold/streak values written into the JSON/TXT
+    summary below.
 
     Does not write the per-block incremental CSVs (fp_values_per_block.csv,
     rdf_profiles_per_block.csv, convergence_metrics.csv) - those are
@@ -276,11 +306,11 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
         "stop_block": stop_block,
         "stop_time_ns": stop_time_ns,
         "block_size_ns": block_ns,
-        "n_stable_transitions_required": n_stable,
+        "n_stable_transitions_required": tol.n_stable,
         "thresholds": {
-            "FP_relative_change_tol": fp_rel_tol,
-            "RDF_normalised_RMSD_tol": rdf_nrmsd_tol,
-            "spearman_rank_corr_tol": spearman_tol,
+            "FP_relative_change_tol": tol.fp_rel_tol,
+            "RDF_normalised_RMSD_tol": tol.rdf_nrmsd_tol,
+            "spearman_rank_corr_tol": tol.spearman_tol,
         },
         "FP_method": FP_METHOD_TEXT,
         "ligand_resname": ligand_resname,
@@ -297,9 +327,9 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
         f.write(f"Stop simulation time: {stop_time_ns} ns\n")
         f.write(f"Reason: {stop_reason}\n")
         f.write(f"Block size: {block_ns} ns\n")
-        f.write(f"Consecutive stable transitions required: {n_stable}\n")
-        f.write(f"Thresholds: FP rel. change <= {fp_rel_tol}, RDF nRMSD <= {rdf_nrmsd_tol}, "
-                f"Spearman rho >= {spearman_tol}\n")
+        f.write(f"Consecutive stable transitions required: {tol.n_stable}\n")
+        f.write(f"Thresholds: FP rel. change <= {tol.fp_rel_tol}, RDF nRMSD <= {tol.rdf_nrmsd_tol}, "
+                f"Spearman rho >= {tol.spearman_tol}\n")
         f.write(f"FP method: {summary['FP_method']}\n")
         f.write(f"Ligand heavy atoms monitored ({len(heavy_names)}): {', '.join(heavy_names)}\n")
 
@@ -308,6 +338,12 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
 
 def main():
     args = parse_args()
+    tol = Tolerances(
+        fp_rel_tol=args.fp_rel_tol,
+        rdf_nrmsd_tol=args.rdf_nrmsd_tol,
+        spearman_tol=args.spearman_tol,
+        n_stable=args.n_stable,
+    )
 
     os.makedirs(args.outdir, exist_ok=True)
     os.makedirs(os.path.join(args.outdir, "rdf_plots"), exist_ok=True)
@@ -403,36 +439,35 @@ def main():
 
         if prev_fp is not None:
             stability = check_stability(
-                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                args.fp_rel_tol, args.rdf_nrmsd_tol, args.spearman_tol,
+                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank, tol,
             )
-            block_stable = stability["block_stable"]
+            block_stable = stability.block_stable
             stable_streak = stable_streak + 1 if block_stable else 0
 
             metric_rows.append({
                 "block_transition": f"{block_idx-1}->{block_idx}",
                 "t_end_ns": t_end_ns,
-                "max_FP_relative_change": stability["max_FP_relative_change"],
-                "max_RDF_nRMSD": stability["max_RDF_nRMSD"],
-                "spearman_rank_corr": stability["spearman_rank_corr"],
-                "value_stable": stability["value_stable"],
-                "rdf_stable": stability["rdf_stable"],
-                "rank_stable": stability["rank_stable"],
+                "max_FP_relative_change": stability.max_fp_relative_change,
+                "max_RDF_nRMSD": stability.max_rdf_nrmsd,
+                "spearman_rank_corr": stability.spearman_rank_corr,
+                "value_stable": stability.value_stable,
+                "rdf_stable": stability.rdf_stable,
+                "rank_stable": stability.rank_stable,
                 "block_stable": block_stable,
                 "stable_streak": stable_streak,
             })
             print(f"[monitor] block {block_idx} (t={t_end_ns:.1f} ns): "
-                  f"max|dFP/FP|={stability['max_FP_relative_change']:.3f} "
-                  f"max_nRMSD_RDF={stability['max_RDF_nRMSD']:.3f} "
-                  f"spearman={stability['spearman_rank_corr']:.3f} stable={block_stable} streak={stable_streak}")
+                  f"max|dFP/FP|={stability.max_fp_relative_change:.3f} "
+                  f"max_nRMSD_RDF={stability.max_rdf_nrmsd:.3f} "
+                  f"spearman={stability.spearman_rank_corr:.3f} stable={block_stable} streak={stable_streak}")
 
-            if stable_streak >= args.n_stable:
+            if stable_streak >= tol.n_stable:
                 converged = True
                 stop_reason = (
                     f"RDF profile, FP values, and FP-based heavy-atom ranking were all stable "
-                    f"(max FP relative change <= {args.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
-                    f"<= {args.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {args.spearman_tol}) "
-                    f"across {args.n_stable} consecutive block-to-block transitions."
+                    f"(max FP relative change <= {tol.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
+                    f"<= {tol.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {tol.spearman_tol}) "
+                    f"across {tol.n_stable} consecutive block-to-block transitions."
                 )
                 stop_time_ns = t_end_ns
                 stop_block = block_idx
@@ -457,8 +492,7 @@ def main():
 
     summary = write_reports(
         args.outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-        args.block_ns, args.n_stable, args.fp_rel_tol, args.rdf_nrmsd_tol, args.spearman_tol,
-        args.ligand_resname, heavy_names, block_idx,
+        args.block_ns, tol, args.ligand_resname, heavy_names, block_idx,
     )
 
     print(f"[monitor] DONE. converged={summary['converged']} stop_block={summary['stop_block']} "
