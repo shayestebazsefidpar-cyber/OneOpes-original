@@ -64,7 +64,7 @@ import networkx
 import pandas
 import re
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import parse_selection_lines, write_g1_g2_yaml
+from ligand_waterfp.g1_g2_selection.select_g1_g2 import parse_selection_lines, write_g1_g2_yaml, SelectionResult
 
 # ============================= BEGIN OFFICIAL CODE =============================
 # verbatim from WaterFP/Scripts/fp_driven_atom_selection.ipynb, cells 2 and 5
@@ -344,7 +344,8 @@ def main():
                 "Could not parse both an anti-bulk and a bulk selection line from the "
                 "official algorithm's own output above - --out was not written."
             )
-        write_g1_g2_yaml(result, args.out, system_id=args.system_id)
+        selection = SelectionResult.from_dict(result)
+        write_g1_g2_yaml(selection, args.out, system_id=args.system_id)
         print(f"wrote {args.out}")
 
 

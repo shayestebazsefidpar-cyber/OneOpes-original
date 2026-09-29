@@ -24,8 +24,10 @@ and the ranking CSV's `atom` column - NOT MDAnalysis's 0-based
 --- AtomRef / SelectionResult ---
 Frozen dataclasses giving this module's {"G1": [...], "G2": [...]} shape
 a validated in-process type. `parse_selection_lines()` still returns the
-original dict; `write_g1_g2_yaml()` accepts either and always writes the
-same YAML.
+original dict; `write_g1_g2_yaml()` normalizes either input through
+SelectionResult before writing, so a malformed dict is rejected rather
+than assumed valid. `run_official_selection.main()` converts the parsed
+dict to a SelectionResult immediately, before calling the writer.
 """
 import re
 from dataclasses import dataclass
@@ -94,20 +96,18 @@ def parse_selection_lines(text):
 
 def write_g1_g2_yaml(result, out_path, system_id=None):
     """Write a G1/G2 result to YAML, creating the parent directory if
-    needed. Accepts either the original {'G1': [...], 'G2': [...]} dict
-    or a SelectionResult - both produce the same YAML shape. `out_path`
-    may be a str or a Path. A dict `result` is assumed to already have
-    both keys; callers should validate that first (see
-    official_selection.run_official_selection.main).
+    needed. Accepts either a SelectionResult or the original
+    {'G1': [...], 'G2': [...]} dict - a dict is normalized through
+    SelectionResult.from_dict() (raising if G1/G2 are missing or
+    malformed) rather than assumed valid, so both inputs go through the
+    same structured object before anything is written. `out_path` may be
+    a str or a Path.
     """
-    if isinstance(result, SelectionResult):
-        payload = result.to_yaml_dict()
-        if system_id:
-            payload["system_id"] = system_id
-    else:
-        payload = {"G1": result["G1"], "G2": result["G2"]}
-        if system_id:
-            payload["system_id"] = system_id
+    selection = result if isinstance(result, SelectionResult) else SelectionResult.from_dict(result)
+
+    payload = selection.to_yaml_dict()
+    if system_id:
+        payload["system_id"] = system_id
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

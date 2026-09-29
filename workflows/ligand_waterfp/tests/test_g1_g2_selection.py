@@ -1,10 +1,12 @@
 """
 Unit tests for ligand_waterfp.g1_g2_selection.select_g1_g2's text parser
-and (PR3, code-review Rule 3) its AtomRef/SelectionResult dataclasses.
-Uses synthetic atom names/serials - never real scientific results.
+and its AtomRef/SelectionResult dataclasses. Uses synthetic atom
+names/serials - never real scientific results.
 """
 import dataclasses
+import sys
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -14,6 +16,7 @@ from ligand_waterfp.g1_g2_selection.select_g1_g2 import (
     AtomRef,
     SelectionResult,
 )
+from ligand_waterfp.official_selection import run_official_selection
 
 
 def test_parses_both_lines():
@@ -135,3 +138,65 @@ def test_write_g1_g2_yaml_accepts_selection_result_and_matches_dict_output(tmp_p
 
     assert dict_out.read_text() == dataclass_out.read_text()
     assert yaml.safe_load(dict_out.read_text()) == {**raw, "system_id": "sys-A"}
+
+
+# --- write_g1_g2_yaml() now normalizes through SelectionResult - a ---------
+# --- malformed dict is rejected instead of assumed valid -------------------
+
+def test_write_g1_g2_yaml_rejects_dict_missing_g2():
+    malformed = {"G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}]}
+    with pytest.raises(KeyError):
+        write_g1_g2_yaml(malformed, "unused.yaml")
+
+
+def test_write_g1_g2_yaml_rejects_atom_entry_missing_serial():
+    """The old dict branch only ever checked for the top-level G1/G2 keys
+    and otherwise wrote whatever was inside them unchecked; normalizing
+    through SelectionResult/AtomRef now also validates each atom entry."""
+    malformed = {
+        "G1": [{"name": "X1"}, {"name": "X2", "serial": 7}],  # first entry has no serial
+        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
+    }
+    with pytest.raises(KeyError):
+        write_g1_g2_yaml(malformed, "unused.yaml")
+
+
+# --- production wiring: run_official_selection.main() must build a --------
+# --- SelectionResult and pass THAT to write_g1_g2_yaml() -------------------
+
+def test_run_official_selection_passes_selection_result_to_writer(tmp_path, monkeypatch):
+    """Mocks the vendored select_next_atom()/select_bulk_atom() (which need
+    a real .tpr with bond connectivity - out of scope for a synthetic
+    test, see tests/README.md) and write_g1_g2_yaml() itself, so this only
+    exercises main()'s own wiring between parse_selection_lines() and the
+    writer - the thing PR6 actually changed."""
+    ranking_csv = tmp_path / "ranking.csv"
+    pd.DataFrame({"name": ["SystemA-lig1"], "atom": [1], "fp": [-10.0]}).to_csv(ranking_csv, index=False)
+    (tmp_path / "SystemAlig1.tpr").touch()  # only existence is checked before select_next_atom/select_bulk_atom run
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_official_selection, "select_next_atom",
+                         lambda mol, verbose=True: "anti-bulk fp selection: X1 (3), X2 (7)")
+    monkeypatch.setattr(run_official_selection, "select_bulk_atom",
+                         lambda mol, verbose=True: "bulk fp selection: X3 (11), X4 (2)")
+
+    captured = {}
+
+    def fake_write_g1_g2_yaml(result, out_path, system_id=None):
+        captured["result"] = result
+        captured["system_id"] = system_id
+
+    monkeypatch.setattr(run_official_selection, "write_g1_g2_yaml", fake_write_g1_g2_yaml)
+    monkeypatch.setattr(sys, "argv", [
+        "ligand-waterfp-select",
+        "--ranking-csv", str(ranking_csv),
+        "--system-id", "SystemA-lig1",
+        "--out", str(tmp_path / "g1_g2.yaml"),
+    ])
+
+    run_official_selection.main()
+
+    assert isinstance(captured["result"], SelectionResult)
+    assert captured["result"].G1 == (AtomRef("X1", 3), AtomRef("X2", 7))
+    assert captured["result"].G2 == (AtomRef("X3", 11), AtomRef("X4", 2))
+    assert captured["system_id"] == "SystemA-lig1"
