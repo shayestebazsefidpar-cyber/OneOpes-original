@@ -19,6 +19,10 @@ pytest
 - `test_g1_g2_selection.py` - the regex parser that turns the official
   selection algorithm's two printed result lines into structured G1/G2
   data, including noisy surrounding log text.
+- `test_build_ligand_cv_consumer.py` - `build_ligand_cv.py`'s consumption
+  of `g1_g2.yaml` through `SelectionResult.from_dict()`: valid input still
+  produces the same serial strings, and a malformed file (missing G1/G2,
+  or an atom entry missing `serial`) is rejected clearly.
 - `test_output_dir_creation.py` - **regression tests for a real bug**
   caught during manual end-to-end testing against a real ligand-in-water system:
   several scripts didn't create their output directory before writing,
