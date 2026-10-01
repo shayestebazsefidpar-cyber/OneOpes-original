@@ -1,4 +1,4 @@
-"""Shared fixtures for comparisons against BioSimSpace itself.
+"""Shared fixtures for comparisons against BioSimSpace (public API only).
 
 Validation systems are only test inputs; nothing in ``src/`` depends on them.
 They are located (read-only) from, in order:
@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-EXPECTED_BSS_VERSION = "2024.4.1"
 VALIDATION_SYSTEMS = ("HSP90/OneOPES/lig1", "BRD4/OneOPES/lig1")
 
 

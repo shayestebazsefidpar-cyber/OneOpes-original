@@ -1,10 +1,10 @@
 """
 Top-level makeFunnel-type API around BioSimSpace.
 
-``make_funnel(system, ...)`` = BioSimSpace ``makeFunnel()`` (atoms0/atoms1)
-+ a BioSimSpace ``Funnel`` CV built from them, with P0/P1, axis, CV
-parameters and funnel geometry exposed as plain numbers. Nothing here
-changes the BioSimSpace science; see ``p0_p1.py`` and ``geometry.py``.
+``make_funnel(system, ...)`` = public BioSimSpace ``makeFunnel()``
+(atoms0/atoms1) + a public BioSimSpace ``Funnel`` CV built from them, with
+P0/P1, axis, CV parameters and funnel geometry exposed as plain numbers.
+See ``p0_p1.py`` and ``geometry.py``.
 """
 
 from __future__ import annotations
@@ -57,9 +57,9 @@ class FunnelResult:
         """Funnel radius (nm) at projection(s) along the axis (nm) - ``cv.getExtent()``."""
         return funnel_extent(self.cv, projection_nm)
 
-    def wall_points(self, radius: str = "cv", basis_ints: tuple[int, int] | None = None) -> np.ndarray:
-        """viewFunnel-style wall points (A); see :func:`geometry.funnel_wall_points`."""
-        return funnel_wall_points(self.p0, self.p1, self.cv, radius=radius, basis_ints=basis_ints)
+    def wall_points(self, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
+        """Funnel wall points (A) with ``cv.getExtent()`` radii; see :func:`geometry.funnel_wall_points`."""
+        return funnel_wall_points(self.p0, self.p1, self.cv, step_A=step_A, n_angles=n_angles)
 
 
 def make_funnel(
@@ -74,8 +74,8 @@ def make_funnel(
 
     Parameters
     ----------
-    system : BioSimSpace._SireWrappers.System
-        Solvated protein-ligand system.
+    system : BioSimSpace System
+        Solvated protein-ligand system (e.g. from ``BioSimSpace.IO.readMolecules``).
     protein, ligand, alpha_carbon_name, property_map
         Passed unchanged to BioSimSpace ``makeFunnel()``.
     **funnel_kwargs

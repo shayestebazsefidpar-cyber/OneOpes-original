@@ -1,32 +1,24 @@
 """
 P0 / P1 (atoms0 / atoms1) selection and derived P0/P1 coordinates.
 
-Source of truth: BioSimSpace ``makeFunnel()`` (BioSimSpace 2024.4.1,
-``BioSimSpace/Metadynamics/CollectiveVariable/_funnel.py`` lines 711-989;
-GPL-3.0-or-later, (c) 2017-2025 Lester Hedges; adapted there from
-``funnel_maker.py`` by Dominykas Lukauskis).
+The atom selections come from the public BioSimSpace function
+``BioSimSpace.Metadynamics.CollectiveVariable.makeFunnel()``, called
+unchanged; this package does not select atoms itself.
 
-:func:`make_p0_p1` calls BioSimSpace ``makeFunnel()`` unchanged and takes the
-atom selections it returns:
+``makeFunnel()`` returns two lists of atom indices:
 
-* ``atoms1`` - every alpha carbon within 10 A of the ligand COM.
-* ``atoms0`` - every alpha carbon within 7 A of a point 10 A from the atoms1
-  centroid, on the side away from the open (solvent) direction.
+* ``atoms1`` - alpha carbons around the ligand (the funnel's inflection side).
+* ``atoms0`` - alpha carbons deeper in the protein (the funnel's origin).
 
-``makeFunnel()`` returns only these atom selections, not coordinates. P0/P1
-here are **derived** from them: the plain average position of the ``atoms0``
-/ ``atoms1`` atoms (the same formula makeFunnel applies internally to atoms1,
-lines 949-954). Because every selected atom is a CA, this equals the
-mass-weighted COM that PLUMED computes from the same atoms.
+It returns no coordinates. P0/P1 here are **derived** from the selections:
+the plain average position of the ``atoms0`` / ``atoms1`` atoms. Every
+selected atom is an alpha carbon, so this equals their mass-weighted centre.
 
 Conventions
 -----------
 * Coordinates and lengths are in Angstrom.
 * ``atoms0`` / ``atoms1`` are 0-based system-level atom indices, exactly as
-  returned by makeFunnel (``System.getIndex``). BioSimSpace's PLUMED writer
-  writes them as 1-based serials ``index + 1`` (``p1``/``p2`` COMs). BSS
-  ``viewFunnel()`` instead looks them up in the protein's own atom list; that
-  convention is NOT used here.
+  returned by ``makeFunnel()`` (``System.getAtom(i)`` / ``System.getIndex``).
 """
 
 from __future__ import annotations
@@ -56,9 +48,9 @@ class P0P1Result:
     """BioSimSpace atom selections and the P0/P1 coordinates derived from them (A)."""
 
     atoms0: list[int]
-    """makeFunnel atoms0: 0-based system indices of the P0 (funnel origin) CA atoms."""
+    """makeFunnel atoms0: 0-based system indices of the P0 (funnel origin) atoms."""
     atoms1: list[int]
-    """makeFunnel atoms1: 0-based system indices of the P1 (inflection side) CA atoms."""
+    """makeFunnel atoms1: 0-based system indices of the P1 (inflection side) atoms."""
     p0: np.ndarray
     """Derived: average position of ``atoms0``."""
     p1: np.ndarray
@@ -94,9 +86,10 @@ def p0_p1_from_atoms(atoms0: Sequence[int], atoms1: Sequence[int], coords: np.nd
     )
 
 
-def _xyz(v) -> tuple[float, float, float]:
-    """Sire vector -> floats in A (components may carry Sire length units)."""
-    return tuple(c.value() if hasattr(c, "value") else float(c) for c in (v.x(), v.y(), v.z()))
+def atom_coordinates_A(system, index: int, property_map: dict | None = None) -> np.ndarray:
+    """Coordinates (A) of system atom ``index`` via the public ``Atom.coordinates()``."""
+    c = system.getAtom(int(index)).coordinates(property_map=property_map or {})
+    return np.array([c.x().angstroms().value(), c.y().angstroms().value(), c.z().angstroms().value()])
 
 
 def make_p0_p1(
@@ -118,8 +111,7 @@ def make_p0_p1(
     atoms0, atoms1 = makeFunnel(
         system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name, property_map=property_map
     )
-    coord_prop = property_map.get("coordinates", "coordinates")
     coords = np.zeros((max([*atoms0, *atoms1]) + 1, 3))
     for i in set(atoms0) | set(atoms1):
-        coords[i] = _xyz(system.getAtom(i)._sire_object.property(coord_prop))
+        coords[i] = atom_coordinates_A(system, i, property_map)
     return p0_p1_from_atoms(atoms0, atoms1, coords)

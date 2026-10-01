@@ -3,8 +3,6 @@ name = "oneopes-funnel"
 version = "0.1.0"
 description = "Funnel construction for OneOPES: P0/P1 (atoms0/atoms1) selection, P0/P1 COMs, funnel axis and funnel geometry"
 readme = "README.md"
-license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",

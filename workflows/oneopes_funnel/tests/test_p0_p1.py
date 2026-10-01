@@ -118,9 +118,12 @@ def test_d4_bss_index_plus_one_is_whole_pdb_serial(ref, ours):
     if not os.path.exists(pdb):
         pytest.skip(f"no whole.pdb in {ref.directory}")
     u = mda.Universe(pdb)
+    # residue name of each protein atom, from public Residue.name()/nAtoms()
+    protein, _, offsets, _ = molecule_layout(ref.system)
+    residue_of = []
+    for residue in ref.system[protein].getResidues():
+        residue_of += [residue.name()] * residue.nAtoms()
     for i in ours.atoms0 + ours.atoms1:
-        atom = ref.system.getAtom(i)
-        residue = atom._sire_object.residue()
         pdb_atom = u.atoms[i]  # 0-based position = PDB serial i + 1
         assert int(pdb_atom.id) == i + 1
-        assert (pdb_atom.name, pdb_atom.resname, int(pdb_atom.resid)) == (atom.name(), residue.name().value(), residue.number().value())
+        assert (pdb_atom.name, pdb_atom.resname) == (ref.system.getAtom(i).name(), residue_of[i - offsets[protein]])

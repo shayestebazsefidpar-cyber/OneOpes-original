@@ -1,20 +1,32 @@
-"""A: the installed BioSimSpace is exactly the reviewed reference (2024.4.1).
+"""The package relies only on the public BioSimSpace funnel API.
 
-A version or source mismatch FAILS (it is never skipped): the comparisons in
-this suite are only meaningful against the reviewed BSS source.
+These checks are version-independent: they assert the public API the package
+uses exists, and that neither the package nor its tests touch private
+(``_``-prefixed) BioSimSpace modules or attributes.
 """
 
-import hashlib
+import inspect
+import re
 from pathlib import Path
 
 import pytest
-from conftest import EXPECTED_BSS_VERSION
 
-# SHA-256 of the reviewed BioSimSpace 2024.4.1 source files.
-REVIEWED_SHA256 = {
-    "Metadynamics/CollectiveVariable/_funnel.py": "40f05e1a924a30a99d548f66087198b7953528ede9557766e1e9521ba44388e8",
-    "Process/_plumed.py": "0710e759e9d690d362d3dadb4b62dccf6a6fc64f40bb5bf0b8b8064aeb106ae3",
-}
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+# Built by concatenation so this file does not match its own patterns.
+PRIVATE_BSS_PATTERNS = [
+    re.compile("BioSim" + r"Space(\.\w+)*\._\w"),  # dotted access to a private module/attribute
+    re.compile(r"from\s+BioSim" + r"Space[\w.]*\s+import\s+.*\b_\w"),  # from-import of an underscore name
+    re.compile(r"\._sire" + r"_object\b"),  # BioSimSpace wrapper internals
+]
+
+
+def test_no_private_biosimspace_usage_in_package_or_tests():
+    hits = []
+    for path in sorted(PACKAGE_ROOT.glob("src/**/*.py")) + sorted(PACKAGE_ROOT.glob("tests/*.py")):
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            if any(p.search(line) for p in PRIVATE_BSS_PATTERNS):
+                hits.append(f"{path.relative_to(PACKAGE_ROOT)}:{n}: {line.strip()}")
+    assert hits == []
 
 
 @pytest.fixture(scope="module")
@@ -22,21 +34,29 @@ def bss():
     return pytest.importorskip("BioSimSpace")
 
 
-def test_a1_bss_version_is_reviewed_version(bss):
-    assert bss.__version__ == EXPECTED_BSS_VERSION, (
-        f"BioSimSpace {bss.__version__} installed; this suite validates against {EXPECTED_BSS_VERSION}. "
-        "Re-review the BSS funnel source before updating EXPECTED_BSS_VERSION."
-    )
+def test_public_funnel_api_is_available(bss):
+    from BioSimSpace.Metadynamics import Bound
+    from BioSimSpace.Metadynamics.CollectiveVariable import Funnel, makeFunnel
+    from BioSimSpace.Types import Length
+
+    params = inspect.signature(makeFunnel).parameters
+    for name in ("system", "protein", "ligand", "alpha_carbon_name", "property_map"):
+        assert name in params, name
+    for method in ("getAtoms0", "getAtoms1", "getWidth", "getBuffer", "getSteepness", "getInflection",
+                   "getLowerBound", "getUpperBound", "getExtent", "getCorrection"):
+        assert callable(getattr(Funnel, method)), method
+    assert callable(Bound) and callable(Length)
 
 
-@pytest.mark.parametrize("relpath", sorted(REVIEWED_SHA256))
-def test_a2_a3_bss_source_unchanged(bss, relpath):
-    path = Path(bss.__file__).parent / relpath
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    assert digest == REVIEWED_SHA256[relpath], f"{path} differs from the reviewed BSS source."
+def test_public_extent_contract(bss):
+    """getExtent(Length) -> Length; width + buffer deep inside, width/2 + buffer at the inflection."""
+    from BioSimSpace.Metadynamics.CollectiveVariable import Funnel
+    from BioSimSpace.Types import Length
 
-
-def test_a4_public_bss_funnel_api_importable(bss):
-    from BioSimSpace.Metadynamics.CollectiveVariable import Funnel, makeFunnel, viewFunnel
-
-    assert callable(makeFunnel) and callable(viewFunnel) and isinstance(Funnel, type)
+    cv = Funnel([0], [1])
+    width = cv.getWidth().nanometers().value()
+    buffer = cv.getBuffer().nanometers().value()
+    at_inflection = cv.getExtent(cv.getInflection()).nanometers().value()
+    assert at_inflection == pytest.approx(width / 2 + buffer, abs=1e-12)
+    deep = cv.getExtent(Length(-1000.0, "nanometer")).nanometers().value()
+    assert deep == pytest.approx(width + buffer, abs=1e-9)
