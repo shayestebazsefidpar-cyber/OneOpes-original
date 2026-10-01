@@ -1,0 +1,19 @@
+[project]
+name = "oneopes-funnel"
+version = "0.1.0"
+description = "Funnel construction for OneOPES: P0/P1 (atoms0/atoms1) selection, P0/P1 COMs, funnel axis and funnel geometry"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+# BioSimSpace/Sire (the funnel source of truth: makeFunnel, Funnel) are conda-only
+# and are NOT pip-installable - install them in the conda env, e.g. the
+# `biosimspace` env. Nothing extra to pip-install for them here.
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
