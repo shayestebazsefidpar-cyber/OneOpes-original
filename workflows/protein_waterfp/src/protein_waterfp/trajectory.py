@@ -2,8 +2,11 @@
 Block plan and the per-frame structural pass (Contact, Bridge).
 
 Blocks: consecutive, non-overlapping groups of ``round(block_ns / dt)``
-frames starting at ``first_frame``; only complete blocks are analysed and the
-leftover frames are reported, never silently used.
+frames starting at ``first_frame``. Only complete blocks enter the block-wise
+convergence analysis; trailing frames that do not fill a complete block are
+reported (``BlockPlan.unused_tail_frames``) and are not used as a block, but
+they ARE included in the final full-trajectory FP / Contact / Bridge pass
+(see ``cli.run_analysis``).
 
 Per frame (distances in A, minimum image):
 * Contact: candidate's minimum distance to any ligand heavy atom <= 5 A.

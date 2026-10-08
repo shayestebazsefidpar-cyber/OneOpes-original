@@ -43,6 +43,42 @@ trajectory (length detected from the input)
   `trajectory_length_ns` = time of last frame − time of first frame. Frames
   after the last complete block are not in any block but are included in the
   final values.
+
+## Interpretation and limitations
+
+* **What FP measures.** FP quantifies how much the local water-oxygen
+  distribution around an atom deviates from bulk water. With the current
+  WaterFP definition the integrand `-2π·norm·(g ln g − g + 1)·r²` is never
+  positive, so FP ≤ 0 (FP = 0 for a bulk-like distribution).
+* **More negative FP does not mean "more hydrated".** Buried or dry protein
+  atoms can have strongly negative FP because the protein excludes water and
+  strongly perturbs the distribution around them. `FP_Rank` 1 is the most
+  negative FP, i.e. the strongest perturbation, not automatically the most
+  hydrated atom. Choosing final hydration CVs requires further scientific
+  interpretation (e.g. together with `Contact_occupancy_5A`,
+  `Bridge_occupancy` and `SASA_A2`); this workflow does not select CVs.
+* **Convergence criterion.** `FP_relative_change` is a worst-case per-atom
+  relative criterion, `max |FP_now − FP_prev| / max(|FP_prev|, 1e-6)` over
+  all candidates. Atoms with FP close to zero (bulk-like, solvent-exposed) can
+  produce very large relative changes and can dominate the verdict. This is
+  inherited from the current ligand-side implementation
+  (`ligand_waterfp.check_stability`) and is intentionally unchanged here.
+* **Reference structure.** Candidate selection and `SASA_A2` use only the
+  supplied `--complex` structure. SASA is static (one structure), not
+  trajectory-averaged.
+* **Distance definition.** `Min_distance_to_ligand_A` is the minimum distance
+  from the protein atom to any ligand heavy atom, not to the ligand centre of
+  mass.
+* **Numbering.** `Atom_name` and `Residue_number` come from the topology
+  universe (`--topology`); `Chain_ID` comes from the raw `--complex` file when
+  it has chain IDs. Residue numbering can therefore differ between a `.tpr`
+  and the PDB. `Atom_serial_pdb` is the 0-based atom index + 1 (not read from
+  the file); check the numbering convention before mapping atoms to external
+  PLUMED or literature annotations.
+* **Scope.** The workflow is retrospective post-processing of an existing
+  trajectory. It does not run MD, OneOPES or PLUMED, and has no Zone or
+  funnel logic.
+
 ## Usage
 
 ```bash
