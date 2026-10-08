@@ -1,0 +1,24 @@
+# Generated analysis output - never commit results from a specific system
+# into this workflow's code tree.
+outputs/
+results/
+
+# MD inputs (per-run, never part of the code tree)
+*.xtc
+*.trr
+*.tpr
+*.edr
+*.cpt
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# pytest
+.pytest_cache/
