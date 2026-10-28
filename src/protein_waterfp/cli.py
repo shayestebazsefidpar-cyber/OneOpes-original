@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from trajectory_blocks import complete_blocks, frame_step_ps, frames_per_block
 from convergence import (
     DEFAULT_TOLERANCES,
     StabilityResult,
@@ -48,15 +49,9 @@ from .selection import (
     structure_chain_ids,
     validate_same_atoms,
 )
-from .trajectory import (
-    BLOCK_NS_DEFAULT,
-    BRIDGE_WATER_CUTOFF_A,
-    CONTACT_CUTOFF_A,
-    StructuralBlock,
-    plan_blocks,
-    structural_block,
-    trajectory_dt_ps,
-)
+from .trajectory import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, StructuralBlock, structural_block
+
+BLOCK_NS_DEFAULT = 5.0
 
 
 @dataclass(frozen=True)
@@ -164,27 +159,35 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
 
     n_frames = len(u_traj.trajectory)
-    dt_ps = trajectory_dt_ps(u_traj)
-    plan = plan_blocks(n_frames, dt_ps, options.block_ns, options.first_frame, options.last_frame)
-    block_len_ns = plan.frames_per_block * dt_ps / 1000.0
+    dt_ps = frame_step_ps(u_traj)
+    block_length = frames_per_block(options.block_ns, dt_ps)
+    first_frame = options.first_frame
+    end_frame = n_frames if options.last_frame is None else options.last_frame
+    if not 0 <= first_frame < end_frame <= n_frames:
+        raise ValueError(f"Invalid frame range [{first_frame}, {end_frame}) for a {n_frames}-frame trajectory.")
+    block_ranges = complete_blocks(first_frame, end_frame, block_length)
+    if not block_ranges:
+        raise ValueError(f"Frames [{first_frame}, {end_frame}) hold less than one {options.block_ns} ns block.")
+    unused_tail_frames = end_frame - block_ranges[-1].stop
+    block_len_ns = block_length * dt_ps / 1000.0
     traj_start_ns, traj_end_ns = _frame_time_ns(u_traj, 0), _frame_time_ns(u_traj, n_frames - 1)
-    first_frame, end_frame = plan.first_frame, plan.last_frame_exclusive
     analysis_start_ns, analysis_end_ns = _frame_time_ns(u_traj, first_frame), _frame_time_ns(u_traj, end_frame - 1)
     trajectory_length_ns = traj_end_ns - traj_start_ns
     final_analysis_time_ns = analysis_end_ns - analysis_start_ns
     log(f"[protein-waterfp] trajectory: {n_frames} frames, dt {dt_ps} ps, {traj_start_ns:g}-{traj_end_ns:g} ns "
         f"({trajectory_length_ns:g} ns); analysed frames {first_frame}-{end_frame - 1} ({final_analysis_time_ns:g} ns)")
-    log(f"[protein-waterfp] {len(plan.blocks)} blocks of {plan.frames_per_block} frames ({options.block_ns} ns), "
-        f"{len(plan.blocks) - 1} transitions; {plan.unused_tail_frames} trailing frame(s) not in a complete block")
+    log(f"[protein-waterfp] {len(block_ranges)} blocks of {block_length} frames ({options.block_ns} ns), "
+        f"{len(block_ranges) - 1} transitions; {unused_tail_frames} trailing frame(s) not in a complete block")
 
     # Compute: WaterFP and contacts of each block, then of the whole analysed range.
     candidate_atoms = u_traj.atoms[cand_idx]
     water_oxygens = u_traj.atoms[sel.water_oxygens]
     blocks, contacts, block_times = [], [], []
-    for b, (start, end) in enumerate(plan.blocks):
-        blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=start, stop=end))
-        contacts.append(structural_block(u_traj, start, end, cand_idx, sel.ligand_heavy, sel.water_oxygens))
-        t_start = _frame_time_ns(u_traj, start)
+    for b, frames in enumerate(block_ranges):
+        blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=frames.start, stop=frames.stop))
+        contacts.append(structural_block(u_traj, frames.start, frames.stop, cand_idx, sel.ligand_heavy,
+                                         sel.water_oxygens))
+        t_start = _frame_time_ns(u_traj, frames.start)
         block_times.append((t_start, t_start + block_len_ns))
         log(f"[protein-waterfp] block {b} ({t_start:g}-{t_start + block_len_ns:g} ns) done")
     log(f"[protein-waterfp] full-trajectory pass over frames {first_frame}-{end_frame - 1}")
@@ -224,9 +227,9 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         "n_frames": n_frames,
         "dt_ps": dt_ps,
         "block_size_ns": options.block_ns,
-        "number_of_blocks": len(plan.blocks),
+        "number_of_blocks": len(block_ranges),
         "number_of_transitions": len(stabilities),
-        "frames_not_in_a_complete_block": plan.unused_tail_frames,
+        "frames_not_in_a_complete_block": unused_tail_frames,
         "stable_transitions_required": tol.n_stable,
         "fp_threshold": tol.fp_rel_tol,
         "rdf_nrmsd_threshold": tol.rdf_nrmsd_tol,
@@ -256,10 +259,10 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         "n_candidate_atoms": len(labels),
         "ligand_selection": sel.ligand_description,
         "water_selection": sel.water_description,
-        "frames": {"n_frames": n_frames, "dt_ps": plan.dt_ps, "frames_per_block": plan.frames_per_block,
+        "frames": {"n_frames": n_frames, "dt_ps": dt_ps, "frames_per_block": block_length,
                    "analysed_frame_range": [first_frame, end_frame - 1],
-                   "frames_not_in_a_complete_block": plan.unused_tail_frames,
-                   "blocks": [list(bl) for bl in plan.blocks]},
+                   "frames_not_in_a_complete_block": unused_tail_frames,
+                   "blocks": [[frames.start, frames.stop] for frames in block_ranges]},
         "final_values": {"FP": "full analysed frame range", "Contact_occupancy_5A": "full analysed frame range",
                          "Bridge_occupancy": "full analysed frame range",
                          "SASA_A2": "static, complex structure", "FP_Rank": "1 = most negative FP"},

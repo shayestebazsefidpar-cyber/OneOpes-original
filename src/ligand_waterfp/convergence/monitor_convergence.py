@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 
 from convergence import Tolerances, check_stability, first_convergence, stable_in_a_row, transitions_table
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
+from trajectory_blocks import frame_step_ps, frames_per_block
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
@@ -259,12 +260,13 @@ def main():
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
     u = wait_for_frames(get_universe, 2, args.mdrun_pid, args.poll_seconds)
-    if len(u.trajectory) < 2:
-        raise SystemExit("[monitor] the trajectory needs at least two frames to know the time step.")
-    dt_ps = u.trajectory[1].time - u.trajectory[0].time
-    frames_per_block = int(round(args.block_ns * 1000.0 / dt_ps))
-    block_len_ns = frames_per_block * dt_ps / 1000.0
-    print(f"[monitor] dt/frame = {dt_ps} ps -> {frames_per_block} frames/block ({args.block_ns} ns)")
+    try:
+        dt_ps = frame_step_ps(u)
+        block_length = frames_per_block(args.block_ns, dt_ps)
+    except ValueError as e:
+        raise SystemExit(f"[monitor] {e}")
+    block_len_ns = block_length * dt_ps / 1000.0
+    print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({args.block_ns} ns)")
 
     block_results, block_times, stabilities = [], [], []
     fp_tables, rdf_tables = [], []  # one table per block
@@ -273,7 +275,7 @@ def main():
     # Analyse one block at a time as mdrun writes it, until convergence or until mdrun stops.
     while converged_at is None:
         b = len(block_results)
-        start, stop = b * frames_per_block, (b + 1) * frames_per_block
+        start, stop = b * block_length, (b + 1) * block_length
         u = wait_for_frames(get_universe, stop, args.mdrun_pid, args.poll_seconds)
         if len(u.trajectory) < stop:
             break  # mdrun ended before this block was complete
@@ -320,7 +322,7 @@ def main():
         stop_reason = (
             f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
             f"{stop_block} could complete ({len(u.trajectory)} frames available, "
-            f"{(stop_block + 1) * frames_per_block} needed). "
+            f"{(stop_block + 1) * block_length} needed). "
             "Simulation ended (finished its full length, crashed, or was stopped externally) "
             "before convergence was detected by this monitor."
         )
