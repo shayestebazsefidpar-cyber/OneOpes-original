@@ -76,7 +76,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from waterfp import NORM_TAIL_BINS_DEFAULT, RDF_BINWIDTH_NM_DEFAULT, RDF_RMAX_NM_DEFAULT, WaterFP
+from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
     "WaterFP (github.com/valeriorizzi/WaterFP, Scripts/fp.py): "
@@ -138,8 +138,8 @@ def parse_args():
                          "e.g. some topologies name the same water residue WAT/HOH with oxygen "
                          "atom name OW instead of SOL/O. Check your own .tpr before trusting the "
                          "defaults on a new system.")
-    p.add_argument("--rmax-nm", type=float, default=RDF_RMAX_NM_DEFAULT)
-    p.add_argument("--binwidth-nm", type=float, default=RDF_BINWIDTH_NM_DEFAULT)
+    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
+    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     p.add_argument("--block-ns", type=float, default=5.0,
                     help="Trajectory block size in ns (default: 5.0)")
@@ -358,7 +358,8 @@ def main():
     print(f"[monitor] {n_heavy} ligand heavy atoms (resname={args.ligand_resname}): {heavy_names}")
     print(f"[monitor] {len(water_O_idx)} water oxygens "
           f"(resname={args.water_resname}, atom name={args.water_atom_name})")
-    print(f"[monitor] RDF: rmax={args.rmax_nm} nm, bins={round(args.rmax_nm / args.binwidth_nm)}, "
+    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
+    print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
     ts_per_frame_ps = None
@@ -405,8 +406,8 @@ def main():
         start_f = block_idx * frames_per_block
         end_f = needed
 
-        block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], rmax_nm=args.rmax_nm,
-                        binwidth_nm=args.binwidth_nm, norm_tail_bins=args.norm_tail_bins)
+        block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
+                        norm_tail_bins=args.norm_tail_bins)
         block.run(start=start_f, stop=end_f)
         t_start_ns, t_end_ns = block.times[0] / 1000.0, block.times[-1] / 1000.0
 

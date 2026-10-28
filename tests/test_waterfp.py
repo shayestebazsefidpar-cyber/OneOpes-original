@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from MDAnalysis.coordinates.memory import MemoryReader
 
-from waterfp import WaterCounts, WaterFP, fingerprint
+from waterfp import RadialGrid, WaterCounts, WaterFP, fingerprint
 
 BOX_A = 50.0  # half box (25 A) > rmax (20.01 A): every bin is fully inside the minimum image
 BULK_DENSITY_NM3 = 33.4  # water-O number density of bulk water
@@ -29,41 +29,40 @@ def universe_from_coordinates(coords: np.ndarray, box_a: float = BOX_A) -> mda.U
     return u
 
 
-def water_counts(counts: np.ndarray, n_frames: int = 1, rmax_nm: float = 2.001,
-                 binwidth_nm: float = 0.001) -> WaterCounts:
-    return WaterCounts(counts=counts, n_frames=n_frames, solute_indices=np.arange(len(counts)),
-                       rmax_nm=rmax_nm, binwidth_nm=binwidth_nm)
+def water_counts(counts: np.ndarray, n_frames: int = 1) -> WaterCounts:
+    """WaterCounts on the default grid, for atoms 0..len(counts)-1."""
+    return WaterCounts(counts=counts, n_frames=n_frames, solute_indices=np.arange(len(counts)), grid=RadialGrid())
 
 
 def bulk_water_counts(n_atoms: int = 1) -> WaterCounts:
     """Counts of a uniform bulk-water density around every atom (g(r) == 1 up to integer rounding)."""
     n_frames = 10**12  # many frames, so integer counts follow the bulk density closely even in tiny shells
-    template = water_counts(np.zeros((n_atoms, 2001), dtype=np.int64))
-    counts = np.round(BULK_DENSITY_NM3 * n_frames * template.shell_volumes_nm3).astype(np.int64)
+    counts = np.round(BULK_DENSITY_NM3 * n_frames * RadialGrid().shell_volumes_nm3).astype(np.int64)
     return water_counts(np.tile(counts, (n_atoms, 1)), n_frames=n_frames)
 
 
 def test_default_grid_matches_the_waterfp_reference_settings():
-    counts = water_counts(np.zeros((1, 2001), dtype=np.int64))
-    assert counts.n_bins == 2001
-    assert len(counts.edges_nm) == 2002
-    assert counts.edges_nm[0] == 0.0
-    assert np.isclose(counts.edges_nm[-1], 2.001)
-    assert np.allclose(counts.r_nm, counts.edges_nm[:-1] + 0.0005)
+    grid = RadialGrid()
+    assert grid.n_bins == 2001
+    assert len(grid.edges_nm) == 2002
+    assert grid.edges_nm[0] == 0.0
+    assert np.isclose(grid.edges_nm[-1], 2.001)
+    assert np.allclose(grid.r_nm, grid.edges_nm[:-1] + 0.0005)
+    assert np.array_equal(grid.edges_a, 10.0 * grid.edges_nm)
 
 
 def test_custom_grid_has_uniform_bins_and_growing_shells():
-    counts = water_counts(np.zeros((1, 10), dtype=np.int64), rmax_nm=1.0, binwidth_nm=0.1)
-    assert counts.n_bins == 10
-    assert np.allclose(np.diff(counts.edges_nm), 0.1)
-    assert np.all(counts.shell_volumes_nm3 > 0)
-    assert np.all(np.diff(counts.shell_volumes_nm3) > 0)
+    grid = RadialGrid(rmax_nm=1.0, binwidth_nm=0.1)
+    assert grid.n_bins == 10
+    assert np.allclose(np.diff(grid.edges_nm), 0.1)
+    assert np.all(grid.shell_volumes_nm3 > 0)
+    assert np.all(np.diff(grid.shell_volumes_nm3) > 0)
 
 
 def test_density_is_counts_per_frame_per_shell_volume():
     raw = np.arange(2 * 2001, dtype=np.int64).reshape(2, 2001)
     counts = water_counts(raw, n_frames=4)
-    assert np.array_equal(counts.density_nm3, raw / 4 / counts.shell_volumes_nm3)
+    assert np.array_equal(counts.density_nm3, raw / 4 / counts.grid.shell_volumes_nm3)
 
 
 def test_a_water_is_counted_in_the_bin_of_its_distance():
@@ -132,8 +131,8 @@ def test_results_default_to_the_whole_trajectory():
     assert results.water_counts.n_frames == len(u.trajectory)
     assert results.water_counts.counts.dtype == np.int64
     assert results.fp.shape == (3,)
-    assert results.g.shape == (3, results.water_counts.n_bins)
-    assert np.array_equal(results.r_nm, results.water_counts.r_nm)
+    assert results.g.shape == (3, RadialGrid().n_bins)
+    assert np.array_equal(results.r_nm, RadialGrid().r_nm)
 
 
 def test_fp_table_has_one_row_per_atom_named_by_label():

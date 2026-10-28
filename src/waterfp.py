@@ -15,17 +15,15 @@ from MDAnalysis.lib.distances import capped_distance
 from scipy.special import xlogy
 
 
-RDF_RMAX_NM_DEFAULT = 2.001
-RDF_BINWIDTH_NM_DEFAULT = 0.001
 NORM_TAIL_BINS_DEFAULT = 500
 
-@dataclass(frozen=True, eq=False)
-class WaterCounts:
-    counts: np.ndarray          # (n_atoms, n_bins) int64: water O counts per bin, summed over frames
-    n_frames: int               # frames contributing to counts
-    solute_indices: np.ndarray  # (n_atoms,) global atom indices; row i of counts <-> solute_indices[i]
-    rmax_nm: float
-    binwidth_nm: float
+
+@dataclass(frozen=True)
+class RadialGrid:
+    """Uniform radial bins from 0 to rmax_nm (the WaterFP reference: 2.001 nm in 0.001 nm bins)."""
+
+    rmax_nm: float = 2.001
+    binwidth_nm: float = 0.001
 
     @property
     def n_bins(self) -> int:
@@ -36,18 +34,34 @@ class WaterCounts:
         return np.linspace(0.0, self.rmax_nm, self.n_bins + 1)
 
     @property
-    def r_nm(self) -> np.ndarray:            # bin centres
-        e = self.edges_nm
-        return 0.5 * (e[:-1] + e[1:])
+    def edges_a(self) -> np.ndarray:
+        """The bin edges in Angstrom, the unit of MDAnalysis distances."""
+        return 10.0 * self.edges_nm
+
+    @property
+    def r_nm(self) -> np.ndarray:
+        """Centre of each bin."""
+        lower, upper = self.edges_nm[:-1], self.edges_nm[1:]
+        return 0.5 * (lower + upper)
 
     @property
     def shell_volumes_nm3(self) -> np.ndarray:
-        e = self.edges_nm
-        return (4.0 / 3.0) * np.pi * (e[1:] ** 3 - e[:-1] ** 3)
+        """Volume of the spherical shell each bin covers around an atom."""
+        lower, upper = self.edges_nm[:-1], self.edges_nm[1:]
+        return (4.0 / 3.0) * np.pi * (upper ** 3 - lower ** 3)
+
+
+@dataclass(frozen=True, eq=False)
+class WaterCounts:
+    counts: np.ndarray          # (n_atoms, grid.n_bins) int64: water O counts per bin, summed over frames
+    n_frames: int               # frames contributing to counts
+    solute_indices: np.ndarray  # (n_atoms,) global atom indices; row i of counts <-> solute_indices[i]
+    grid: RadialGrid
 
     @property
-    def density_nm3(self) -> np.ndarray:     # (n_atoms, n_bins)
-        return self.counts / self.n_frames / self.shell_volumes_nm3
+    def density_nm3(self) -> np.ndarray:
+        """Water-O number density n(r) around each atom (waters/nm^3), shape (n_atoms, n_bins)."""
+        return self.counts / self.n_frames / self.grid.shell_volumes_nm3
 
 
 def fingerprint(counts: WaterCounts,
@@ -64,13 +78,13 @@ def fingerprint(counts: WaterCounts,
     no_bulk_water = bulk[:, 0] == 0
     if no_bulk_water.any():
         raise ValueError(
-            f"No water in the bulk tail (last {norm_tail_bins} bins, up to {counts.rmax_nm} nm) around "
+            f"No water in the bulk tail (last {norm_tail_bins} bins, up to {counts.grid.rmax_nm} nm) around "
             f"solute atoms {counts.solute_indices[no_bulk_water].tolist()}: check the water selection "
             "and that the box holds water that far from the solute."
         )
     g = density / bulk
-    integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.r_nm ** 2  # xlogy(0, 0) = 0
-    fp = np.trapezoid(integrand, dx=counts.binwidth_nm, axis=1)
+    integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.grid.r_nm ** 2  # xlogy(0, 0) = 0
+    fp = np.trapezoid(integrand, dx=counts.grid.binwidth_nm, axis=1)
     return fp, g
 
 
@@ -91,36 +105,32 @@ class WaterFP(AnalysisBase):
     def get_supported_backends(cls) -> tuple[str, ...]:
         return ("serial", "multiprocessing", "dask")
 
-    def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *,
-                 rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
+    def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *, grid: RadialGrid = RadialGrid(),
                  norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, **kwargs) -> None:
         super().__init__(solute.universe.trajectory, **kwargs)
         self.solute = solute
         self.water_oxygens = water_oxygens
-        self.rmax_nm = rmax_nm
-        self.binwidth_nm = binwidth_nm
+        self.grid = grid
         self.norm_tail_bins = norm_tail_bins
-        n_bins = round(rmax_nm / binwidth_nm)
-        self._distance_edges_a = 10.0 * np.linspace(0.0, rmax_nm, n_bins + 1)  # MDAnalysis uses Angstrom
-        self._atom_edges = np.arange(len(solute) + 1)  # one histogram row per solute atom
 
     def _prepare(self) -> None:
-        shape = (len(self._atom_edges) - 1, len(self._distance_edges_a) - 1)
-        self.results.counts = np.zeros(shape, dtype=np.int64)
+        self.results.counts = np.zeros((self.solute.n_atoms, self.grid.n_bins), dtype=np.int64)
 
     def _single_frame(self) -> None:
+        edges_a = self.grid.edges_a
         box = self._ts.dimensions
-        if box is not None and self._distance_edges_a[-1] > 0.5 * min(box[:3]):
+        if box is not None and edges_a[-1] > 0.5 * min(box[:3]):
             # constant message: Python shows it once, not once per frame
             warnings.warn(
-                f"rmax ({self.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
+                f"rmax ({self.grid.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
                 "distances the outer shells are only partly sampled, so the bulk density and every FP "
                 "are biased. Use a larger box or a smaller rmax.",
                 RuntimeWarning,
             )
         pairs, distances = capped_distance(self.solute.positions, self.water_oxygens.positions,
-                                           max_cutoff=self._distance_edges_a[-1], box=box)
-        histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(self._atom_edges, self._distance_edges_a))
+                                           max_cutoff=edges_a[-1], box=box)
+        one_bin_per_atom = np.arange(self.solute.n_atoms + 1)
+        histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(one_bin_per_atom, edges_a))
         self.results.counts += histogram.astype(np.int64)
 
     def _get_aggregator(self) -> ResultsGroup:
@@ -128,11 +138,10 @@ class WaterFP(AnalysisBase):
 
     def _conclude(self) -> None:
         water_counts = WaterCounts(counts=self.results.counts, n_frames=self.n_frames,
-                                   solute_indices=self.solute.indices.copy(),
-                                   rmax_nm=self.rmax_nm, binwidth_nm=self.binwidth_nm)
+                                   solute_indices=self.solute.indices.copy(), grid=self.grid)
         self.results.water_counts = water_counts
         self.results.fp, self.results.g = fingerprint(water_counts, self.norm_tail_bins)
-        self.results.r_nm = water_counts.r_nm
+        self.results.r_nm = self.grid.r_nm
 
     def fp_table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
         """One row per solute atom: atom, FP. ``labels`` name the atoms (default: solute atom names)."""

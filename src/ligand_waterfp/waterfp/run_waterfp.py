@@ -27,7 +27,7 @@ import argparse
 import os
 import MDAnalysis as mda
 
-from waterfp import NORM_TAIL_BINS_DEFAULT, RDF_BINWIDTH_NM_DEFAULT, RDF_RMAX_NM_DEFAULT, WaterFP
+from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 
 def parse_args():
@@ -40,8 +40,8 @@ def parse_args():
     p.add_argument("--water-atom-name", default="O")
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None)
-    p.add_argument("--rmax-nm", type=float, default=RDF_RMAX_NM_DEFAULT)
-    p.add_argument("--binwidth-nm", type=float, default=RDF_BINWIDTH_NM_DEFAULT)
+    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
+    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     return p.parse_args()
 
@@ -60,8 +60,8 @@ def main():
                           f"atom name '{args.water_atom_name}' in {args.tpr}")
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
-    waterfp = WaterFP(solute, water, rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm,
-                      norm_tail_bins=args.norm_tail_bins)
+    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
+    waterfp = WaterFP(solute, water, grid=grid, norm_tail_bins=args.norm_tail_bins)
     waterfp.run(start=args.start_frame, stop=end_frame)
 
     rdf_csv = os.path.join(args.outdir, "rdf.csv")
