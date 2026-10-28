@@ -14,7 +14,8 @@ converged enough to stop early or to trust for the next stage.
   live `mdrun`, or a finished one for a one-shot report)
 - **Outputs** (written to `--outdir`, default `outputs/convergence` -
   git-ignored): per-block FP/RDF CSVs, a convergence-metrics CSV, plots,
-  and `convergence_summary.json`/`.txt`
+  `convergence_summary.json`/`.txt`, and on convergence the G1/G2
+  selection in `selection/`
 
 ## Usage
 
@@ -35,10 +36,14 @@ pass them through your own driver.
 
 ## Next stage
 
-Once `convergence_summary.json` reports `"converged": true`, it also
-reports `"stop_block"` and `"block_size_ns"`. **Use those to compute the
-exact frame range of that specific converged block** - not the whole
-trajectory - when calling `ligand-waterfp-select` next:
+On convergence the monitor also runs the G1/G2 selection on the converged
+block and writes `rdf.csv`, `fingerprints.csv` and `g1_g2.yaml` to
+`--outdir/selection` (`--fp-round-decimals` sets the FP rounding). Pass
+that `g1_g2.yaml` to `ligand-waterfp-build-cv`.
+
+To redo the selection by hand, run `ligand-waterfp-select` over the same
+block (`stop_block` and `block_size_ns` are in `convergence_summary.json`),
+not the whole trajectory:
 
 ```text
 frames_per_block = round(block_size_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line
@@ -46,7 +51,7 @@ start_frame = stop_block * frames_per_block
 end_frame   = (stop_block + 1) * frames_per_block
 ```
 
-This matters: the G1/G2 selection's 0.2 fp_round tie-break
+The block matters: the G1/G2 selection's 0.2 fp_round tie-break
 (`g1_g2_selection`) is sensitive to exactly which frames the FP values
 were averaged over. Confirmed empirically against a real system's data -
 a whole-trajectory average reproduced the correct G1/G2 *anchor* atoms but

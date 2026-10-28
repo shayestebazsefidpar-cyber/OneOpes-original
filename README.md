@@ -99,23 +99,20 @@ ligand-waterfp-prepare-system \
 
 # ... production MD (see src/ligand_waterfp/system_setup/README.md), then:
 
-# Stage 2 - convergence monitor (auto-stops production once converged)
+# Stage 2 - convergence monitor (auto-stops production once converged).
+# Stage 3 runs here too: on convergence it writes rdf.csv, fingerprints.csv
+# and g1_g2.yaml for the converged block to outputs/convergence/selection.
 ligand-waterfp-monitor $MDRUN_PID \
     --tpr outputs/lig_system/prod.tpr --xtc outputs/lig_system/prod.xtc \
     --outdir outputs/convergence
 
-# Stage 3 - WaterFP and G1/G2 selection. Restrict the frames to the converged
-# block Stage 2 reported, not the whole trajectory: the selection's FP
-# tie-break is sensitive to the window (see convergence's README for the
-# frame range). Writes rdf.csv, fingerprints.csv and g1_g2.yaml.
-ligand-waterfp-select \
-    --tpr outputs/lig_system/prod.tpr --xtc outputs/lig_system/prod.xtc \
-    --start-frame <stop_block * frames_per_block> --end-frame <(stop_block+1) * frames_per_block> \
-    --outdir outputs/selection
+# Stage 3 by hand, only to select over another frame window (see
+# convergence's README for the converged block's frame range):
+# ligand-waterfp-select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
 
 # Stage 4 - ligand-side CV fragment
 ligand-waterfp-build-cv \
-    --g1-g2 outputs/selection/g1_g2.yaml --out outputs/ligand_cv/plumed_fragment.dat
+    --g1-g2 outputs/convergence/selection/g1_g2.yaml --out outputs/ligand_cv/plumed_fragment.dat
 
 # Stage 5 - optional visualization, see src/ligand_waterfp/visualization/README.md
 ```

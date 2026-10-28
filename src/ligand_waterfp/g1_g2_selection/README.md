@@ -15,9 +15,10 @@ These are the rules of the upstream WaterFP notebook;
 
 ## Usage
 
-Restrict the frames to the converged block the monitor reported (see
-`../convergence/README.md`'s "Next stage"). The topology must carry bonds
-(a `.tpr`).
+The monitor already runs this on its converged block and writes the files
+below to `<outdir>/selection`. Run the command by hand only for another
+frame window (see `../convergence/README.md`'s "Next stage" for the
+converged block's frames). The topology must carry bonds (a `.tpr`).
 
 ```bash
 ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \

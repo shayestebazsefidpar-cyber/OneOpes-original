@@ -4,7 +4,8 @@ Convergence monitor for an unbiased ligand-in-water MD run.
 Analyses the trajectory block by block as mdrun writes it (waterfp.WaterFP),
 compares each block with the previous one (the convergence module), and stops
 once --n-stable transitions in a row are stable, sending SIGTERM to the given
-mdrun PID. Tables, plots and a summary are written to --outdir.
+mdrun PID. Tables, plots and a summary are written to --outdir; on convergence,
+the G1/G2 selection of the converged block goes to --outdir/selection.
 METHOD_RATIONALE.md explains the criteria.
 
 Usage:
@@ -27,6 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from convergence import Tolerances, check_stability, first_convergence, stable_in_a_row, transitions_table
+from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
@@ -69,6 +71,8 @@ def parse_args():
                     help="Consecutive stable block-transitions required to declare convergence (default: 3)")
     p.add_argument("--poll-seconds", type=int, default=30,
                     help="Wait time between polls when waiting for more trajectory frames (default: 30)")
+    p.add_argument("--fp-round-decimals", type=int, default=1,
+                    help="Decimals FP is rounded to when the G1/G2 selection compares atoms (default: 1)")
     return p.parse_args()
 
 
@@ -342,3 +346,10 @@ def main():
             os.kill(args.mdrun_pid, signal.SIGTERM)
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
+
+    if converged:  # the last block analysed is the converged one
+        try:
+            selection = write_selection(block, outdir / "selection", args.fp_round_decimals)
+            print(f"[monitor] {selection}, written to {outdir / 'selection'}")
+        except ValueError as e:
+            print(f"[monitor] no G1/G2 selection for block {stop_block}: {e}")

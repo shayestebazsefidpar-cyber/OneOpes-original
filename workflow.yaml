@@ -27,7 +27,8 @@ stages:
     console_script: ligand-waterfp-monitor
     depends_on: [system_setup]
     inputs: [tpr, xtc]
-    outputs: [convergence_summary_json, convergence_metrics_csv, fp_values_by_block_wide_csv]
+    outputs: [convergence_summary_json, convergence_metrics_csv, fp_values_by_block_wide_csv,
+              rdf_csv, fingerprints_csv, g1_g2_yaml]   # the last three in selection/, on convergence
 
   - id: selection
     module: ligand_waterfp.g1_g2_selection.select_g1_g2
@@ -35,15 +36,17 @@ stages:
     depends_on: [convergence]
     inputs: [tpr, xtc]
     outputs: [rdf_csv, fingerprints_csv, g1_g2_yaml]
+    optional: true
     note: >
-      WaterFP over the converged block, then the G1/G2 rules of the
-      upstream notebook, tested against its vendored code in
+      The convergence stage already runs this on its converged block; run
+      it by hand only for another frame window. WaterFP, then the G1/G2
+      rules of the upstream notebook, tested against its vendored code in
       src/ligand_waterfp/official_selection/vendored_selection.py.
 
   - id: ligand_cv
     module: ligand_waterfp.ligand_cv.build_ligand_cv
     console_script: ligand-waterfp-build-cv
-    depends_on: [selection]
+    depends_on: [convergence]
     inputs: [g1_g2_yaml]
     outputs: [plumed_fragment_dat]
 

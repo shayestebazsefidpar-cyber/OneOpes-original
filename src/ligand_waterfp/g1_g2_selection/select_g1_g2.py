@@ -4,7 +4,8 @@ G1/G2 selection: the ligand heavy-atom pairs the ligand-side CV is built on, cho
     ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
         [--start-frame N] [--end-frame M] [--ligand-resname MOL]
 
-Restrict the frames to the monitor's converged block. Writes, for review:
+The monitor already does this for its converged block; use this command for any other frame
+window. Writes, for review:
     rdf.csv           (atom,r_nm,n_r)  water-O number density, waters/nm^3
     fingerprints.csv  (atom,fp)        WaterFP per ligand heavy atom
     g1_g2.yaml        G1 and G2 atom names and 1-based serials (MDAnalysis index + 1)
@@ -53,6 +54,10 @@ class SelectionResult:
     def to_yaml_dict(self) -> dict:
         return {"G1": [a.to_dict() for a in self.G1], "G2": [a.to_dict() for a in self.G2]}
 
+    def __str__(self) -> str:
+        return (f"G1 (anti-bulk): {self.G1[0].name}, {self.G1[1].name}; "
+                f"G2 (bulk): {self.G2[0].name}, {self.G2[1].name}")
+
 
 def write_g1_g2_yaml(selection: SelectionResult, out_path: Path) -> None:
     """Write the selection to YAML, creating the parent directory if needed."""
@@ -60,6 +65,19 @@ def write_g1_g2_yaml(selection: SelectionResult, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
         yaml.safe_dump(selection.to_yaml_dict(), f, sort_keys=False)
+
+
+def write_selection(waterfp: WaterFP, outdir: Path, fp_round_decimals: int = 1) -> SelectionResult:
+    """Write rdf.csv, fingerprints.csv and g1_g2.yaml for a finished WaterFP run, and return the selection.
+
+    The CSVs are written even when no selection exists (ValueError).
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    waterfp.profile_table()[["atom", "r_nm", "n_r"]].to_csv(outdir / "rdf.csv", index=False)
+    waterfp.fp_table().rename(columns={"FP": "fp"}).to_csv(outdir / "fingerprints.csv", index=False)
+    selection = select_g1_g2(waterfp.solute, waterfp.results.fp, fp_round_decimals)
+    write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
+    return selection
 
 
 def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> SelectionResult:
@@ -152,7 +170,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
 
     u = mda.Universe(args.tpr, args.xtc)
     ligand = u.select_atoms(f"resname {args.ligand_resname} and not name H*")
@@ -167,19 +184,13 @@ def main() -> None:
     waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=args.norm_tail_bins)
     waterfp.run(start=args.start_frame, stop=args.end_frame)
     print(f"[select] {len(ligand)} ligand heavy atoms, frames {waterfp.frames[0]}-{waterfp.frames[-1]}")
-
-    waterfp.profile_table()[["atom", "r_nm", "n_r"]].to_csv(outdir / "rdf.csv", index=False)
-    fp_table = waterfp.fp_table().rename(columns={"FP": "fp"})
-    fp_table.to_csv(outdir / "fingerprints.csv", index=False)
-    print(fp_table.sort_values("fp", kind="stable").to_string(index=False))
+    print(waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
 
     try:
-        selection = select_g1_g2(ligand, waterfp.results.fp, args.fp_round_decimals)
+        selection = write_selection(waterfp, outdir, args.fp_round_decimals)
     except ValueError as e:
         raise SystemExit(f"[select] no G1/G2 selection: {e}")
-    write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
-    print(f"[select] G1 (anti-bulk): {selection.G1[0].name}, {selection.G1[1].name}")
-    print(f"[select] G2 (bulk): {selection.G2[0].name}, {selection.G2[1].name}")
+    print(f"[select] {selection}")
     print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {outdir}")
 
 
