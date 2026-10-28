@@ -77,7 +77,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ..waterfp.calculate_rdf import make_bins, compute_density_profile
+from waterfp import make_bins, compute_density_profile
 from ..waterfp.calculate_fingerprint import fp_from_density_profile, NORM_TAIL_BINS_DEFAULT
 
 FP_METHOD_TEXT = (
@@ -523,7 +523,3 @@ def main():
             os.kill(args.mdrun_pid, signal.SIGTERM)
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
-
-
-if __name__ == "__main__":
-    main()

@@ -6,7 +6,7 @@ tests/README.md, since it needs an actual MDAnalysis Universe.
 """
 import numpy as np
 
-from ligand_waterfp.waterfp.calculate_rdf import make_bins
+from waterfp import make_bins
 
 
 def test_make_bins_matches_waterfp_default_settings():

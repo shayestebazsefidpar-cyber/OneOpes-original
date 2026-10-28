@@ -45,7 +45,7 @@ def fp_from_density_profile(n_r, r_centers_nm, binwidth_nm, norm_tail_bins=NORM_
     integrand[mask0] = -2 * np.pi * norm * (r[mask0] ** 2)  # lim g->0 of (g ln g - g + 1) = 1
     gnz = g[~mask0]
     integrand[~mask0] = -2 * np.pi * norm * (gnz * np.log(gnz) - gnz + 1) * (r[~mask0] ** 2)
-    fp = float(_trapz(integrand, dx=binwidth_nm))
+    fp = float(np.trapezoid(integrand, dx=binwidth_nm))
     return fp, g, norm
 
 

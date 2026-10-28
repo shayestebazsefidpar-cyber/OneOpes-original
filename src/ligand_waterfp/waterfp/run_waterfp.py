@@ -28,7 +28,7 @@ import os
 import MDAnalysis as mda
 import pandas as pd
 
-from .calculate_rdf import make_bins, compute_density_profile
+from waterfp import make_bins, compute_density_profile
 from .calculate_fingerprint import fingerprints_from_rdf_table
 
 

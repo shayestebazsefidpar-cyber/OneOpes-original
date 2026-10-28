@@ -27,11 +27,10 @@ import numpy as np
 import pandas as pd
 from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
 from ligand_waterfp.waterfp.calculate_fingerprint import NORM_TAIL_BINS_DEFAULT, fp_from_density_profile
+from waterfp import make_bins, compute_density_profile
 from ligand_waterfp.waterfp.calculate_rdf import (
     RDF_BINWIDTH_NM_DEFAULT,
-    RDF_RMAX_NM_DEFAULT,
-    compute_density_profile,
-    make_bins,
+    RDF_RMAX_NM_DEFAULT
 )
 
 DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
