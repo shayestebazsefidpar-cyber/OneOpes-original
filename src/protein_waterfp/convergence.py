@@ -61,10 +61,11 @@ class ConvergenceTracker:
 
     def add_block(self, block: int, t_start_ns: float, t_end_ns: float, fp: dict, g: dict,
                   order: list[str]) -> None:
-        rank = fp_ranks(fp, order)
+        fp_arr = np.array([fp[a] for a in order])
+        g_arr = np.array([g[a] for a in order])
         if self._prev is not None:
-            prev_fp, prev_g, prev_rank = self._prev
-            res = check_stability(fp, g, rank, prev_fp, prev_g, prev_rank, self.tol)
+            prev_fp, prev_g = self._prev
+            res = check_stability(fp_arr, g_arr, prev_fp, prev_g, self.tol)
             self.streak = self.streak + 1 if res.block_stable else 0
             if self.streak >= self.tol.n_stable and self.first_converged_block is None:
                 self.first_converged_block = block
@@ -85,7 +86,7 @@ class ConvergenceTracker:
                 "stable_transition_count": self.streak,
                 "convergence_reached": self.first_converged_block is not None,
             })
-        self._prev = (fp, g, rank)
+        self._prev = (fp_arr, g_arr)
 
     @property
     def status(self) -> str:

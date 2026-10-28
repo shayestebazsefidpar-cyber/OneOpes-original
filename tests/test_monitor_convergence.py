@@ -5,11 +5,11 @@ Rules 2, 3 and 5) - check_stability() (now returning a frozen
 StabilityResult dataclass instead of a dict), the consecutive-streak
 requirement built from it, write_reports() (now taking a Tolerances
 dataclass), and plot_atom(). All synthetic data, no real
-trajectory/MDAnalysis needed - analyze_block() itself still needs a real
-.tpr/.xtc (it runs the waterfp.WaterFP analysis over real trajectory
-frames) and is intentionally NOT covered here, same
-as this project's existing precedent for the other trajectory-dependent
-scripts (see tests/README.md).
+trajectory/MDAnalysis needed - the per-block waterfp.WaterFP analysis in
+main() needs a real .tpr/.xtc and is covered by tests/test_waterfp.py.
+
+check_stability() takes per-atom arrays: fp of shape (n_atoms,) and g of
+shape (n_atoms, n_bins), atoms in the same order in both blocks.
 
 Tolerances used below (fp_rel_tol=0.10, rdf_nrmsd_tol=0.15,
 spearman_tol=0.90, n_stable=3) are the actual defaults from
@@ -42,16 +42,17 @@ TOL = Tolerances(
 )
 
 
-def _rank(fp_dict):
-    return pd.Series(fp_dict).rank(ascending=False)
+def _same_g(n_atoms):
+    """Identical g(r) for every atom (and, reused across blocks, nRMSD = 0)."""
+    return np.tile([0.0, 0.5, 1.0, 1.0, 1.0], (n_atoms, 1))
 
 
 def test_stable_transition_passes_all_three_criteria():
-    prev_fp = {"A": -10.0, "B": -8.0, "C": -5.0}
-    fp_this = {"A": -10.5, "B": -8.3, "C": -5.1}  # 5%, 3.75%, 2% changes - same order
-    g = {name: np.array([0.0, 0.5, 1.0, 1.0, 1.0]) for name in prev_fp}  # identical g(r) -> nRMSD = 0
+    prev_fp = np.array([-10.0, -8.0, -5.0])
+    fp_this = np.array([-10.5, -8.3, -5.1])  # 5%, 3.75%, 2% changes - same order
+    g = _same_g(3)
 
-    result = check_stability(fp_this, g, _rank(fp_this), prev_fp, g, _rank(prev_fp), TOL)
+    result = check_stability(fp_this, g, prev_fp, g, TOL)
 
     assert isinstance(result, StabilityResult)
     assert result.value_stable
@@ -64,11 +65,11 @@ def test_stable_transition_passes_all_three_criteria():
 
 
 def test_fp_change_above_threshold_makes_transition_unstable():
-    prev_fp = {"A": -10.0, "B": -8.0, "C": -5.0}
-    fp_this = {"A": -11.5, "B": -8.1, "C": -5.05}  # A changed 15% > 10% tol; order unchanged
-    g = {name: np.array([0.0, 0.5, 1.0, 1.0, 1.0]) for name in prev_fp}
+    prev_fp = np.array([-10.0, -8.0, -5.0])
+    fp_this = np.array([-11.5, -8.1, -5.05])  # first atom changed 15% > 10% tol; order unchanged
+    g = _same_g(3)
 
-    result = check_stability(fp_this, g, _rank(fp_this), prev_fp, g, _rank(prev_fp), TOL)
+    result = check_stability(fp_this, g, prev_fp, g, TOL)
 
     assert not result.value_stable
     assert result.rdf_stable     # isolate: only FP failed
@@ -78,14 +79,14 @@ def test_fp_change_above_threshold_makes_transition_unstable():
 
 
 def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
-    prev_fp = {"A": -10.0, "B": -8.0, "C": -5.0}
-    fp_this = {"A": -10.2, "B": -8.1, "C": -5.05}  # small changes, order unchanged
-    prev_g = {name: np.array([0.0, 0.5, 1.0, 1.0, 1.0]) for name in prev_fp}
-    # atom A's g(r) shape changes a lot between blocks -> large nRMSD
-    g_this = dict(prev_g)
-    g_this["A"] = np.array([1.0, 1.0, 1.0, 0.5, 0.0])
+    prev_fp = np.array([-10.0, -8.0, -5.0])
+    fp_this = np.array([-10.2, -8.1, -5.05])  # small changes, order unchanged
+    prev_g = _same_g(3)
+    # the first atom's g(r) shape changes a lot between blocks -> large nRMSD
+    g_this = prev_g.copy()
+    g_this[0] = [1.0, 1.0, 1.0, 0.5, 0.0]
 
-    result = check_stability(fp_this, g_this, _rank(fp_this), prev_fp, prev_g, _rank(prev_fp), TOL)
+    result = check_stability(fp_this, g_this, prev_fp, prev_g, TOL)
 
     assert result.value_stable
     assert not result.rdf_stable    # isolate: only RDF failed
@@ -97,17 +98,14 @@ def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
 def test_ranking_instability_makes_transition_unstable():
     # Closely-spaced FP values so small (<=10%) per-atom wiggles can still
     # fully reverse the relative order between blocks.
-    prev_fp = {"A": -10.0, "B": -10.1, "C": -10.2, "D": -10.3}
-    fp_this = {"A": -10.25, "B": -10.15, "C": -10.05, "D": -9.95}  # order reversed
-    g = {name: np.array([0.0, 0.5, 1.0, 1.0, 1.0]) for name in prev_fp}  # identical -> nRMSD=0
+    prev_fp = np.array([-10.0, -10.1, -10.2, -10.3])
+    fp_this = np.array([-10.25, -10.15, -10.05, -9.95])  # order reversed
+    g = _same_g(4)
 
-    prev_rank = _rank(prev_fp)
-    rank_now = _rank(fp_this)
-    result = check_stability(fp_this, g, rank_now, prev_fp, g, prev_rank, TOL)
+    result = check_stability(fp_this, g, prev_fp, g, TOL)
 
     # sanity: every individual atom's own relative change stayed under 10%
-    for name in prev_fp:
-        assert abs(fp_this[name] - prev_fp[name]) / abs(prev_fp[name]) <= FP_REL_TOL
+    assert np.all(np.abs(fp_this - prev_fp) / np.abs(prev_fp) <= FP_REL_TOL)
 
     assert result.value_stable
     assert result.rdf_stable
@@ -124,35 +122,32 @@ def test_requires_n_stable_consecutive_transitions():
     A single unstable transition partway through must reset the streak,
     so convergence is only reached after a genuinely fresh run of 3
     consecutive stable transitions."""
-    g_stable = np.array([0.0, 0.5, 1.0, 1.0, 1.0])
-    g = {"A": g_stable, "B": g_stable}
+    g = _same_g(2)
 
     # block FP values: 0,1,2 stable; 2->3 unstable (big jump); 3,4,5,6 stable again
-    blocks_fp = [
-        {"A": -10.0, "B": -5.0},   # block 0 (baseline)
-        {"A": -10.1, "B": -5.05},  # block 1: stable vs 0
-        {"A": -10.2, "B": -5.1},   # block 2: stable vs 1
-        {"A": -14.0, "B": -5.15},  # block 3: UNSTABLE vs 2 (A changed >10%)
-        {"A": -14.1, "B": -5.2},   # block 4: stable vs 3 -> streak resets to 1
-        {"A": -14.2, "B": -5.25},  # block 5: stable vs 4 -> streak 2
-        {"A": -14.3, "B": -5.3},   # block 6: stable vs 5 -> streak 3 -> CONVERGED here
-    ]
+    blocks_fp = np.array([
+        [-10.0, -5.0],   # block 0 (baseline)
+        [-10.1, -5.05],  # block 1: stable vs 0
+        [-10.2, -5.1],   # block 2: stable vs 1
+        [-14.0, -5.15],  # block 3: UNSTABLE vs 2 (first atom changed >10%)
+        [-14.1, -5.2],   # block 4: stable vs 3 -> streak resets to 1
+        [-14.2, -5.25],  # block 5: stable vs 4 -> streak 2
+        [-14.3, -5.3],   # block 6: stable vs 5 -> streak 3 -> CONVERGED here
+    ])
 
     stable_streak = 0
     streak_history = []
     converged_at = None
     prev_fp = blocks_fp[0]
-    prev_rank = _rank(prev_fp)
 
     for block_idx in range(1, len(blocks_fp)):
         fp_this = blocks_fp[block_idx]
-        rank_now = _rank(fp_this)
-        result = check_stability(fp_this, g, rank_now, prev_fp, g, prev_rank, TOL)
+        result = check_stability(fp_this, g, prev_fp, g, TOL)
         stable_streak = stable_streak + 1 if result.block_stable else 0
         streak_history.append(stable_streak)
         if converged_at is None and stable_streak >= N_STABLE:
             converged_at = block_idx
-        prev_fp, prev_rank = fp_this, rank_now
+        prev_fp = fp_this
 
     # transitions 0->1, 1->2 stable (streak 1, 2); 2->3 unstable (streak resets to 0);
     # 3->4, 4->5 stable (streak 1, 2); 5->6 stable (streak 3 -> converged at block 6)
@@ -165,11 +160,11 @@ def test_stability_result_matches_previous_dict_implementation_values():
     key/value pairs (PR2); this pins the StabilityResult dataclass (PR3)
     to produce the identical numerical/boolean values for the same
     inputs - the refactor changed the container, not the computation."""
-    prev_fp = {"A": -10.0, "B": -8.0, "C": -5.0}
-    fp_this = {"A": -10.5, "B": -8.3, "C": -5.1}
-    g = {name: np.array([0.0, 0.5, 1.0, 1.0, 1.0]) for name in prev_fp}
+    prev_fp = np.array([-10.0, -8.0, -5.0])
+    fp_this = np.array([-10.5, -8.3, -5.1])
+    g = _same_g(3)
 
-    result = check_stability(fp_this, g, _rank(fp_this), prev_fp, g, _rank(prev_fp), TOL)
+    result = check_stability(fp_this, g, prev_fp, g, TOL)
 
     expected = {
         "max_fp_relative_change": pytest.approx(0.05),
@@ -185,13 +180,9 @@ def test_stability_result_matches_previous_dict_implementation_values():
 
 
 def test_stability_result_is_frozen():
-    result = check_stability(
-        {"A": -10.0}, {"A": np.array([0.0, 1.0])},
-        _rank({"A": -10.0}),
-        {"A": -10.0}, {"A": np.array([0.0, 1.0])},
-        _rank({"A": -10.0}),
-        TOL,
-    )
+    fp = np.array([-10.0, -5.0])
+    g = _same_g(2)
+    result = check_stability(fp, g, fp, g, TOL)
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.block_stable = False
 
@@ -208,11 +199,11 @@ def test_tolerances_dataclass_reproduces_configured_defaults_behavior():
     assert tol.spearman_tol == SPEARMAN_TOL
     assert tol.n_stable == N_STABLE
 
-    prev_fp = {"A": -10.0, "B": -8.0}
-    fp_this = {"A": -11.5, "B": -8.1}  # A changed 15% > 10% tol
-    g = {name: np.array([0.0, 1.0]) for name in prev_fp}
+    prev_fp = np.array([-10.0, -8.0])
+    fp_this = np.array([-11.5, -8.1])  # first atom changed 15% > 10% tol
+    g = _same_g(2)
 
-    result = check_stability(fp_this, g, _rank(fp_this), prev_fp, g, _rank(prev_fp), tol)
+    result = check_stability(fp_this, g, prev_fp, g, tol)
     assert not result.value_stable
     assert not result.block_stable
 

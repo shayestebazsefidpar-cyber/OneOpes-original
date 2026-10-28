@@ -39,11 +39,12 @@ Usage (after `pip install -e .` from the package root):
 The computational/reporting pieces main() used to do inline are pulled out
 into their own functions, each returning data rather than printing it:
 
-    analyze_block()    - one block's trajectory data -> FP/g(r)/ranking
-    check_stability()  - two blocks' FP/g(r)/ranking -> stability verdict
+    check_stability()  - two blocks' FP/g(r) -> stability verdict
     plot_atom()        - one atom's accumulated history -> two PNG files
     write_reports()    - the full run's accumulated history -> summary
                           dict + the wide-format CSVs/JSON/TXT report files
+
+Each block itself is analysed directly with `waterfp.WaterFP`.
 
 main() itself only coordinates: it owns the block-polling loop (which
 needs live state - a growing trajectory, streak counters, accumulator
@@ -170,52 +171,23 @@ def nrmsd(g_a, g_b):
     return rmsd / norm
 
 
-def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end_frame,
-                   rmax_nm, binwidth_nm, norm_tail_bins):
-    """Compute the FP, g(r), and FP-based ranking for one trajectory block
-    (frames start_frame:end_frame), one value per ligand heavy atom.
-
-    Returns (fp_this_block, g_this_block, rank_now, r_nm, t_start_ns, t_end_ns):
-    fp_this_block/g_this_block are {atom_name: value}; rank_now is the
-    FP-descending rank check_stability() compares block to block; r_nm are
-    the radial bin centres g(r) is sampled at.
-    """
-    t_start_ns = u.trajectory[start_frame].time / 1000.0
-    t_end_ns = u.trajectory[end_frame - 1].time / 1000.0
-
-    analysis = WaterFP(u.atoms[heavy_indices], u.atoms[water_indices], rmax_nm=rmax_nm,
-                       binwidth_nm=binwidth_nm, norm_tail_bins=norm_tail_bins)
-    results = analysis.run(start=start_frame, stop=end_frame).results
-
-    fp_this_block = dict(zip(heavy_names, results.fp.tolist()))
-    g_this_block = dict(zip(heavy_names, results.g))
-    rank_now = pd.Series(fp_this_block).rank(ascending=False)
-
-    return fp_this_block, g_this_block, rank_now, results.r_nm, t_start_ns, t_end_ns
-
-
-def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                     tol: Tolerances):
+def check_stability(fp: np.ndarray, g: np.ndarray, prev_fp: np.ndarray, prev_g: np.ndarray,
+                    tol: Tolerances) -> StabilityResult:
     """Compare the current block to the previous one against `tol`'s three
     criteria (FP relative change, RDF nRMSD, Spearman rank correlation)
     and return the resulting StabilityResult. Streak bookkeeping across
     transitions stays in main(), not here.
+
+    fp/prev_fp have shape (n_atoms,) and g/prev_g (n_atoms, n_bins), with
+    the atoms in the same order in both blocks. Spearman ranks the FP
+    values itself, so no separate ranking is needed.
     """
-    heavy_names = list(fp_this_block.keys())
-
-    rel_changes = {
-        name: abs(fp_this_block[name] - prev_fp[name]) / max(abs(prev_fp[name]), 1e-6)
-        for name in heavy_names
-    }
-    max_rel_change = max(rel_changes.values())
-
-    nrmsds = {name: nrmsd(g_this_block[name], prev_g[name]) for name in heavy_names}
-    max_nrmsd = max(nrmsds.values())
-
-    rho, _ = spearmanr(rank_now.values, prev_rank.values)
+    max_rel_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
+    max_nrmsd = float(max(nrmsd(g_atom, prev_g_atom) for g_atom, prev_g_atom in zip(g, prev_g)))
+    rho, _ = spearmanr(fp, prev_fp)
 
     value_ok = max_rel_change <= tol.fp_rel_tol
-    rank_ok = rho >= tol.spearman_tol
+    rank_ok = bool(rho >= tol.spearman_tol)
     rdf_ok = max_nrmsd <= tol.rdf_nrmsd_tol
     block_stable = value_ok and rank_ok and rdf_ok
 
@@ -394,7 +366,6 @@ def main():
 
     prev_fp = None
     prev_g = None
-    prev_rank = None
     stable_streak = 0
     block_idx = 0
     converged = False
@@ -433,23 +404,22 @@ def main():
         start_f = block_idx * frames_per_block
         end_f = needed
 
-        fp_this_block, g_this_block, rank_now, r_nm, t_start_ns, t_end_ns = analyze_block(
-            u, heavy_indices, heavy_names, water_O_idx, start_f, end_f,
-            args.rmax_nm, args.binwidth_nm, args.norm_tail_bins,
-        )
+        block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], rmax_nm=args.rmax_nm,
+                        binwidth_nm=args.binwidth_nm, norm_tail_bins=args.norm_tail_bins)
+        block.run(start=start_f, stop=end_f)
+        fp, g, r_nm = block.results.fp, block.results.g, block.results.r_nm
+        t_start_ns, t_end_ns = block.times[0] / 1000.0, block.times[-1] / 1000.0
 
-        for name in heavy_names:
+        for name, fp_atom, g_atom in zip(heavy_names, fp, g):
             fp_rows.append(
                 {"block": block_idx, "t_start_ns": t_start_ns, "t_end_ns": t_end_ns,
-                 "t_mid_ns": 0.5 * (t_start_ns + t_end_ns), "atom": name, "FP": fp_this_block[name]}
+                 "t_mid_ns": 0.5 * (t_start_ns + t_end_ns), "atom": name, "FP": fp_atom}
             )
-            for rbin, gval in zip(r_nm, g_this_block[name]):
+            for rbin, gval in zip(r_nm, g_atom):
                 rdf_rows.append({"block": block_idx, "atom": name, "r_nm": rbin, "g_r": gval})
 
         if prev_fp is not None:
-            stability = check_stability(
-                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank, tol,
-            )
+            stability = check_stability(fp, g, prev_fp, prev_g, tol)
             block_stable = stability.block_stable
             stable_streak = stable_streak + 1 if block_stable else 0
 
@@ -485,9 +455,8 @@ def main():
         pd.DataFrame(rdf_rows).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
         pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
 
-        prev_fp = fp_this_block
-        prev_g = g_this_block
-        prev_rank = rank_now
+        prev_fp = fp
+        prev_g = g
         block_idx += 1
 
         if converged:
