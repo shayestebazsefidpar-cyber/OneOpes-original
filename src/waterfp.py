@@ -8,7 +8,7 @@ import numpy as np
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
-from MDAnalysis.lib.distances import capped_distance, distance_array
+from MDAnalysis.lib.distances import capped_distance
 from scipy.special import xlogy
 
 
@@ -112,51 +112,3 @@ class WaterFP(AnalysisBase):
         self.results.water_counts = water_counts
         self.results.fp, self.results.g = fingerprint(water_counts, self.norm_tail_bins)
         self.results.r_nm = water_counts.r_nm
-
-
-def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
-    """Return (edges_nm, centers_nm, edges_angstrom, shell_volumes_nm3)."""
-    nbins = int(round(rmax_nm / binwidth_nm))
-    edges_nm = np.linspace(0.0, rmax_nm, nbins + 1)
-    centers_nm = 0.5 * (edges_nm[:-1] + edges_nm[1:])
-    edges_a = edges_nm * 10.0  # MDAnalysis distances are in Angstrom
-    shell_vol_nm3 = (4.0 / 3.0) * np.pi * (edges_nm[1:] ** 3 - edges_nm[:-1] ** 3)
-    return edges_nm, centers_nm, edges_a, shell_vol_nm3
-
-def compute_density_profile(u, solute_indices, water_indices, start_frame, end_frame,
-                             edges_a, shell_vol_nm3):
-    """Per-atom raw water number-density histogram n(r) (waters/nm^3),
-    averaged over all frames in [start_frame, end_frame) of trajectory `u`.
-
-    Returns an array of shape (len(solute_indices), len(edges_a) - 1).
-    """
-    n_solute = len(solute_indices)
-    n_bins = len(edges_a) - 1
-    hist_sum = np.zeros((n_solute, n_bins))
-    n_frames = end_frame - start_frame
-    for fi in range(start_frame, end_frame):
-        u.trajectory[fi]
-        solute_pos = u.atoms.positions[solute_indices]
-        water_pos = u.atoms.positions[water_indices]
-        d = distance_array(solute_pos, water_pos, box=u.dimensions)  # Angstrom
-        for ai in range(n_solute):
-            h, _ = np.histogram(d[ai], bins=edges_a)
-            hist_sum[ai] += h
-    mean_hist = hist_sum / n_frames        # mean neighbour count per bin per frame
-    n_r = mean_hist / shell_vol_nm3        # number density, waters/nm^3
-    return n_r
-
-
-def fp_from_density_profile(n_r, r_centers_nm, binwidth_nm, norm_tail_bins=NORM_TAIL_BINS_DEFAULT):
-    """Given one atom's raw number-density profile n_r (waters/nm^3 per
-    bin) and its radial bin centers, return (FP, g(r), norm)."""
-    norm = float(np.mean(n_r[-norm_tail_bins:]))
-    g = n_r / norm
-    r = r_centers_nm
-    integrand = np.empty_like(g)
-    mask0 = (g == 0)
-    integrand[mask0] = -2 * np.pi * norm * (r[mask0] ** 2)  # lim g->0 of (g ln g - g + 1) = 1
-    gnz = g[~mask0]
-    integrand[~mask0] = -2 * np.pi * norm * (gnz * np.log(gnz) - gnz + 1) * (r[~mask0] ** 2)
-    fp = float(np.trapezoid(integrand, dx=binwidth_nm))
-    return fp, g, norm

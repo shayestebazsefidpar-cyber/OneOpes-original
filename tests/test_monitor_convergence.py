@@ -6,8 +6,8 @@ StabilityResult dataclass instead of a dict), the consecutive-streak
 requirement built from it, write_reports() (now taking a Tolerances
 dataclass), and plot_atom(). All synthetic data, no real
 trajectory/MDAnalysis needed - analyze_block() itself still needs a real
-.tpr/.xtc (it calls waterfp.calculate_rdf.compute_density_profile(), which
-reads real trajectory frames) and is intentionally NOT covered here, same
+.tpr/.xtc (it runs the waterfp.WaterFP analysis over real trajectory
+frames) and is intentionally NOT covered here, same
 as this project's existing precedent for the other trajectory-dependent
 scripts (see tests/README.md).
 

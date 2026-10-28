@@ -5,12 +5,9 @@ ligand-in-water unbiased MD run.
 This script owns only the ONLINE, BLOCK-WISE, CONVERGENCE-TESTING logic
 (splitting an accumulating trajectory into blocks, comparing consecutive
 blocks, deciding when to stop). The actual RDF and WaterFP math is not
-duplicated here - it is imported from the sibling `waterfp` subpackage,
-which implements those calculations independently of any
-convergence/blocking concept:
-
-  - waterfp.calculate_rdf.compute_density_profile()   - per-atom water density n(r)
-  - waterfp.calculate_fingerprint.fp_from_density_profile() - n(r) -> FP, g(r)
+duplicated here - each block is analysed with the shared `waterfp.WaterFP`
+analysis (FP and g(r) per atom), which has no notion of convergence or
+blocks.
 
 For each block of --block-ns newly-accumulated nanoseconds, this script
 tracks, per ligand heavy atom:
@@ -77,8 +74,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from waterfp import make_bins, compute_density_profile
-from ..waterfp.calculate_fingerprint import fp_from_density_profile, NORM_TAIL_BINS_DEFAULT
+from waterfp import NORM_TAIL_BINS_DEFAULT, RDF_BINWIDTH_NM_DEFAULT, RDF_RMAX_NM_DEFAULT, WaterFP
 
 FP_METHOD_TEXT = (
     "WaterFP (github.com/valeriorizzi/WaterFP, Scripts/fp.py): "
@@ -140,8 +136,8 @@ def parse_args():
                          "e.g. some topologies name the same water residue WAT/HOH with oxygen "
                          "atom name OW instead of SOL/O. Check your own .tpr before trusting the "
                          "defaults on a new system.")
-    p.add_argument("--rmax-nm", type=float, default=2.001)
-    p.add_argument("--binwidth-nm", type=float, default=0.001)
+    p.add_argument("--rmax-nm", type=float, default=RDF_RMAX_NM_DEFAULT)
+    p.add_argument("--binwidth-nm", type=float, default=RDF_BINWIDTH_NM_DEFAULT)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     p.add_argument("--block-ns", type=float, default=5.0,
                     help="Trajectory block size in ns (default: 5.0)")
@@ -175,30 +171,27 @@ def nrmsd(g_a, g_b):
 
 
 def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end_frame,
-                   edges_a, shell_vol_nm3, centers_nm, binwidth_nm, norm_tail_bins):
+                   rmax_nm, binwidth_nm, norm_tail_bins):
     """Compute the FP, g(r), and FP-based ranking for one trajectory block
     (frames start_frame:end_frame), one value per ligand heavy atom.
 
-    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns):
+    Returns (fp_this_block, g_this_block, rank_now, r_nm, t_start_ns, t_end_ns):
     fp_this_block/g_this_block are {atom_name: value}; rank_now is the
-    FP-descending rank check_stability() compares block to block.
+    FP-descending rank check_stability() compares block to block; r_nm are
+    the radial bin centres g(r) is sampled at.
     """
     t_start_ns = u.trajectory[start_frame].time / 1000.0
     t_end_ns = u.trajectory[end_frame - 1].time / 1000.0
 
-    n_r = compute_density_profile(u, heavy_indices, water_indices, start_frame, end_frame,
-                                   edges_a, shell_vol_nm3)
+    analysis = WaterFP(u.atoms[heavy_indices], u.atoms[water_indices], rmax_nm=rmax_nm,
+                       binwidth_nm=binwidth_nm, norm_tail_bins=norm_tail_bins)
+    results = analysis.run(start=start_frame, stop=end_frame).results
 
-    fp_this_block = {}
-    g_this_block = {}
-    for ai, name in enumerate(heavy_names):
-        fp_val, g_val, _norm = fp_from_density_profile(n_r[ai], centers_nm, binwidth_nm, norm_tail_bins)
-        fp_this_block[name] = float(fp_val)
-        g_this_block[name] = g_val
-
+    fp_this_block = dict(zip(heavy_names, results.fp.tolist()))
+    g_this_block = dict(zip(heavy_names, results.g))
     rank_now = pd.Series(fp_this_block).rank(ascending=False)
 
-    return fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns
+    return fp_this_block, g_this_block, rank_now, results.r_nm, t_start_ns, t_end_ns
 
 
 def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
@@ -367,8 +360,6 @@ def main():
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
 
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-
     def get_universe():
         return mda.Universe(str(tpr_path), str(xtc_path))
 
@@ -393,7 +384,7 @@ def main():
     print(f"[monitor] {n_heavy} ligand heavy atoms (resname={args.ligand_resname}): {heavy_names}")
     print(f"[monitor] {len(water_O_idx)} water oxygens "
           f"(resname={args.water_resname}, atom name={args.water_atom_name})")
-    print(f"[monitor] RDF: rmax={args.rmax_nm} nm, bins={len(centers_nm)}, "
+    print(f"[monitor] RDF: rmax={args.rmax_nm} nm, bins={round(args.rmax_nm / args.binwidth_nm)}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
     ts_per_frame_ps = None
@@ -442,9 +433,9 @@ def main():
         start_f = block_idx * frames_per_block
         end_f = needed
 
-        fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns = analyze_block(
+        fp_this_block, g_this_block, rank_now, r_nm, t_start_ns, t_end_ns = analyze_block(
             u, heavy_indices, heavy_names, water_O_idx, start_f, end_f,
-            edges_a, shell_vol_nm3, centers_nm, args.binwidth_nm, args.norm_tail_bins,
+            args.rmax_nm, args.binwidth_nm, args.norm_tail_bins,
         )
 
         for name in heavy_names:
@@ -452,7 +443,7 @@ def main():
                 {"block": block_idx, "t_start_ns": t_start_ns, "t_end_ns": t_end_ns,
                  "t_mid_ns": 0.5 * (t_start_ns + t_end_ns), "atom": name, "FP": fp_this_block[name]}
             )
-            for rbin, gval in zip(centers_nm, g_this_block[name]):
+            for rbin, gval in zip(r_nm, g_this_block[name]):
                 rdf_rows.append({"block": block_idx, "atom": name, "r_nm": rbin, "g_r": gval})
 
         if prev_fp is not None:

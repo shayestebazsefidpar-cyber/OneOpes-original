@@ -10,9 +10,9 @@ computing a single final answer. Use this script once you already trust
 the trajectory is long enough (e.g. after monitor_convergence has signaled
 convergence).
 
-Writes two CSVs to --outdir:
-    rdf.csv           (atom,r_nm,n_r)          - calculate_rdf.py's format
-    fingerprints.csv  (atom,fp)                - calculate_fingerprint.py's format
+Both are computed by the shared `waterfp.WaterFP` analysis. Writes two CSVs to --outdir:
+    rdf.csv           (atom,r_nm,n_r)          - water-O number density n(r), waters/nm^3
+    fingerprints.csv  (atom,fp)                - WaterFP value per ligand heavy atom
 
 fingerprints.csv is the input official_selection.prepare_ranking_csv
 consumes to build the ranking CSV official_selection.run_official_selection
@@ -26,10 +26,10 @@ Usage (after `pip install -e .` from the package root):
 import argparse
 import os
 import MDAnalysis as mda
+import numpy as np
 import pandas as pd
 
-from waterfp import make_bins, compute_density_profile
-from .calculate_fingerprint import fingerprints_from_rdf_table
+from waterfp import NORM_TAIL_BINS_DEFAULT, RDF_BINWIDTH_NM_DEFAULT, RDF_RMAX_NM_DEFAULT, WaterFP
 
 
 def parse_args():
@@ -42,9 +42,9 @@ def parse_args():
     p.add_argument("--water-atom-name", default="O")
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None)
-    p.add_argument("--rmax-nm", type=float, default=2.001)
-    p.add_argument("--binwidth-nm", type=float, default=0.001)
-    p.add_argument("--norm-tail-bins", type=int, default=500)
+    p.add_argument("--rmax-nm", type=float, default=RDF_RMAX_NM_DEFAULT)
+    p.add_argument("--binwidth-nm", type=float, default=RDF_BINWIDTH_NM_DEFAULT)
+    p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     return p.parse_args()
 
 
@@ -62,21 +62,21 @@ def main():
                           f"atom name '{args.water_atom_name}' in {args.tpr}")
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-    n_r = compute_density_profile(u, solute.indices, water.indices, args.start_frame, end_frame,
-                                   edges_a, shell_vol_nm3)
+    analysis = WaterFP(solute, water, rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm,
+                       norm_tail_bins=args.norm_tail_bins)
+    results = analysis.run(start=args.start_frame, stop=end_frame).results
 
-    rdf_rows = []
-    for ai, name in enumerate(solute.names):
-        for r_nm, val in zip(centers_nm, n_r[ai]):
-            rdf_rows.append({"atom": name, "r_nm": r_nm, "n_r": val})
-    rdf_df = pd.DataFrame(rdf_rows)
+    n_bins = len(results.r_nm)
+    rdf_df = pd.DataFrame({
+        "atom": np.repeat(solute.names, n_bins),
+        "r_nm": np.tile(results.r_nm, len(solute)),
+        "n_r": results.water_counts.density_nm3.ravel(),
+    })
     rdf_csv = os.path.join(args.outdir, "rdf.csv")
     rdf_df.to_csv(rdf_csv, index=False)
 
-    fp_df = fingerprints_from_rdf_table(rdf_df, args.binwidth_nm, args.norm_tail_bins)
     fp_csv = os.path.join(args.outdir, "fingerprints.csv")
-    fp_df.to_csv(fp_csv, index=False)
+    pd.DataFrame({"atom": solute.names, "fp": results.fp}).to_csv(fp_csv, index=False)
 
     print(f"[run_waterfp] {len(solute)} ligand heavy atoms, frames [{args.start_frame},{end_frame})")
     print(f"[run_waterfp] wrote {rdf_csv}")
