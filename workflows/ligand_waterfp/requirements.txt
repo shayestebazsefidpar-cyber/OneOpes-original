@@ -1,8 +1,0 @@
-MDAnalysis>=2.0
-numpy
-pandas
-scipy
-matplotlib
-networkx
-PyYAML
-Pillow
