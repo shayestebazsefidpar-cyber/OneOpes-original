@@ -3,7 +3,8 @@
 import numpy as np
 from MDAnalysis.analysis.results import Results
 
-from protein_waterfp.convergence import DEFAULT_TOLERANCES, ConvergenceTracker, fp_ranks
+from convergence import DEFAULT_TOLERANCES, ConvergenceTracker
+from protein_waterfp.convergence import fp_ranks
 
 N_ATOMS = 6
 G = np.tile(np.linspace(0.0, 2.0, 50), (N_ATOMS, 1))  # same g(r) for every atom

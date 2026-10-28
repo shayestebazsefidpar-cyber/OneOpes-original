@@ -1,6 +1,6 @@
 """Block-wise convergence of WaterFP results: is the next block like the previous one?"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from MDAnalysis.analysis.results import Results
@@ -14,6 +14,9 @@ class Tolerances:
     rdf_nrmsd_tol: float
     spearman_tol: float
     n_stable: int
+
+
+DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
 
 
 @dataclass(frozen=True)
@@ -60,3 +63,60 @@ def check_stability(current: Results, previous: Results, tol: Tolerances) -> Sta
         rank_stable=rank_ok,
         block_stable=block_stable,
     )
+
+
+@dataclass
+class ConvergenceTracker:
+    """Scores each new block against the previous one and records when convergence is first reached.
+
+    Converged = ``tol.n_stable`` stable transitions in a row; later blocks are still scored.
+    """
+
+    tol: Tolerances = DEFAULT_TOLERANCES
+    streak: int = 0
+    first_converged_block: int | None = None
+    first_converged_ns: float | None = None
+    rows: list = field(default_factory=list)
+    _prev: Results | None = None
+
+    def add_block(self, block: int, t_start_ns: float, t_end_ns: float, current: Results) -> None:
+        """Score the transition from the previous block to ``current`` (a block's WaterFP results)."""
+        if self._prev is not None:
+            res = check_stability(current, self._prev, self.tol)
+            self.streak = self.streak + 1 if res.block_stable else 0
+            if self.streak >= self.tol.n_stable and self.first_converged_block is None:
+                self.first_converged_block = block
+                self.first_converged_ns = float(t_end_ns)
+            self.rows.append({
+                "transition": f"{block - 1}->{block}",
+                "previous_block": block - 1,
+                "block": block,
+                "block_start_ns": float(t_start_ns),
+                "block_end_ns": float(t_end_ns),
+                "FP_relative_change": res.max_fp_relative_change,
+                "FP_pass": res.value_stable,
+                "RDF_nRMSD": res.max_rdf_nrmsd,
+                "RDF_pass": res.rdf_stable,
+                "Spearman_rho": res.spearman_rank_corr,
+                "Spearman_pass": res.rank_stable,
+                "all_criteria_pass": res.block_stable,
+                "stable_transition_count": self.streak,
+                "convergence_reached": self.first_converged_block is not None,
+            })
+        self._prev = current
+
+    @property
+    def status(self) -> str:
+        return "CONVERGED" if self.first_converged_block is not None else "NOT_CONVERGED"
+
+    def after_convergence(self) -> dict:
+        """How the transitions after the first convergence behaved."""
+        if self.first_converged_block is None:
+            return {"n_transitions_after_first_convergence": 0,
+                    "n_unstable_transitions_after_first_convergence": 0,
+                    "remained_stable_after_first_convergence": None}
+        later = [r for r in self.rows if r["block"] > self.first_converged_block]
+        unstable = sum(not r["all_criteria_pass"] for r in later)
+        return {"n_transitions_after_first_convergence": len(later),
+                "n_unstable_transitions_after_first_convergence": unstable,
+                "remained_stable_after_first_convergence": unstable == 0}

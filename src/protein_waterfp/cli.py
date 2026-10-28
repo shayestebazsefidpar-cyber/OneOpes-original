@@ -27,10 +27,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from convergence import DEFAULT_TOLERANCES, ConvergenceTracker
 from waterfp import WaterFP
 
 from . import __version__
-from .convergence import DEFAULT_TOLERANCES, ConvergenceTracker, fp_ranks
+from .convergence import fp_ranks
 from .final_table import build_final_table, final_table_markdown
 from .sasa import static_sasa
 from .selection import (
