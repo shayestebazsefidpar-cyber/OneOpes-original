@@ -1,6 +1,8 @@
 """Block-wise convergence of WaterFP results: is the next block like the previous one?"""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import accumulate, pairwise
 
 import numpy as np
 import pandas as pd
@@ -60,77 +62,47 @@ def check_stability(current: Results, previous: Results, tol: Tolerances) -> Sta
     )
 
 
-@dataclass(frozen=True, eq=False)
-class Block:
-    """One block of the trajectory and its WaterFP results."""
-    index: int
-    start_ns: float
-    end_ns: float
-    results: Results
+def compare_blocks(blocks: Sequence[Results], tol: Tolerances) -> list[StabilityResult]:
+    """Stability of each block against the one before it; transition i is block i -> i + 1."""
+    return [check_stability(current, previous, tol) for previous, current in pairwise(blocks)]
 
 
-@dataclass(frozen=True, eq=False)
-class Transition:
-    """How a block compares with the one before it."""
-    block: Block
-    stability: StabilityResult
-    stable_in_a_row: int  # consecutive stable transitions ending here
+def stable_in_a_row(stabilities: Sequence[StabilityResult]) -> list[int]:
+    """For each transition, how many stable transitions in a row end there."""
+    passes = (s.passed for s in stabilities)
+    counts = accumulate(passes, lambda count, passed: count + 1 if passed else 0, initial=0)
+    return list(counts)[1:]
 
 
-class ConvergenceTracker:
-    """Compares each block with the previous one; converged after tol.n_stable stable transitions in a row."""
-
-    def __init__(self, tol: Tolerances = DEFAULT_TOLERANCES) -> None:
-        self.tol = tol
-        self.transitions: list[Transition] = []
-        self._previous: Block | None = None
-
-    def add_block(self, block: Block) -> None:
-        if self._previous is not None:
-            stability = check_stability(block.results, self._previous.results, self.tol)
-            in_a_row = self.stable_in_a_row + 1 if stability.passed else 0
-            self.transitions.append(Transition(block, stability, in_a_row))
-        self._previous = block
-
-    @property
-    def stable_in_a_row(self) -> int:
-        return self.transitions[-1].stable_in_a_row if self.transitions else 0
-
-    @property
-    def first_convergence(self) -> Transition | None:
-        """The transition that completed the first run of tol.n_stable stable ones."""
-        return next((t for t in self.transitions if t.stable_in_a_row >= self.tol.n_stable), None)
-
-    def after_convergence(self) -> dict:
-        """How the transitions after the first convergence behaved."""
-        first = self.first_convergence
-        if first is None:
-            return {"n_transitions_after_first_convergence": 0,
-                    "n_unstable_transitions_after_first_convergence": 0,
-                    "remained_stable_after_first_convergence": None}
-        later = [t for t in self.transitions if t.block.index > first.block.index]
-        unstable = sum(not t.stability.passed for t in later)
-        return {"n_transitions_after_first_convergence": len(later),
-                "n_unstable_transitions_after_first_convergence": unstable,
-                "remained_stable_after_first_convergence": unstable == 0}
+def first_convergence(stabilities: Sequence[StabilityResult], n_stable: int) -> int | None:
+    """Index of the transition completing the first run of n_stable stable ones, or None."""
+    return next((i for i, count in enumerate(stable_in_a_row(stabilities)) if count >= n_stable), None)
 
 
-def transitions_table(tracker: ConvergenceTracker) -> pd.DataFrame:
-    """One row per transition: the columns of convergence_metrics.csv."""
-    first = tracker.first_convergence
-    return pd.DataFrame([{
-        "transition": f"{t.block.index - 1}->{t.block.index}",
-        "previous_block": t.block.index - 1,
-        "block": t.block.index,
-        "block_start_ns": float(t.block.start_ns),
-        "block_end_ns": float(t.block.end_ns),
-        "FP_relative_change": t.stability.fp_change,
-        "FP_pass": t.stability.fp_pass,
-        "RDF_nRMSD": t.stability.rdf_nrmsd,
-        "RDF_pass": t.stability.rdf_pass,
-        "Spearman_rho": t.stability.spearman_rho,
-        "Spearman_pass": t.stability.spearman_pass,
-        "all_criteria_pass": t.stability.passed,
-        "stable_transition_count": t.stable_in_a_row,
-        "convergence_reached": first is not None and t.block.index >= first.block.index,
-    } for t in tracker.transitions])
+def transitions_table(stabilities: Sequence[StabilityResult], block_times: Sequence[tuple[float, float]],
+                      n_stable: int) -> pd.DataFrame:
+    """One row per transition: the columns of convergence_metrics.csv.
+
+    ``block_times[i]`` is the (start_ns, end_ns) of block i.
+    """
+    first = first_convergence(stabilities, n_stable)
+    rows = []
+    for i, (s, count) in enumerate(zip(stabilities, stable_in_a_row(stabilities))):
+        start_ns, end_ns = block_times[i + 1]
+        rows.append({
+            "transition": f"{i}->{i + 1}",
+            "previous_block": i,
+            "block": i + 1,
+            "block_start_ns": float(start_ns),
+            "block_end_ns": float(end_ns),
+            "FP_relative_change": s.fp_change,
+            "FP_pass": s.fp_pass,
+            "RDF_nRMSD": s.rdf_nrmsd,
+            "RDF_pass": s.rdf_pass,
+            "Spearman_rho": s.spearman_rho,
+            "Spearman_pass": s.spearman_pass,
+            "all_criteria_pass": s.passed,
+            "stable_transition_count": count,
+            "convergence_reached": first is not None and i >= first,
+        })
+    return pd.DataFrame(rows)

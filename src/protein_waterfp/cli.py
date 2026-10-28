@@ -27,7 +27,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from convergence import DEFAULT_TOLERANCES, Block, ConvergenceTracker, transitions_table
+from convergence import (
+    DEFAULT_TOLERANCES,
+    StabilityResult,
+    compare_blocks,
+    first_convergence,
+    stable_in_a_row,
+    transitions_table,
+)
 from waterfp import WaterFP
 
 from . import __version__
@@ -56,6 +63,19 @@ class AnalysisOptions:
 
 def _write_csv(df: pd.DataFrame, path: Path, **kw) -> None:
     df.to_csv(path, index=False, **kw)
+
+
+def _after_convergence(stabilities: list[StabilityResult], converged_at: int | None) -> dict:
+    """How the transitions after the first convergence behaved."""
+    if converged_at is None:
+        return {"n_transitions_after_first_convergence": 0,
+                "n_unstable_transitions_after_first_convergence": 0,
+                "remained_stable_after_first_convergence": None}
+    later = stabilities[converged_at + 1:]
+    unstable = sum(not s.passed for s in later)
+    return {"n_transitions_after_first_convergence": len(later),
+            "n_unstable_transitions_after_first_convergence": unstable,
+            "remained_stable_after_first_convergence": unstable == 0}
 
 
 def _frame_time_ns(u, frame: int) -> float:
@@ -101,7 +121,7 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     log(f"[protein-waterfp] {len(plan.blocks)} blocks of {plan.frames_per_block} frames ({options.block_ns} ns), "
         f"{len(plan.blocks) - 1} transitions; {plan.unused_tail_frames} trailing frame(s) not in a complete block")
 
-    tracker = ConvergenceTracker(tol=DEFAULT_TOLERANCES)
+    block_results, block_times = [], []
     fp_tables, contact_rows = [], []
     rdf_path = outdir / "rdf_profiles_per_block.csv"
     candidate_atoms = u_traj.atoms[cand_idx]
@@ -111,7 +131,8 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         t_end = t_start + block_len_ns
         analysis = WaterFP(candidate_atoms, water_oxygens).run(start=start, stop=end)
         st = structural_block(u_traj, start, end, cand_idx, sel.ligand_heavy, sel.water_oxygens)
-        tracker.add_block(Block(b, t_start, t_end, analysis.results))
+        block_results.append(analysis.results)
+        block_times.append((t_start, t_end))
 
         fp_table = analysis.fp_table(labels).assign(block=b, t_start_ns=t_start, t_end_ns=t_end,
                                                     t_mid_ns=0.5 * (t_start + t_end))
@@ -122,13 +143,18 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
             contact_rows.append({"block": b, "t_start_ns": t_start, "t_end_ns": t_end, "atom": a,
                                  "Contact_occupancy_5A": float(st.contact_occupancy[i]),
                                  "Bridge_occupancy": float(st.bridge_occupancy[i]), "n_frames": st.n_frames})
-        streak_txt = tracker.stable_in_a_row if tracker.transitions else "-"
-        log(f"[protein-waterfp] block {b} ({t_start:g}-{t_end:g} ns) done; stable transitions in a row: {streak_txt}")
+        log(f"[protein-waterfp] block {b} ({t_start:g}-{t_end:g} ns) done")
+
+    tol = DEFAULT_TOLERANCES
+    stabilities = compare_blocks(block_results, tol)
+    converged_at = first_convergence(stabilities, tol.n_stable)  # transition index, or None
+    first_converged_ns = None if converged_at is None else block_times[converged_at + 1][1]
+    log(f"[protein-waterfp] first sustained convergence: {first_converged_ns} ns")
 
     fp_df = pd.concat(fp_tables, ignore_index=True)
     _write_csv(fp_df, outdir / "fp_values_per_block.csv")
     _write_csv(pd.DataFrame(contact_rows), outdir / "contact_occupancy_per_block.csv")
-    transitions = transitions_table(tracker)
+    transitions = transitions_table(stabilities, block_times, tol.n_stable)
     _write_csv(transitions, outdir / "convergence_metrics.csv")
     wide = fp_df.pivot(index="atom", columns="block", values="FP").loc[labels]
     wide.to_csv(outdir / "fp_values_by_block_wide.csv")
@@ -141,9 +167,6 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=first, stop=last).results.fp
     st_full = structural_block(u_traj, first, last, cand_idx, sel.ligand_heavy, sel.water_oxygens)
 
-    first_convergence = tracker.first_convergence
-    first_converged_ns = None if first_convergence is None else first_convergence.block.end_ns
-
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
     table = build_final_table(
         candidates, dict(zip(labels, fp_full.tolist())),
@@ -154,7 +177,6 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     _write_csv(table, outdir / "final_per_atom_table.csv")
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
-    tol = tracker.tol
     summary = {
         "trajectory_length_ns": trajectory_length_ns,
         "trajectory_start_ns": traj_start_ns,
@@ -163,19 +185,19 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         "dt_ps": dt_ps,
         "block_size_ns": options.block_ns,
         "number_of_blocks": len(plan.blocks),
-        "number_of_transitions": len(tracker.transitions),
+        "number_of_transitions": len(stabilities),
         "frames_not_in_a_complete_block": plan.unused_tail_frames,
         "stable_transitions_required": tol.n_stable,
         "fp_threshold": tol.fp_rel_tol,
         "rdf_nrmsd_threshold": tol.rdf_nrmsd_tol,
         "spearman_threshold": tol.spearman_tol,
-        "convergence_reached": first_convergence is not None,
-        "convergence_status": "NOT_CONVERGED" if first_convergence is None else "CONVERGED",
+        "convergence_reached": converged_at is not None,
+        "convergence_status": "NOT_CONVERGED" if converged_at is None else "CONVERGED",
         "first_sustained_convergence_ns": first_converged_ns,
-        "first_sustained_convergence_transition": None if first_convergence is None
-            else f"{first_convergence.block.index - 1}->{first_convergence.block.index}",
-        **tracker.after_convergence(),
-        "stable_transitions_in_a_row_at_end": tracker.stable_in_a_row,
+        "first_sustained_convergence_transition":
+            None if converged_at is None else f"{converged_at}->{converged_at + 1}",
+        **_after_convergence(stabilities, converged_at),
+        "stable_transitions_in_a_row_at_end": (stable_in_a_row(stabilities) or [0])[-1],
         "final_analysis_start_ns": analysis_start_ns,
         "final_analysis_end_ns": analysis_end_ns,
         "final_analysis_time_ns": final_analysis_time_ns,
@@ -189,7 +211,7 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         fh.write("Protein-side WaterFP retrospective block-wise convergence\n" + "=" * 57 + "\n")
         fh.write(f"Trajectory: {traj_start_ns:g}-{traj_end_ns:g} ns ({trajectory_length_ns:g} ns, "
                  f"{n_frames} frames, dt {dt_ps:g} ps)\n")
-        fh.write(f"Blocks: {len(plan.blocks)} x {options.block_ns} ns, {len(tracker.transitions)} transitions; "
+        fh.write(f"Blocks: {len(plan.blocks)} x {options.block_ns} ns, {len(stabilities)} transitions; "
                  f"{plan.unused_tail_frames} trailing frame(s) not in a complete block\n")
         fh.write(f"Thresholds: FP rel. change <= {tol.fp_rel_tol}, RDF nRMSD <= {tol.rdf_nrmsd_tol}, "
                  f"Spearman >= {tol.spearman_tol}; {tol.n_stable} consecutive stable transitions\n")
