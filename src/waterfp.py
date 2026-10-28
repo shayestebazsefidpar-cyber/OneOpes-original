@@ -3,6 +3,7 @@
 Original at: github.com/valeriorizzi/WaterFP
 """
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 import numpy as np
@@ -56,9 +57,17 @@ def fingerprint(counts: WaterCounts,
     g(r) is the water density relative to the bulk plateau (mean of the last
     ``norm_tail_bins`` bins); FP integrates -2*pi*bulk*(g ln g - g + 1)*r^2 over r.
     Returns (fp of shape (n_atoms,), g of shape (n_atoms, n_bins)).
+    Raises ValueError when an atom has no water at all in the bulk tail.
     """
     density = counts.density_nm3
     bulk = density[:, -norm_tail_bins:].mean(axis=1, keepdims=True)
+    no_bulk_water = bulk[:, 0] == 0
+    if no_bulk_water.any():
+        raise ValueError(
+            f"No water in the bulk tail (last {norm_tail_bins} bins, up to {counts.rmax_nm} nm) around "
+            f"solute atoms {counts.solute_indices[no_bulk_water].tolist()}: check the water selection "
+            "and that the box holds water that far from the solute."
+        )
     g = density / bulk
     integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.r_nm ** 2  # xlogy(0, 0) = 0
     fp = np.trapezoid(integrand, dx=counts.binwidth_nm, axis=1)
@@ -100,8 +109,17 @@ class WaterFP(AnalysisBase):
         self.results.counts = np.zeros(shape, dtype=np.int64)
 
     def _single_frame(self) -> None:
+        box = self._ts.dimensions
+        if box is not None and self._distance_edges_a[-1] > 0.5 * min(box[:3]):
+            # constant message: Python shows it once, not once per frame
+            warnings.warn(
+                f"rmax ({self.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
+                "distances the outer shells are only partly sampled, so the bulk density and every FP "
+                "are biased. Use a larger box or a smaller rmax.",
+                RuntimeWarning,
+            )
         pairs, distances = capped_distance(self.solute.positions, self.water_oxygens.positions,
-                                           max_cutoff=self._distance_edges_a[-1], box=self._ts.dimensions)
+                                           max_cutoff=self._distance_edges_a[-1], box=box)
         histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(self._atom_edges, self._distance_edges_a))
         self.results.counts += histogram.astype(np.int64)
 

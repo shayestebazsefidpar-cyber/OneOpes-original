@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "MDAnalysis>=2.0",
-    "numpy",
+    "numpy>=2",
     "pandas",
     "scipy",
     "matplotlib",

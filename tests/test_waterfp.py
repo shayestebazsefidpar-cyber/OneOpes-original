@@ -13,18 +13,19 @@ BOX_A = 50.0  # half box (25 A) > rmax (20.01 A): every bin is fully inside the 
 BULK_DENSITY_NM3 = 33.4  # water-O number density of bulk water
 
 
-def random_universe(n_solute: int = 3, n_water: int = 200, n_frames: int = 5, seed: int = 0) -> mda.Universe:
+def random_universe(n_solute: int = 3, n_water: int = 200, n_frames: int = 5, seed: int = 0,
+                    box_a: float = BOX_A) -> mda.Universe:
     """Atoms 0..n_solute-1 are the solute, the rest water oxygens, all at random positions."""
     rng = np.random.default_rng(seed)
     n_atoms = n_solute + n_water
-    coords = rng.uniform(0.0, BOX_A, (n_frames, n_atoms, 3)).astype(np.float32)
-    return universe_from_coordinates(coords)
+    coords = rng.uniform(0.0, box_a, (n_frames, n_atoms, 3)).astype(np.float32)
+    return universe_from_coordinates(coords, box_a)
 
 
-def universe_from_coordinates(coords: np.ndarray) -> mda.Universe:
-    """Universe with one frame per entry of ``coords`` (n_frames, n_atoms, 3), in a BOX_A cube."""
+def universe_from_coordinates(coords: np.ndarray, box_a: float = BOX_A) -> mda.Universe:
+    """Universe with one frame per entry of ``coords`` (n_frames, n_atoms, 3), in a cubic box."""
     u = mda.Universe.empty(coords.shape[1], trajectory=True)
-    u.load_new(coords, format=MemoryReader, dimensions=[BOX_A, BOX_A, BOX_A, 90.0, 90.0, 90.0])
+    u.load_new(coords, format=MemoryReader, dimensions=[box_a, box_a, box_a, 90.0, 90.0, 90.0])
     return u
 
 
@@ -66,19 +67,35 @@ def test_density_is_counts_per_frame_per_shell_volume():
 
 
 def test_a_water_is_counted_in_the_bin_of_its_distance():
-    # solute at the box centre, one water 0.50025 nm away along x -> bin 500 ([0.500, 0.501) nm)
-    coords = np.array([[[25.0, 25.0, 25.0], [30.0025, 25.0, 25.0]]], dtype=np.float32)
+    # solute at the box centre; one water 0.50025 nm away along x -> bin 500 ([0.500, 0.501) nm),
+    # one 1.80025 nm away along y -> bin 1800 (in the bulk tail, so the FP can be normalised)
+    coords = np.array([[[25.0, 25.0, 25.0], [30.0025, 25.0, 25.0], [25.0, 43.0025, 25.0]]], dtype=np.float32)
     u = universe_from_coordinates(coords)
     counts = WaterFP(u.atoms[:1], u.atoms[1:]).run().results.water_counts
-    assert counts.counts.sum() == 1
+    assert counts.counts.sum() == 2
     assert counts.counts[0, 500] == 1
+    assert counts.counts[0, 1800] == 1
 
 
 def test_waters_beyond_rmax_are_not_counted():
-    coords = np.array([[[5.0, 5.0, 5.0], [5.0, 5.0, 25.5]]], dtype=np.float32)  # 20.5 A > 20.01 A
+    # one water 20.5 A away (> rmax = 20.01 A) and one 18.0025 A away, in the bulk tail (bin 1800)
+    coords = np.array([[[5.0, 5.0, 5.0], [5.0, 5.0, 25.5], [5.0, 23.0025, 5.0]]], dtype=np.float32)
     u = universe_from_coordinates(coords)
     counts = WaterFP(u.atoms[:1], u.atoms[1:]).run().results.water_counts
-    assert counts.counts.sum() == 0
+    assert counts.counts.sum() == 1
+    assert counts.counts[0, 1800] == 1
+
+
+def test_no_water_in_the_bulk_tail_is_an_error():
+    counts = water_counts(np.zeros((2, 2001), dtype=np.int64))
+    with pytest.raises(ValueError, match=r"No water in the bulk tail .* solute atoms \[0, 1\]"):
+        fingerprint(counts)
+
+
+def test_rmax_beyond_half_the_box_warns():
+    u = random_universe(box_a=30.0)  # half box 15 A < rmax 20.01 A
+    with pytest.warns(RuntimeWarning, match="larger than half the shortest box edge"):
+        WaterFP(u.atoms[:3], u.atoms[3:]).run()
 
 
 def test_counts_of_consecutive_frame_ranges_add_up():
