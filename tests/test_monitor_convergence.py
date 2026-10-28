@@ -37,6 +37,8 @@ def test_write_reports_preserves_schema_and_field_values(tmp_path):
     wide_fp = pd.read_csv(wide_fp_path, index_col="atom")
     assert list(wide_fp.columns) == ["0", "1"]
     assert wide_fp.loc["A", "0"] == pytest.approx(-10.0)
+    ranks = pd.read_csv(wide_rank_path, index_col="atom")
+    assert ranks.to_dict() == {"0": {"A": 1, "B": 2}, "1": {"A": 1, "B": 2}}
 
 
 def test_plot_atom_writes_expected_files(tmp_path):

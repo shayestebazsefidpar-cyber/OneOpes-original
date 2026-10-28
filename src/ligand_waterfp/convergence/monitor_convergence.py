@@ -21,15 +21,23 @@ import time
 import signal
 from pathlib import Path
 
-import pandas as pd
 import MDAnalysis as mda
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from convergence import Tolerances, check_stability, first_convergence, stable_in_a_row, transitions_table
+from convergence import (
+    Tolerances,
+    compare_blocks,
+    first_convergence,
+    fp_per_block,
+    fp_ranks,
+    rdf_per_block,
+    stable_in_a_row,
+    transitions_table,
+)
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
-from trajectory_blocks import frame_step_ps, frames_per_block
+from trajectory_blocks import frame_step_ps, frames_per_block, time_span_ns
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
@@ -96,11 +104,6 @@ def wait_for_frames(load_universe, n_frames: int, mdrun_pid: int | None, poll_se
         time.sleep(poll_seconds)
 
 
-def write_block_rows(table: pd.DataFrame, path: Path, first_block: bool) -> None:
-    """Write one block's rows to ``path``: a new file (with header) for the first block, appended after."""
-    table.to_csv(path, mode="w" if first_block else "a", header=first_block, index=False)
-
-
 def plot_atom(atom_name, fp_df, rdf_df, outdir):
     """Save the two per-atom diagnostic plots (FP vs. simulation time, and
     RDF per block) for `atom_name`, exactly as main()'s plotting loop used
@@ -162,10 +165,9 @@ def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_n
     writes them directly (see the loop body), same as before.
     """
     outdir = Path(outdir)
-    rank_table = fp_df.pivot(index="atom", columns="block", values="FP")
-    rank_table_ranked = rank_table.rank(ascending=False, axis=0)
-    rank_table.to_csv(outdir / "fp_values_by_block_wide.csv")
-    rank_table_ranked.to_csv(outdir / "fp_ranking_by_block_wide.csv")
+    fp_wide = fp_df.pivot(index="atom", columns="block", values="FP")
+    fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
+    fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
 
     summary = {
         "converged": converged,
@@ -265,46 +267,34 @@ def main():
         block_length = frames_per_block(args.block_ns, dt_ps)
     except ValueError as e:
         raise SystemExit(f"[monitor] {e}")
-    block_len_ns = block_length * dt_ps / 1000.0
     print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({args.block_ns} ns)")
 
-    block_results, block_times, stabilities = [], [], []
-    fp_tables, rdf_tables = [], []  # one table per block
-    converged_at = None  # index of the transition completing convergence
+    blocks, block_times = [], []
+    converged_at = None
 
     # Analyse one block at a time as mdrun writes it, until convergence or until mdrun stops.
     while converged_at is None:
-        b = len(block_results)
-        start, stop = b * block_length, (b + 1) * block_length
-        u = wait_for_frames(get_universe, stop, args.mdrun_pid, args.poll_seconds)
-        if len(u.trajectory) < stop:
-            break  # mdrun ended before this block was complete
+        frames = range(len(blocks) * block_length, (len(blocks) + 1) * block_length)
+        u = wait_for_frames(get_universe, frames.stop, args.mdrun_pid, args.poll_seconds)
+        if len(u.trajectory) < frames.stop:
+            break
+        blocks.append(WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
+                              norm_tail_bins=args.norm_tail_bins).run(start=frames.start, stop=frames.stop))
+        block_times.append(time_span_ns(u, frames, dt_ps))
 
-        block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
-                        norm_tail_bins=args.norm_tail_bins).run(start=start, stop=stop)
-        t_start_ns = block.times[0] / 1000.0
-        t_end_ns = t_start_ns + block_len_ns
-        block_results.append(block.results)
-        block_times.append((t_start_ns, t_end_ns))
-
-        fp_table = block.fp_table().assign(block=b, t_start_ns=t_start_ns, t_end_ns=t_end_ns,
-                                           t_mid_ns=0.5 * (t_start_ns + t_end_ns))
-        fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
-        rdf_tables.append(block.profile_table().assign(block=b)[["block", "atom", "r_nm", "g_r"]])
-        write_block_rows(fp_tables[-1], outdir / "fp_values_per_block.csv", first_block=b == 0)
-        write_block_rows(rdf_tables[-1], outdir / "rdf_profiles_per_block.csv", first_block=b == 0)
-
-        if b > 0:
-            stabilities.append(check_stability(block_results[-1], block_results[-2], tol))
-            converged_at = first_convergence(stabilities, tol.n_stable)
-            transitions_table(stabilities, block_times, tol.n_stable).to_csv(
-                outdir / "convergence_metrics.csv", index=False)
+        stabilities = compare_blocks([block.results for block in blocks], tol)
+        converged_at = first_convergence(stabilities, tol.n_stable)
+        fp_per_block(blocks, block_times).to_csv(outdir / "fp_values_per_block.csv", index=False)
+        rdf_per_block(blocks).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+        transitions_table(stabilities, block_times, tol.n_stable).to_csv(
+            outdir / "convergence_metrics.csv", index=False)
+        if stabilities:
             s = stabilities[-1]
-            print(f"[monitor] block {b} (t={t_end_ns:.1f} ns): max|dFP/FP|={s.fp_change:.3f} "
-                  f"max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
+            print(f"[monitor] block {len(blocks) - 1} (t={block_times[-1][1]:.1f} ns): "
+                  f"max|dFP/FP|={s.fp_change:.3f} max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
                   f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
 
-    if not block_results:
+    if not blocks:
         raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
     converged = converged_at is not None
     if converged:
@@ -317,7 +307,7 @@ def main():
             f"across {tol.n_stable} consecutive block-to-block transitions."
         )
     else:
-        stop_block = len(block_results)
+        stop_block = len(blocks)
         stop_time_ns = u.trajectory[-1].time / 1000.0
         stop_reason = (
             f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
@@ -327,15 +317,14 @@ def main():
             "before convergence was detected by this monitor."
         )
 
-    fp_df = pd.concat(fp_tables, ignore_index=True)
-    rdf_df = pd.concat(rdf_tables, ignore_index=True)
-
+    fp_df = fp_per_block(blocks, block_times)
+    rdf_df = rdf_per_block(blocks)
     for name in heavy_names:
         plot_atom(name, fp_df, rdf_df, outdir)
 
     summary = write_reports(
         outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-        args.block_ns, tol, args.ligand_resname, heavy_names, len(block_results),
+        args.block_ns, tol, args.ligand_resname, heavy_names, len(blocks),
     )
 
     print(f"[monitor] DONE. converged={summary['converged']} stop_block={summary['stop_block']} "
@@ -351,7 +340,7 @@ def main():
 
     if converged:  # the last block analysed is the converged one
         try:
-            selection = write_selection(block, outdir / "selection", args.fp_round_decimals)
+            selection = write_selection(blocks[-1], outdir / "selection", args.fp_round_decimals)
             print(f"[monitor] {selection}, written to {outdir / 'selection'}")
         except ValueError as e:
             print(f"[monitor] no G1/G2 selection for block {stop_block}: {e}")
