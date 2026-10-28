@@ -57,3 +57,32 @@ def build_final_table(candidates: pd.DataFrame, fp: dict, contact: dict, bridge:
     if table["Atom"].duplicated().any() or len(table) != len(labels):
         raise AssertionError("final table must have exactly one row per candidate atom")
     return table
+
+
+# Decimals used only for the human-readable copy; the CSV keeps full precision.
+MARKDOWN_DECIMALS = {
+    "Min_distance_to_ligand_A": 2,
+    "FP": 3,
+    "Contact_occupancy_5A": 3,
+    "Bridge_occupancy": 3,
+    "SASA_A2": 2,
+    "Analysis_time_ns": 2,
+    "First_convergence_ns": 2,
+}
+
+
+def final_table_markdown(table: pd.DataFrame) -> str:
+    """The final table as a Markdown table (same rows, order and columns; floats rounded)."""
+
+    def cell(column, value):
+        if pd.isna(value):
+            return ""
+        if column in MARKDOWN_DECIMALS:
+            return f"{float(value):.{MARKDOWN_DECIMALS[column]}f}"
+        return str(value)
+
+    columns = list(table.columns)
+    lines = ["| " + " | ".join(columns) + " |", "|" + "|".join("---" for _ in columns) + "|"]
+    for row in table.itertuples(index=False):
+        lines.append("| " + " | ".join(cell(c, v) for c, v in zip(columns, row)) + " |")
+    return "\n".join(lines) + "\n"

@@ -104,6 +104,7 @@ names (water/hydrogen naming may differ between formats).
 | `convergence_metrics.csv` | one row per block transition: `block_start_ns`, `block_end_ns`, `FP_relative_change`, `FP_pass`, `RDF_nRMSD`, `RDF_pass`, `Spearman_rho`, `Spearman_pass`, `all_criteria_pass`, `stable_transition_count`, `convergence_reached` |
 | `convergence_summary.json/.txt` | trajectory length, blocks, transitions, thresholds, `first_sustained_convergence_ns`, behaviour after convergence, `final_analysis_time_ns` |
 | `final_per_atom_table.csv` | one row per candidate, sorted by `FP_Rank` |
+| `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |
 | `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, convergence, versions |
 
 Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial_pdb, Atom_name,

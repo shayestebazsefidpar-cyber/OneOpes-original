@@ -63,3 +63,15 @@ def test_missing_value_for_a_candidate_fails():
     fp.pop("GLY3_CA_id8")
     with pytest.raises(ValueError, match="FP"):
         build_final_table(cand, fp, *rest)
+
+
+def test_markdown_copy_has_same_rows_and_columns():
+    from protein_waterfp.final_table import final_table_markdown
+
+    table = build_final_table(*_inputs())
+    lines = final_table_markdown(table).splitlines()
+    assert lines[0] == "| " + " | ".join(REQUIRED) + " |"
+    assert len(lines) == 2 + len(table)
+    rows = [line.strip("| ").split(" | ") for line in lines[2:]]
+    assert [r[1] for r in rows] == list(table["Atom"])
+    assert rows[0][REQUIRED.index("FP")] == "-21.000"

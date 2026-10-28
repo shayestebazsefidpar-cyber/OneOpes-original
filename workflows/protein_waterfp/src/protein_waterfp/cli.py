@@ -13,7 +13,7 @@ the ligand, on --complex) -> consecutive --block-ns blocks over the whole
 trajectory -> per block: WaterFP/RDF (ligand-side code), Contact, Bridge ->
 convergence metrics for every transition (ligand-side criteria) and the first
 sustained convergence -> full-trajectory FP/Contact/Bridge + static SASA ->
-final_per_atom_table.csv.
+final_per_atom_table.csv (+ a readable final_per_atom_table.md).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import pandas as pd
 
 from . import __version__
 from .convergence import DEFAULT_TOLERANCES, ConvergenceTracker, block_waterfp, fp_ranks
-from .final_table import build_final_table
+from .final_table import build_final_table, final_table_markdown
 from .sasa import static_sasa
 from .selection import (
     CANDIDATE_CUTOFF_A_DEFAULT,
@@ -150,6 +150,7 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         sasa, final_analysis_time_ns, tracker.first_converged_ns,
     )
     _write_csv(table, outdir / "final_per_atom_table.csv")
+    (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
     tol = tracker.tol
     first_block = tracker.first_converged_block
