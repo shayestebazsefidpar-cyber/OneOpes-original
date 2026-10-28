@@ -10,12 +10,12 @@ The `Scripts/` folder in this directory is an **unmodified copy** of the
 
 These files are kept here purely for reference/provenance - to make clear
 exactly which version of the official implementation
-`run_official_selection.py` (one directory up) calls into. They are not
+`../vendored_selection.py` was copied from. They are not
 imported directly (a notebook cannot be imported as a Python module); the
 `select_next_atom` / `select_bulk_atom` functions in
 `fp_driven_atom_selection.ipynb` (cells 2 and 5) are reproduced verbatim,
 with clear `BEGIN/END OFFICIAL CODE` markers and no logic changes, inside
-`../run_official_selection.py`.
+`../vendored_selection.py`.
 
 **License note**: no `LICENSE` file was present in the vendored commit.
 Confirm licensing terms directly with the upstream repository/author
@@ -23,5 +23,5 @@ before redistributing this folder outside this project.
 
 If the upstream repository is updated, re-vendor by replacing the five
 files above from the new commit and updating the commit hash here and in
-`../run_official_selection.py`'s docstring - do not hand-edit the vendored
+`../vendored_selection.py`'s docstring - do not hand-edit the vendored
 files themselves.

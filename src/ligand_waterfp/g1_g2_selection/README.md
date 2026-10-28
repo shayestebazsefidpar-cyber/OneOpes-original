@@ -1,27 +1,34 @@
-# G1/G2 result parsing (helper module, no CLI)
+# Stage 3 - WaterFP and G1/G2 selection
 
-Turns the official selection algorithm's raw result sentences into a
-small, structured G1/G2 result that downstream stages (and your own
-analysis/reporting) can consume without re-parsing prose.
+Computes WaterFP for every ligand heavy atom over a frame window and picks
+the two atom pairs the ligand-side CV is built on:
 
-**This is no longer a separate pipeline stage.** `select_g1_g2.py` has no
-`main()`/CLI of its own - `ligand_waterfp.official_selection.run_official_selection`'s
-`main()` calls `parse_selection_lines()` and `write_g1_g2_yaml()` directly,
-in-process, immediately after the vendored `select_next_atom()`/
-`select_bulk_atom()` return. There is no intermediate text file and no
-separate console script anymore (`ligand-waterfp-g1g2` was removed) - the
-result sentences never leave that one process.
+- **G1** (anti-bulk): the most negative FP atom, and a partner among the
+  next most negative ones that is not bonded to it (the farthest one when
+  FP values are within 0.2 after rounding).
+- **G2** (bulk): the least negative FP atom, and the next least negative
+  one at least three bonds away.
 
-- **Module**: `select_g1_g2.py` - two pure functions, kept here (rather
-  than inlined into `official_selection`) so they stay independently
-  testable with synthetic text, with no dependency on a real
-  `.tpr`/ranking CSV:
-  - `parse_selection_lines(text)` - regexes the two result sentences into
-    `{"G1": [...], "G2": [...]}`
-  - `write_g1_g2_yaml(result, out_path, system_id=None)` - writes that to
-    YAML, creating the output directory if needed
+These are the rules of the upstream WaterFP notebook;
+`tests/test_g1_g2_reference.py` checks them against its vendored code
+(`../official_selection/vendored_selection.py`).
 
-Output shape:
+## Usage
+
+Restrict the frames to the converged block the monitor reported (see
+`../convergence/README.md`'s "Next stage"). The topology must carry bonds
+(a `.tpr`).
+
+```bash
+ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \
+    --start-frame <start> --end-frame <end> [--ligand-resname MOL] [--fp-round-decimals 1]
+```
+
+Writes, for review:
+
+- `rdf.csv` (`atom,r_nm,n_r`) - water-O number density per atom
+- `fingerprints.csv` (`atom,fp`) - WaterFP per atom
+- `g1_g2.yaml`:
 
 ```yaml
 G1:
@@ -32,28 +39,9 @@ G2:
   - {name: <atom>, serial: <n>}
 ```
 
-**`serial` is 1-based** (see `../official_selection/README.md`'s "Input
-format" section) - not MDAnalysis's 0-based `Atom.index`.
-
-This step does not re-run or reinterpret the selection algorithm itself
-(that's entirely `official_selection`'s job) - it only reformats its
-output.
-
-`AtomRef`/`SelectionResult` (frozen dataclasses in `select_g1_g2.py`) give
-this shape an in-process type; the YAML above is unchanged either way.
-
-## Usage
-
-Not invoked directly - see
-`../official_selection/README.md` (`ligand-waterfp-select --out
-outputs/selection/g1_g2.yaml` now writes this YAML in one step).
-
-`outputs/` is a per-run result and is git-ignored - this module's code
-never hardcodes or commits an actual G1/G2 result for any specific
-ligand.
+`serial` is 1-based (MDAnalysis `Atom.index` + 1).
 
 ## Next stage
 
-`ligand_waterfp.ligand_cv.build_ligand_cv` consumes the YAML
-`run_official_selection` writes to construct the ligand-side PLUMED CV
-fragment.
+`ligand_waterfp.ligand_cv.build_ligand_cv` builds the PLUMED CV fragment
+from `g1_g2.yaml`.

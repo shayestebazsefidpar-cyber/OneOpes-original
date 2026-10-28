@@ -1,124 +1,65 @@
 """
-Turns the official WaterFP selection algorithm's raw text output into a
-small, structured G1/G2 result - the format
-`ligand_waterfp.ligand_cv.build_ligand_cv` consumes to construct the
-ligand-side PLUMED CV.
+G1/G2 selection: the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP.
 
-This module has no CLI of its own. `parse_selection_lines()` and
-`write_g1_g2_yaml()` are called directly, in-process, by
-`ligand_waterfp.official_selection.run_official_selection`'s `main()`
-immediately after the vendored `select_next_atom()`/`select_bulk_atom()`
-return their result sentences - there is no intermediate text file and no
-separate parsing stage anymore. Kept as pure functions here (rather than
-inlined into official_selection) so they stay independently testable with
-synthetic text, with no dependency on a real .tpr/ranking CSV.
+    ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
+        [--start-frame N] [--end-frame M] [--ligand-resname MOL]
 
-    "anti-bulk fp selection: ATOM1 (5), ATOM2 (12)"  -> G1 = [(ATOM1, 5), (ATOM2, 12)]
-    "bulk fp selection: ATOM3 (18), ATOM4 (19)"      -> G2 = [(ATOM3, 18), (ATOM4, 19)]
-
---- Atom serial convention ---
-`serial` is 1-based, matching the official algorithm's own printed output
-and the ranking CSV's `atom` column - NOT MDAnalysis's 0-based
-`Atom.index` (serial == mdanalysis_index + 1 for the selection used here).
-
---- AtomRef / SelectionResult ---
-Frozen dataclasses giving this module's {"G1": [...], "G2": [...]} shape
-a validated in-process type. `parse_selection_lines()` still returns the
-original dict; `write_g1_g2_yaml()` normalizes either input through
-SelectionResult before writing, so a malformed dict is rejected rather
-than assumed valid. `run_official_selection.main()` converts the parsed
-dict to a SelectionResult immediately, before calling the writer.
+Restrict the frames to the monitor's converged block. Writes, for review:
+    rdf.csv           (atom,r_nm,n_r)  water-O number density, waters/nm^3
+    fingerprints.csv  (atom,fp)        WaterFP per ligand heavy atom
+    g1_g2.yaml        G1 and G2 atom names and 1-based serials (MDAnalysis index + 1)
 """
-import re
+import argparse
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import MDAnalysis as mda
 import networkx as nx
 import numpy as np
 import yaml
 from MDAnalysis.core.groups import AtomGroup
 
-LINE_RE = re.compile(r"(anti-bulk|bulk) fp selection:\s*(\w+)\s*\((\d+)\),\s*(\w+)\s*\((\d+)\)")
+from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 
 
 @dataclass(frozen=True)
 class AtomRef:
-    """One atom's (name, serial) pair. serial is 1-based - see module
-    docstring; do not confuse with MDAnalysis's 0-based Atom.index."""
+    """An atom's name and 1-based serial."""
     name: str
     serial: int
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "AtomRef":
         return cls(name=d["name"], serial=int(d["serial"]))
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {"name": self.name, "serial": self.serial}
 
 
 @dataclass(frozen=True)
 class SelectionResult:
-    """Structured G1/G2 selection result: 2 AtomRefs per group plus an
-    optional system_id. to_yaml_dict()/from_dict() convert to/from the
-    existing YAML dict shape (see module docstring)."""
+    """The G1 (anti-bulk) and G2 (bulk) atom pairs."""
     G1: tuple[AtomRef, AtomRef]
     G2: tuple[AtomRef, AtomRef]
-    system_id: str | None = None
 
     @classmethod
-    def from_dict(cls, d):
-        return cls(
-            G1=tuple(AtomRef.from_dict(a) for a in d["G1"]),
-            G2=tuple(AtomRef.from_dict(a) for a in d["G2"]),
-            system_id=d.get("system_id"),
-        )
+    def from_dict(cls, d: dict) -> "SelectionResult":
+        return cls(G1=tuple(AtomRef.from_dict(a) for a in d["G1"]),
+                   G2=tuple(AtomRef.from_dict(a) for a in d["G2"]))
 
-    def to_yaml_dict(self):
-        """Serialize to the existing YAML dict shape (adds "system_id"
-        only if set)."""
-        payload = {
-            "G1": [a.to_dict() for a in self.G1],
-            "G2": [a.to_dict() for a in self.G2],
-        }
-        if self.system_id:
-            payload["system_id"] = self.system_id
-        return payload
+    def to_yaml_dict(self) -> dict:
+        return {"G1": [a.to_dict() for a in self.G1], "G2": [a.to_dict() for a in self.G2]}
 
 
-def parse_selection_lines(text):
-    """Returns {'G1': [{'name':..,'serial':..}, ...], 'G2': [...]}."""
-    result = {}
-    for m in LINE_RE.finditer(text):
-        kind, name1, serial1, name2, serial2 = m.groups()
-        key = "G1" if kind == "anti-bulk" else "G2"
-        result[key] = [
-            {"name": name1, "serial": int(serial1)},
-            {"name": name2, "serial": int(serial2)},
-        ]
-    return result
-
-
-def write_g1_g2_yaml(result, out_path, system_id=None):
-    """Write a G1/G2 result to YAML, creating the parent directory if
-    needed. Accepts either a SelectionResult or the original
-    {'G1': [...], 'G2': [...]} dict - a dict is normalized through
-    SelectionResult.from_dict() (raising if G1/G2 are missing or
-    malformed) rather than assumed valid, so both inputs go through the
-    same structured object before anything is written. `out_path` may be
-    a str or a Path.
-    """
-    selection = result if isinstance(result, SelectionResult) else SelectionResult.from_dict(result)
-
-    payload = selection.to_yaml_dict()
-    if system_id:
-        payload["system_id"] = system_id
-
+def write_g1_g2_yaml(selection: SelectionResult, out_path: Path) -> None:
+    """Write the selection to YAML, creating the parent directory if needed."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
-        yaml.safe_dump(payload, f, sort_keys=False)
+        yaml.safe_dump(selection.to_yaml_dict(), f, sort_keys=False)
 
 
 def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> SelectionResult:
@@ -189,3 +130,58 @@ def bond_distances(atoms: AtomGroup) -> Callable[[int, int], int]:
         return lengths[a][b]
 
     return distance
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--tpr", required=True, help="topology with bonds")
+    p.add_argument("--xtc", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--ligand-resname", default="MOL")
+    p.add_argument("--water-resname", default="SOL")
+    p.add_argument("--water-atom-name", default="O")
+    p.add_argument("--start-frame", type=int, default=0)
+    p.add_argument("--end-frame", type=int, default=None)
+    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
+    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
+    p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
+    p.add_argument("--fp-round-decimals", type=int, default=1, help="decimals FP is rounded to when comparing atoms")
+    return p.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    u = mda.Universe(args.tpr, args.xtc)
+    ligand = u.select_atoms(f"resname {args.ligand_resname} and not name H*")
+    water = u.select_atoms(f"resname {args.water_resname} and name {args.water_atom_name}")
+    if len(ligand) == 0:
+        raise SystemExit(f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}")
+    if len(water) == 0:
+        raise SystemExit(f"No water oxygens found for resname '{args.water_resname}' / "
+                         f"atom name '{args.water_atom_name}' in {args.tpr}")
+
+    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
+    waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=args.norm_tail_bins)
+    waterfp.run(start=args.start_frame, stop=args.end_frame)
+    print(f"[select] {len(ligand)} ligand heavy atoms, frames {waterfp.frames[0]}-{waterfp.frames[-1]}")
+
+    waterfp.profile_table()[["atom", "r_nm", "n_r"]].to_csv(outdir / "rdf.csv", index=False)
+    fp_table = waterfp.fp_table().rename(columns={"FP": "fp"})
+    fp_table.to_csv(outdir / "fingerprints.csv", index=False)
+    print(fp_table.sort_values("fp", kind="stable").to_string(index=False))
+
+    try:
+        selection = select_g1_g2(ligand, waterfp.results.fp, args.fp_round_decimals)
+    except ValueError as e:
+        raise SystemExit(f"[select] no G1/G2 selection: {e}")
+    write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
+    print(f"[select] G1 (anti-bulk): {selection.G1[0].name}, {selection.G1[1].name}")
+    print(f"[select] G2 (bulk): {selection.G2[0].name}, {selection.G2[1].name}")
+    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {outdir}")
+
+
+if __name__ == "__main__":
+    main()

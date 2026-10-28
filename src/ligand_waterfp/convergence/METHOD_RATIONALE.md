@@ -73,7 +73,7 @@ shell differs from a bulk-like distribution.
 **(c) Ranking**: within each block, all ligand heavy atoms are ranked by
 FP (rank 1 = most negative / most bulk-perturbing, in this sign
 convention). This ranking, not just the raw FP scalar, is what the
-downstream atom-selection step (the `official_selection` subpackage) actually
+downstream atom-selection step (the `g1_g2_selection` subpackage) actually
 uses.
 
 ## 3. Why three separate stability checks, not one
@@ -163,7 +163,7 @@ looser convergence definition is wanted.
   against by requiring several consecutive passes.
 - Convergence of the FP/ranking does not itself constitute or perform G1/G2
   atom selection, CV construction, or any other downstream analysis -
-  that is the `official_selection` subpackage onward, explicitly separate
+  that is the `g1_g2_selection` subpackage onward, explicitly separate
   stages.
 
 ## 6. What the code actually does, block by block

@@ -38,7 +38,7 @@ pass them through your own driver.
 Once `convergence_summary.json` reports `"converged": true`, it also
 reports `"stop_block"` and `"block_size_ns"`. **Use those to compute the
 exact frame range of that specific converged block** - not the whole
-trajectory - when calling `ligand_waterfp.waterfp.run_waterfp` next:
+trajectory - when calling `ligand-waterfp-select` next:
 
 ```text
 frames_per_block = round(block_size_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line
@@ -46,8 +46,8 @@ start_frame = stop_block * frames_per_block
 end_frame   = (stop_block + 1) * frames_per_block
 ```
 
-This matters: the official selection algorithm's 0.2 fp_round tie-break
-(`official_selection`) is sensitive to exactly which frames the FP values
+This matters: the G1/G2 selection's 0.2 fp_round tie-break
+(`g1_g2_selection`) is sensitive to exactly which frames the FP values
 were averaged over. Confirmed empirically against a real system's data -
 a whole-trajectory average reproduced the correct G1/G2 *anchor* atoms but
 picked a different G1 *partner* atom than using the converged block alone;

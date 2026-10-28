@@ -1,202 +1,75 @@
-"""
-Unit tests for ligand_waterfp.g1_g2_selection.select_g1_g2's text parser
-and its AtomRef/SelectionResult dataclasses. Uses synthetic atom
-names/serials - never real scientific results.
-"""
+"""G1/G2 result types, their YAML file, and the ligand-waterfp-select command on a synthetic system."""
 import dataclasses
 import sys
 
+import MDAnalysis as mda
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import (
-    parse_selection_lines,
-    write_g1_g2_yaml,
-    AtomRef,
-    SelectionResult,
-)
-from ligand_waterfp.official_selection import run_official_selection
+from ligand_waterfp.g1_g2_selection.select_g1_g2 import AtomRef, SelectionResult, main, select_g1_g2, write_g1_g2_yaml
+
+RAW = {
+    "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
+    "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
+}
 
 
-def test_parses_both_lines():
-    text = (
-        "anti-bulk fp selection: X1 (3), X2 (7)\n"
-        "bulk fp selection: X3 (11), X4 (2)\n"
-    )
-    result = parse_selection_lines(text)
-
-    assert result["G1"] == [
-        {"name": "X1", "serial": 3},
-        {"name": "X2", "serial": 7},
-    ]
-    assert result["G2"] == [
-        {"name": "X3", "serial": 11},
-        {"name": "X4", "serial": 2},
-    ]
-
-
-def test_parses_lines_embedded_in_surrounding_log_noise():
-    text = (
-        "======================================================================\n"
-        "Highest-ranking atom: X1 (3) with fp_round -5.0\n"
-        "anti-bulk fp selection: X1 (3), X2 (7)\n"
-        "======================================================================\n"
-        "bulk fp selection: X3 (11), X4 (2)\n"
-    )
-    result = parse_selection_lines(text)
-    assert result["G1"][0]["name"] == "X1"
-    assert result["G2"][0]["name"] == "X3"
-
-
-def test_missing_lines_returns_incomplete_dict():
-    result = parse_selection_lines("nothing useful here\n")
-    assert "G1" not in result
-    assert "G2" not in result
-
-
-# --- PR3: AtomRef / SelectionResult (code-review Rule 3) ---
-# parse_selection_lines() itself is intentionally left returning the
-# original dict shape (see select_g1_g2.py's module docstring) - these
-# tests cover the new dataclasses directly and the dict<->SelectionResult
-# round-trip used at write_g1_g2_yaml()'s serialization boundary.
-
-def test_atom_ref_fields_and_dict_roundtrip():
-    a = AtomRef(name="X1", serial=3)
-    assert a.name == "X1"
-    assert a.serial == 3
-    assert a.to_dict() == {"name": "X1", "serial": 3}
-    assert AtomRef.from_dict({"name": "X1", "serial": 3}) == a
-
-
-def test_atom_ref_is_frozen():
-    a = AtomRef(name="X1", serial=3)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        a.serial = 4
-
-
-def test_selection_result_from_dict_matches_parse_selection_lines_output():
-    text = "anti-bulk fp selection: X1 (3), X2 (7)\nbulk fp selection: X3 (11), X4 (2)\n"
-    parsed = parse_selection_lines(text)
-
-    result = SelectionResult.from_dict(parsed)
-
+def test_selection_result_dict_roundtrip():
+    result = SelectionResult.from_dict(RAW)
     assert result.G1 == (AtomRef("X1", 3), AtomRef("X2", 7))
-    assert result.G2 == (AtomRef("X3", 11), AtomRef("X4", 2))
-    assert result.system_id is None
+    assert result.to_yaml_dict() == RAW
 
 
 def test_selection_result_is_frozen():
-    result = SelectionResult.from_dict({
-        "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-    })
     with pytest.raises(dataclasses.FrozenInstanceError):
-        result.system_id = "changed"
+        SelectionResult.from_dict(RAW).G1 = ()
 
 
-def test_selection_result_dict_roundtrip_is_exact():
-    """dict -> SelectionResult -> to_yaml_dict() must reproduce the
-    original dict exactly - this is the mapping write_g1_g2_yaml() relies
-    on to keep the on-disk YAML schema unchanged when given a
-    SelectionResult instead of a raw dict."""
-    original = {
-        "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-        "system_id": "test-system",
-    }
-
-    result = SelectionResult.from_dict(original)
-    round_tripped = result.to_yaml_dict()
-
-    assert round_tripped == original
-
-
-def test_selection_result_yaml_dict_omits_system_id_when_unset():
-    result = SelectionResult.from_dict({
-        "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-    })
-    assert "system_id" not in result.to_yaml_dict()
-
-
-def test_write_g1_g2_yaml_accepts_selection_result_and_matches_dict_output(tmp_path):
-    """write_g1_g2_yaml() must write byte-for-byte the same YAML whether
-    given the original dict shape or an equivalent SelectionResult - the
-    existing on-disk schema (and existing readers like build_ligand_cv.py)
-    must not be able to tell the difference."""
-    raw = {
-        "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-    }
-    selection_result = SelectionResult.from_dict(raw)
-
-    dict_out = tmp_path / "from_dict.yaml"
-    dataclass_out = tmp_path / "from_dataclass.yaml"
-    write_g1_g2_yaml(raw, str(dict_out), system_id="sys-A")
-    write_g1_g2_yaml(selection_result, str(dataclass_out), system_id="sys-A")
-
-    assert dict_out.read_text() == dataclass_out.read_text()
-    assert yaml.safe_load(dict_out.read_text()) == {**raw, "system_id": "sys-A"}
-
-
-# --- write_g1_g2_yaml() now normalizes through SelectionResult - a ---------
-# --- malformed dict is rejected instead of assumed valid -------------------
-
-def test_write_g1_g2_yaml_rejects_dict_missing_g2():
-    malformed = {"G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}]}
+def test_atom_entry_missing_serial_is_rejected():
     with pytest.raises(KeyError):
-        write_g1_g2_yaml(malformed, "unused.yaml")
+        SelectionResult.from_dict({**RAW, "G1": [{"name": "X1"}, {"name": "X2", "serial": 7}]})
 
 
-def test_write_g1_g2_yaml_rejects_atom_entry_missing_serial():
-    """The old dict branch only ever checked for the top-level G1/G2 keys
-    and otherwise wrote whatever was inside them unchecked; normalizing
-    through SelectionResult/AtomRef now also validates each atom entry."""
-    malformed = {
-        "G1": [{"name": "X1"}, {"name": "X2", "serial": 7}],  # first entry has no serial
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-    }
-    with pytest.raises(KeyError):
-        write_g1_g2_yaml(malformed, "unused.yaml")
+def test_write_g1_g2_yaml_creates_parent_directory(tmp_path):
+    out_path = tmp_path / "nested" / "g1_g2.yaml"
+    write_g1_g2_yaml(SelectionResult.from_dict(RAW), out_path)
+    assert yaml.safe_load(out_path.read_text()) == RAW
 
 
-# --- production wiring: run_official_selection.main() must build a --------
-# --- SelectionResult and pass THAT to write_g1_g2_yaml() -------------------
+def ligand_in_water(tmp_path, n_frames: int = 3) -> tuple[str, str]:
+    """A 6-atom chain ligand in a 5 nm box of randomly placed water oxygens."""
+    rng = np.random.default_rng(1)
+    box, n_lig, n_water = 50.0, 6, 4000
+    chain = np.array([[25.0 + 1.5 * i, 25.0, 25.0] for i in range(n_lig)])
+    frames = [np.vstack([chain, rng.uniform(0.0, box, (n_water, 3))]) for _ in range(n_frames)]
 
-def test_run_official_selection_passes_selection_result_to_writer(tmp_path, monkeypatch):
-    """Mocks the vendored select_next_atom()/select_bulk_atom() (which need
-    a real .tpr with bond connectivity - out of scope for a synthetic
-    test, see tests/README.md) and write_g1_g2_yaml() itself, so this only
-    exercises main()'s own wiring between parse_selection_lines() and the
-    writer - the thing PR6 actually changed."""
-    ranking_csv = tmp_path / "ranking.csv"
-    pd.DataFrame({"name": ["SystemA-lig1"], "atom": [1], "fp": [-10.0]}).to_csv(ranking_csv, index=False)
-    (tmp_path / "SystemAlig1.tpr").touch()  # only existence is checked before select_next_atom/select_bulk_atom run
+    u = mda.Universe.empty(n_lig + n_water, n_residues=1 + n_water,
+                           atom_resindex=[0] * n_lig + list(range(1, n_water + 1)), trajectory=True)
+    u.add_TopologyAttr("names", [f"C{i}" for i in range(n_lig)] + ["O"] * n_water)
+    u.add_TopologyAttr("resnames", ["MOL"] + ["SOL"] * n_water)
+    u.add_TopologyAttr("bonds", [(i, i + 1) for i in range(n_lig - 1)])
+    u.load_new(np.array(frames), order="fac", dimensions=[box, box, box, 90, 90, 90])
 
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(run_official_selection, "select_next_atom",
-                         lambda mol, verbose=True: "anti-bulk fp selection: X1 (3), X2 (7)")
-    monkeypatch.setattr(run_official_selection, "select_bulk_atom",
-                         lambda mol, verbose=True: "bulk fp selection: X3 (11), X4 (2)")
+    top, traj = str(tmp_path / "top.pdb"), str(tmp_path / "traj.xtc")
+    u.atoms.write(top)
+    with mda.Writer(traj, u.atoms.n_atoms) as w:
+        for _ in u.trajectory:
+            w.write(u.atoms)
+    return top, traj
 
-    captured = {}
 
-    def fake_write_g1_g2_yaml(result, out_path, system_id=None):
-        captured["result"] = result
-        captured["system_id"] = system_id
+def test_select_command_writes_waterfp_and_g1_g2(tmp_path, monkeypatch):
+    top, traj = ligand_in_water(tmp_path)
+    outdir = tmp_path / "selection"
+    monkeypatch.setattr(sys, "argv", ["ligand-waterfp-select", "--tpr", top, "--xtc", traj, "--outdir", str(outdir)])
+    main()
 
-    monkeypatch.setattr(run_official_selection, "write_g1_g2_yaml", fake_write_g1_g2_yaml)
-    monkeypatch.setattr(sys, "argv", [
-        "ligand-waterfp-select",
-        "--ranking-csv", str(ranking_csv),
-        "--system-id", "SystemA-lig1",
-        "--out", str(tmp_path / "g1_g2.yaml"),
-    ])
+    fingerprints = pd.read_csv(outdir / "fingerprints.csv")
+    assert list(fingerprints.columns) == ["atom", "fp"]
+    assert list(pd.read_csv(outdir / "rdf.csv").columns) == ["atom", "r_nm", "n_r"]
 
-    run_official_selection.main()
-
-    assert isinstance(captured["result"], SelectionResult)
-    assert captured["result"].G1 == (AtomRef("X1", 3), AtomRef("X2", 7))
-    assert captured["result"].G2 == (AtomRef("X3", 11), AtomRef("X4", 2))
-    assert captured["system_id"] == "SystemA-lig1"
+    ligand = mda.Universe(top).select_atoms("resname MOL")
+    expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy())
+    assert SelectionResult.from_dict(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected

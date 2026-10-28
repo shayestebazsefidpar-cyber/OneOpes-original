@@ -1,7 +1,7 @@
-# Stage 7 - Visualization
+# Stage 5 - Visualization
 
 Renders the G1/G2 selected atoms on the bound complex for a quick visual
-sanity check / figure. Optional - Stages 1-6 form the complete
+sanity check / figure. Optional - Stages 1-4 form the complete
 methodology; this stage is for communicating the result.
 
 - **`render_selected_atoms.py`** (PyMOL): loads a bound-complex structure,

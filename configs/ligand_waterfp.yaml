@@ -7,8 +7,7 @@
 # selections, or convergence outcomes here.
 
 system:
-  # Free-text identifier used as --system-id in stage 4/5 and stored
-  # alongside outputs. Not used in any calculation.
+  # Free-text identifier for your own bookkeeping. Not used in any calculation.
   id: null                     # e.g. "my_project-ligand_A"
   ligand_resname: MOL
   water_resname: SOL
@@ -28,7 +27,7 @@ system_setup:                  # stage 1
   pname: NA
   nname: CL
 
-rdf:                           # stage 2 / stage 3
+rdf:                           # stage 2 / stage 3 (selection)
   rmax_nm: 2.001
   binwidth_nm: 0.001
   norm_tail_bins: 500
@@ -40,5 +39,5 @@ convergence:                   # stage 2
   spearman_tol: 0.90
   n_stable: 3
 
-official_selection:            # stage 4
+selection:                     # stage 3
   fp_round_decimals: 1

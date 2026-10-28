@@ -17,9 +17,10 @@ pytest
   beyond rmax are ignored, frame ranges add up, parallel = serial), and the
   FP integral (a uniform bulk profile gives FP=0; a depleted shell gives a
   negative FP).
-- `test_g1_g2_selection.py` - the regex parser that turns the official
-  selection algorithm's two printed result lines into structured G1/G2
-  data, including noisy surrounding log text.
+- `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, and
+  `ligand-waterfp-select` end to end on a synthetic ligand in water.
+- `test_g1_g2_reference.py` - `select_g1_g2` picks the same atoms as the
+  vendored WaterFP notebook code on hundreds of random ligands.
 - `test_build_ligand_cv_consumer.py` - `build_ligand_cv.py`'s consumption
   of `g1_g2.yaml` through `SelectionResult.from_dict()`: valid input still
   produces the same serial strings, and a malformed file (missing G1/G2,
@@ -28,21 +29,19 @@ pytest
   caught during manual end-to-end testing against a real ligand-in-water system:
   several scripts didn't create their output directory before writing,
   crashing with `OSError`/`FileNotFoundError` the first time anyone ran
-  them into a fresh `outputs/` tree. Fixed in `select_g1_g2.py`,
-  `build_ligand_cv.py`, `add_legend.py`, `prepare_ranking_csv.py`, and
-  `run_official_selection.py` (and in the since-removed `calculate_rdf.py`
-  and `calculate_fingerprint.py`).
+  them into a fresh `outputs/` tree. Fixed in `build_ligand_cv.py` and
+  `add_legend.py`; `write_g1_g2_yaml` is covered in
+  `test_g1_g2_selection.py`.
 
 ## What's intentionally NOT covered by automated tests
 
-`prepare_ranking_csv.py`, `run_official_selection.py` (the vendored
-official WaterFP selection algorithm), `monitor_convergence.py`, and
-`run_waterfp.py` all need a real `.tpr`/`.xtc` with actual bond
-connectivity and a real water box - not something worth fabricating as
-synthetic test fixtures, and real trajectory data doesn't belong in this
-repository (see the top-level README's "code only" policy).
+`monitor_convergence.py`'s main loop needs a real `.tpr`/`.xtc` with a
+real water box - not something worth fabricating as synthetic test
+fixtures, and real trajectory data doesn't belong in this repository (see
+the top-level README's "code only" policy).
 
-Instead, the full pipeline (stages 2 through 6) was validated by hand
+Before the selection was rewritten as `select_g1_g2`, the full pipeline
+(then stages 2 through 6) was validated by hand
 against a real, already-existing ligand-only trajectory,
 confirming an EXACT reproduction of the historical, previously-published
 result: same convergence numbers (stop block, FP/RDF/Spearman metrics to

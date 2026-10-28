@@ -1,6 +1,6 @@
-# Stage 6 - Ligand-side CV construction
+# Stage 4 - Ligand-side CV construction
 
-Builds a PLUMED input fragment from Stage 5's structured G1/G2 result:
+Builds a PLUMED input fragment from Stage 3's G1/G2 result:
 `GROUP` definitions for G1 and G2, plus a `COORDINATION` CV for each
 against a water-oxygen reference group.
 

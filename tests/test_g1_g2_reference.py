@@ -1,4 +1,5 @@
 """The clean G1/G2 selection must agree with the vendored WaterFP notebook code on random ligands."""
+import re
 from types import SimpleNamespace
 
 import MDAnalysis as mda
@@ -6,10 +7,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import SelectionResult, parse_selection_lines, select_g1_g2
-from ligand_waterfp.official_selection import run_official_selection as official
+from ligand_waterfp.g1_g2_selection.select_g1_g2 import AtomRef, SelectionResult, select_g1_g2
+from ligand_waterfp.official_selection import vendored_selection as official
 
 MOL = "SystemA-lig1"  # the vendored code's "<system>-<ligand>" id
+SENTENCE = re.compile(r"selection: (\w+) \((\d+)\), (\w+) \((\d+)\)")  # "...selection: C3 (5), C9 (12)"
 
 
 def random_ligand(rng: np.random.Generator) -> mda.Universe:
@@ -34,6 +36,11 @@ def random_ligand(rng: np.random.Generator) -> mda.Universe:
     return u
 
 
+def pair(sentence: str) -> tuple[AtomRef, AtomRef]:
+    name1, serial1, name2, serial2 = SENTENCE.search(sentence).groups()
+    return AtomRef(name1, int(serial1)), AtomRef(name2, int(serial2))
+
+
 def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> SelectionResult | None:
     """Run the vendored notebook functions; None when they report ambiguity or fail."""
     monkeypatch.setattr(official, "MDAnalysis", SimpleNamespace(Universe=lambda path: u))
@@ -46,7 +53,7 @@ def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> Selectio
         return None
     if anti_bulk is None:  # ambiguous anchor
         return None
-    return SelectionResult.from_dict(parse_selection_lines(f"{anti_bulk}\n{bulk}\n"))
+    return SelectionResult(G1=pair(anti_bulk), G2=pair(bulk))
 
 
 def test_matches_the_vendored_notebook_code_on_random_ligands(monkeypatch):

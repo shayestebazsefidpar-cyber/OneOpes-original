@@ -7,46 +7,15 @@ fixed to `os.makedirs(os.path.dirname(...) or ".", exist_ok=True)` before
 writing. These tests assert that fix holds by writing into a nested,
 not-yet-existing output directory - regressing to the old behavior would
 make every test here fail with the original OSError/FileNotFoundError.
-
-g1_g2_selection no longer has its own CLI (PR1: its main() was removed -
-run_official_selection.main() now calls write_g1_g2_yaml() directly, in
-the same process, right after the vendored selection functions return -
-see official_selection/run_official_selection.py and
-g1_g2_selection/select_g1_g2.py's module docstrings). The regression
-coverage below now calls write_g1_g2_yaml() directly instead of going
-through a removed console script.
-
-prepare_ranking_csv.py and run_official_selection.py's own --out path are
-NOT covered here - both need a real .tpr with bond connectivity to
-exercise meaningfully, which is out of scope for a synthetic unit test.
-Both received the same os.makedirs fix (run_official_selection.py's --out
-path now goes through write_g1_g2_yaml(), which has this same regression
-test below) and were re-verified manually against a real ligand-in-water
-system's data - see tests/README.md.
+write_g1_g2_yaml() is covered in test_g1_g2_selection.py.
 """
 import sys
 
 import yaml
 from PIL import Image
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_g1_g2_yaml
 from ligand_waterfp.ligand_cv.build_ligand_cv import main as build_ligand_cv_main
 from ligand_waterfp.visualization.add_legend import main as add_legend_main
-
-
-def test_write_g1_g2_yaml_creates_nested_output_dir(tmp_path):
-    result = {
-        "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
-        "G2": [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}],
-    }
-    out_path = tmp_path / "does" / "not" / "exist" / "g1_g2.yaml"
-    assert not out_path.parent.exists()
-
-    write_g1_g2_yaml(result, str(out_path))
-
-    assert out_path.exists()
-    data = yaml.safe_load(out_path.read_text())
-    assert data["G1"][0]["name"] == "X1"
 
 
 def test_build_ligand_cv_creates_nested_output_dir(tmp_path, monkeypatch):
