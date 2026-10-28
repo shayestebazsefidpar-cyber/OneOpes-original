@@ -348,25 +348,25 @@ def main():
 
         if previous is not None:
             stability = check_stability(block.results, previous.results, tol)
-            block_stable = stability.block_stable
+            block_stable = stability.passed
             stable_streak = stable_streak + 1 if block_stable else 0
 
             metric_rows.append({
                 "block_transition": f"{block_idx-1}->{block_idx}",
                 "t_end_ns": t_end_ns,
-                "max_FP_relative_change": stability.max_fp_relative_change,
-                "max_RDF_nRMSD": stability.max_rdf_nrmsd,
-                "spearman_rank_corr": stability.spearman_rank_corr,
-                "value_stable": stability.value_stable,
-                "rdf_stable": stability.rdf_stable,
-                "rank_stable": stability.rank_stable,
+                "max_FP_relative_change": stability.fp_change,
+                "max_RDF_nRMSD": stability.rdf_nrmsd,
+                "spearman_rank_corr": stability.spearman_rho,
+                "value_stable": stability.fp_pass,
+                "rdf_stable": stability.rdf_pass,
+                "rank_stable": stability.spearman_pass,
                 "block_stable": block_stable,
                 "stable_streak": stable_streak,
             })
             print(f"[monitor] block {block_idx} (t={t_end_ns:.1f} ns): "
-                  f"max|dFP/FP|={stability.max_fp_relative_change:.3f} "
-                  f"max_nRMSD_RDF={stability.max_rdf_nrmsd:.3f} "
-                  f"spearman={stability.spearman_rank_corr:.3f} stable={block_stable} streak={stable_streak}")
+                  f"max|dFP/FP|={stability.fp_change:.3f} "
+                  f"max_nRMSD_RDF={stability.rdf_nrmsd:.3f} "
+                  f"spearman={stability.spearman_rho:.3f} stable={block_stable} streak={stable_streak}")
 
             if stable_streak >= tol.n_stable:
                 converged = True

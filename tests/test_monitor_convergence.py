@@ -56,13 +56,13 @@ def test_stable_transition_passes_all_three_criteria():
     result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     assert isinstance(result, StabilityResult)
-    assert result.value_stable
-    assert result.rdf_stable
-    assert result.rank_stable
-    assert result.block_stable
-    assert result.max_fp_relative_change == pytest.approx(0.05)
-    assert result.max_rdf_nrmsd == pytest.approx(0.0)
-    assert result.spearman_rank_corr == pytest.approx(1.0)
+    assert result.fp_pass
+    assert result.rdf_pass
+    assert result.spearman_pass
+    assert result.passed
+    assert result.fp_change == pytest.approx(0.05)
+    assert result.rdf_nrmsd == pytest.approx(0.0)
+    assert result.spearman_rho == pytest.approx(1.0)
 
 
 def test_fp_change_above_threshold_makes_transition_unstable():
@@ -72,11 +72,11 @@ def test_fp_change_above_threshold_makes_transition_unstable():
 
     result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
-    assert not result.value_stable
-    assert result.rdf_stable     # isolate: only FP failed
-    assert result.rank_stable
-    assert not result.block_stable
-    assert result.max_fp_relative_change == pytest.approx(0.15)
+    assert not result.fp_pass
+    assert result.rdf_pass     # isolate: only FP failed
+    assert result.spearman_pass
+    assert not result.passed
+    assert result.fp_change == pytest.approx(0.15)
 
 
 def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
@@ -89,11 +89,11 @@ def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
 
     result = check_stability(_block(fp_this, g_this), _block(prev_fp, prev_g), TOL)
 
-    assert result.value_stable
-    assert not result.rdf_stable    # isolate: only RDF failed
-    assert result.rank_stable
-    assert not result.block_stable
-    assert result.max_rdf_nrmsd > RDF_NRMSD_TOL
+    assert result.fp_pass
+    assert not result.rdf_pass    # isolate: only RDF failed
+    assert result.spearman_pass
+    assert not result.passed
+    assert result.rdf_nrmsd > RDF_NRMSD_TOL
 
 
 def test_ranking_instability_makes_transition_unstable():
@@ -108,11 +108,11 @@ def test_ranking_instability_makes_transition_unstable():
     # sanity: every individual atom's own relative change stayed under 10%
     assert np.all(np.abs(fp_this - prev_fp) / np.abs(prev_fp) <= FP_REL_TOL)
 
-    assert result.value_stable
-    assert result.rdf_stable
-    assert not result.rank_stable   # isolate: only ranking failed
-    assert not result.block_stable
-    assert result.spearman_rank_corr == pytest.approx(-1.0)  # full reversal
+    assert result.fp_pass
+    assert result.rdf_pass
+    assert not result.spearman_pass   # isolate: only ranking failed
+    assert not result.passed
+    assert result.spearman_rho == pytest.approx(-1.0)  # full reversal
 
 
 def test_requires_n_stable_consecutive_transitions():
@@ -144,7 +144,7 @@ def test_requires_n_stable_consecutive_transitions():
     for block_idx in range(1, len(blocks_fp)):
         fp_this = blocks_fp[block_idx]
         result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
-        stable_streak = stable_streak + 1 if result.block_stable else 0
+        stable_streak = stable_streak + 1 if result.passed else 0
         streak_history.append(stable_streak)
         if converged_at is None and stable_streak >= N_STABLE:
             converged_at = block_idx
@@ -168,13 +168,13 @@ def test_stability_result_matches_previous_dict_implementation_values():
     result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     expected = {
-        "max_fp_relative_change": pytest.approx(0.05),
-        "max_rdf_nrmsd": pytest.approx(0.0),
-        "spearman_rank_corr": pytest.approx(1.0),
-        "value_stable": True,
-        "rdf_stable": True,
-        "rank_stable": True,
-        "block_stable": True,
+        "fp_change": pytest.approx(0.05),
+        "rdf_nrmsd": pytest.approx(0.0),
+        "spearman_rho": pytest.approx(1.0),
+        "fp_pass": True,
+        "rdf_pass": True,
+        "spearman_pass": True,
+        "passed": True,
     }
     for field, expected_value in expected.items():
         assert getattr(result, field) == expected_value
@@ -184,7 +184,7 @@ def test_stability_result_is_frozen():
     block = _block([-10.0, -5.0], _same_g(2))
     result = check_stability(block, block, TOL)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        result.block_stable = False
+        result.passed = False
 
 
 def test_tolerances_dataclass_reproduces_configured_defaults_behavior():
@@ -204,8 +204,8 @@ def test_tolerances_dataclass_reproduces_configured_defaults_behavior():
     g = _same_g(2)
 
     result = check_stability(_block(fp_this, g), _block(prev_fp, g), tol)
-    assert not result.value_stable
-    assert not result.block_stable
+    assert not result.fp_pass
+    assert not result.passed
 
 
 def test_tolerances_is_frozen():
