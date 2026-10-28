@@ -4,6 +4,7 @@ counting done by the WaterFP analysis, and the FP integral in fingerprint().
 """
 import MDAnalysis as mda
 import numpy as np
+import pytest
 from MDAnalysis.coordinates.memory import MemoryReader
 
 from waterfp import WaterCounts, WaterFP, fingerprint
@@ -116,6 +117,42 @@ def test_results_default_to_the_whole_trajectory():
     assert results.fp.shape == (3,)
     assert results.g.shape == (3, results.water_counts.n_bins)
     assert np.array_equal(results.r_nm, results.water_counts.r_nm)
+
+
+def test_fp_table_has_one_row_per_atom_named_by_label():
+    u = random_universe()
+    waterfp = WaterFP(u.atoms[:3], u.atoms[3:]).run()
+    table = waterfp.fp_table(["a", "b", "c"])
+    assert list(table.columns) == ["atom", "FP"]
+    assert list(table["atom"]) == ["a", "b", "c"]
+    assert np.array_equal(table["FP"], waterfp.results.fp)
+
+
+def test_fp_table_labels_default_to_the_solute_atom_names():
+    u = random_universe()
+    u.add_TopologyAttr("names", ["C1", "N1", "O1"] + ["OW"] * 200)
+    assert list(WaterFP(u.atoms[:3], u.atoms[3:]).run().fp_table()["atom"]) == ["C1", "N1", "O1"]
+
+
+def test_profile_table_has_one_row_per_atom_and_radius():
+    u = random_universe()
+    waterfp = WaterFP(u.atoms[:3], u.atoms[3:]).run()
+    results = waterfp.results
+    table = waterfp.profile_table(["a", "b", "c"])
+    n_bins = len(results.r_nm)
+    assert list(table.columns) == ["atom", "r_nm", "n_r", "g_r"]
+    assert len(table) == 3 * n_bins
+    second_atom = table[table["atom"] == "b"]
+    assert np.array_equal(second_atom["r_nm"], results.r_nm)
+    assert np.array_equal(second_atom["n_r"], results.water_counts.density_nm3[1])
+    assert np.array_equal(second_atom["g_r"], results.g[1])
+
+
+def test_tables_reject_a_wrong_number_of_labels():
+    u = random_universe()
+    waterfp = WaterFP(u.atoms[:3], u.atoms[3:]).run()
+    with pytest.raises(ValueError, match="2 labels for 3 solute atoms"):
+        waterfp.fp_table(["a", "b"])
 
 
 def test_parallel_run_gives_the_serial_results():

@@ -26,8 +26,6 @@ Usage (after `pip install -e .` from the package root):
 import argparse
 import os
 import MDAnalysis as mda
-import numpy as np
-import pandas as pd
 
 from waterfp import NORM_TAIL_BINS_DEFAULT, RDF_BINWIDTH_NM_DEFAULT, RDF_RMAX_NM_DEFAULT, WaterFP
 
@@ -62,21 +60,16 @@ def main():
                           f"atom name '{args.water_atom_name}' in {args.tpr}")
 
     end_frame = args.end_frame if args.end_frame is not None else len(u.trajectory)
-    analysis = WaterFP(solute, water, rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm,
-                       norm_tail_bins=args.norm_tail_bins)
-    results = analysis.run(start=args.start_frame, stop=end_frame).results
+    waterfp = WaterFP(solute, water, rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm,
+                      norm_tail_bins=args.norm_tail_bins)
+    waterfp.run(start=args.start_frame, stop=end_frame)
 
-    n_bins = len(results.r_nm)
-    rdf_df = pd.DataFrame({
-        "atom": np.repeat(solute.names, n_bins),
-        "r_nm": np.tile(results.r_nm, len(solute)),
-        "n_r": results.water_counts.density_nm3.ravel(),
-    })
     rdf_csv = os.path.join(args.outdir, "rdf.csv")
-    rdf_df.to_csv(rdf_csv, index=False)
+    waterfp.profile_table()[["atom", "r_nm", "n_r"]].to_csv(rdf_csv, index=False)
 
     fp_csv = os.path.join(args.outdir, "fingerprints.csv")
-    pd.DataFrame({"atom": solute.names, "fp": results.fp}).to_csv(fp_csv, index=False)
+    # fingerprints.csv keeps its lowercase "fp" column: prepare_ranking_csv reads it by that name
+    waterfp.fp_table().rename(columns={"FP": "fp"}).to_csv(fp_csv, index=False)
 
     print(f"[run_waterfp] {len(solute)} ligand heavy atoms, frames [{args.start_frame},{end_frame})")
     print(f"[run_waterfp] wrote {rdf_csv}")

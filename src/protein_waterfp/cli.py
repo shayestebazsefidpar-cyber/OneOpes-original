@@ -101,36 +101,30 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         f"{len(plan.blocks) - 1} transitions; {plan.unused_tail_frames} trailing frame(s) not in a complete block")
 
     tracker = ConvergenceTracker(tol=DEFAULT_TOLERANCES)
-    fp_rows, contact_rows = [], []
+    fp_tables, contact_rows = [], []
     rdf_path = outdir / "rdf_profiles_per_block.csv"
-    if rdf_path.exists():
-        rdf_path.unlink()
-    n = len(cand_idx)
     candidate_atoms = u_traj.atoms[cand_idx]
     water_oxygens = u_traj.atoms[sel.water_oxygens]
     for b, (start, end) in enumerate(plan.blocks):
         t_start = _frame_time_ns(u_traj, start)
         t_end = t_start + block_len_ns
-        block_results = WaterFP(candidate_atoms, water_oxygens).run(start=start, stop=end).results
+        block = WaterFP(candidate_atoms, water_oxygens).run(start=start, stop=end)
         st = structural_block(u_traj, start, end, cand_idx, sel.ligand_heavy, sel.water_oxygens)
-        tracker.add_block(b, t_start, t_end, block_results)
+        tracker.add_block(b, t_start, t_end, block.results)
+
+        fp_table = block.fp_table(labels).assign(block=b, t_start_ns=t_start, t_end_ns=t_end,
+                                                 t_mid_ns=0.5 * (t_start + t_end))
+        fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
+        rdf_table = block.profile_table(labels).assign(block=b)[["block", "atom", "r_nm", "g_r"]]
+        rdf_table.to_csv(rdf_path, mode="w" if b == 0 else "a", header=(b == 0), index=False)
         for i, a in enumerate(labels):
-            fp_rows.append({"block": b, "t_start_ns": t_start, "t_end_ns": t_end,
-                            "t_mid_ns": 0.5 * (t_start + t_end), "atom": a, "FP": float(block_results.fp[i])})
             contact_rows.append({"block": b, "t_start_ns": t_start, "t_end_ns": t_end, "atom": a,
                                  "Contact_occupancy_5A": float(st.contact_occupancy[i]),
                                  "Bridge_occupancy": float(st.bridge_occupancy[i]), "n_frames": st.n_frames})
-        rdf_block = pd.DataFrame({
-            "block": b,
-            "atom": np.repeat(labels, len(block_results.r_nm)),
-            "r_nm": np.tile(block_results.r_nm, n),
-            "g_r": block_results.g.ravel(),  # row by row: one atom's g(r) after the other, in label order
-        })
-        rdf_block.to_csv(rdf_path, mode="a", header=(b == 0), index=False)
         streak_txt = tracker.rows[-1]["stable_transition_count"] if tracker.rows else "-"
         log(f"[protein-waterfp] block {b} ({t_start:g}-{t_end:g} ns) done; stable transitions in a row: {streak_txt}")
 
-    fp_df = pd.DataFrame(fp_rows)
+    fp_df = pd.concat(fp_tables, ignore_index=True)
     _write_csv(fp_df, outdir / "fp_values_per_block.csv")
     _write_csv(pd.DataFrame(contact_rows), outdir / "contact_occupancy_per_block.csv")
     _write_csv(pd.DataFrame(tracker.rows), outdir / "convergence_metrics.csv")

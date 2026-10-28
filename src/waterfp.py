@@ -3,8 +3,10 @@
 Original at: github.com/valeriorizzi/WaterFP
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import numpy as np
+import pandas as pd
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
@@ -69,6 +71,7 @@ class WaterFP(AnalysisBase):
     Usage: ``results = WaterFP(solute, water_oxygens).run(start=..., stop=...).results``, then
     ``results.fp`` (n_atoms,), ``results.g`` (n_atoms, n_bins), ``results.r_nm`` (n_bins,) and
     ``results.water_counts`` (the raw, additive WaterCounts, e.g. for combining blocks).
+    After ``run()``, ``fp_table()`` and ``profile_table()`` give the same results as tables.
     Counts add up across frames, so the analysis can also run in parallel,
     e.g. ``run(backend="multiprocessing", n_workers=4)``.
     """
@@ -112,3 +115,28 @@ class WaterFP(AnalysisBase):
         self.results.water_counts = water_counts
         self.results.fp, self.results.g = fingerprint(water_counts, self.norm_tail_bins)
         self.results.r_nm = water_counts.r_nm
+
+    def fp_table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
+        """One row per solute atom: atom, FP. ``labels`` name the atoms (default: solute atom names)."""
+        return pd.DataFrame({"atom": self._atom_labels(labels), "FP": self.results.fp})
+
+    def profile_table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
+        """One row per (solute atom, r): atom, r_nm, n_r (water-O density, waters/nm^3), g_r.
+
+        ``labels`` name the atoms (default: solute atom names).
+        """
+        labels = self._atom_labels(labels)
+        r_nm = self.results.r_nm
+        return pd.DataFrame({
+            "atom": np.repeat(labels, len(r_nm)),
+            "r_nm": np.tile(r_nm, len(labels)),
+            "n_r": self.results.water_counts.density_nm3.ravel(),  # row by row: one atom after the other
+            "g_r": self.results.g.ravel(),
+        })
+
+    def _atom_labels(self, labels: Sequence[str] | None) -> list[str]:
+        if labels is None:
+            return list(self.solute.names)
+        if len(labels) != len(self.solute):
+            raise ValueError(f"{len(labels)} labels for {len(self.solute)} solute atoms.")
+        return list(labels)

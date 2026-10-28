@@ -172,6 +172,11 @@ def nrmsd(g_a, g_b):
     return rmsd / norm
 
 
+def write_block_rows(table: pd.DataFrame, path: Path, first_block: bool) -> None:
+    """Write one block's rows to ``path``: a new file (with header) for the first block, appended after."""
+    table.to_csv(path, mode="w" if first_block else "a", header=first_block, index=False)
+
+
 def check_stability(current: Results, previous: Results, tol: Tolerances) -> StabilityResult:
     """Compare two consecutive blocks' WaterFP results (same atoms, same order)
     against `tol`'s three criteria (FP relative change, RDF nRMSD, Spearman
@@ -206,9 +211,9 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     printing; returns the two paths written so callers (or tests) can
     check them.
 
-    fp_df: the accumulated fp_rows DataFrame (columns include t_mid_ns,
-    atom, FP). rdf_df: the accumulated rdf_rows DataFrame (columns
-    include block, atom, r_nm, g_r). outdir may be a str or a Path.
+    fp_df: all blocks' FP rows (columns include t_mid_ns, atom, FP).
+    rdf_df: all blocks' g(r) rows (columns include block, atom, r_nm,
+    g_r). outdir may be a str or a Path.
     """
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
@@ -357,8 +362,8 @@ def main():
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
     ts_per_frame_ps = None
-    fp_rows = []
-    rdf_rows = []
+    fp_tables = []   # one table per block: fp_values_per_block.csv rows
+    rdf_tables = []  # one table per block: rdf_profiles_per_block.csv rows
     metric_rows = []
 
     previous = None  # the previous block's WaterFP analysis
@@ -403,16 +408,12 @@ def main():
         block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], rmax_nm=args.rmax_nm,
                         binwidth_nm=args.binwidth_nm, norm_tail_bins=args.norm_tail_bins)
         block.run(start=start_f, stop=end_f)
-        fp, g, r_nm = block.results.fp, block.results.g, block.results.r_nm
         t_start_ns, t_end_ns = block.times[0] / 1000.0, block.times[-1] / 1000.0
 
-        for name, fp_atom, g_atom in zip(heavy_names, fp, g):
-            fp_rows.append(
-                {"block": block_idx, "t_start_ns": t_start_ns, "t_end_ns": t_end_ns,
-                 "t_mid_ns": 0.5 * (t_start_ns + t_end_ns), "atom": name, "FP": fp_atom}
-            )
-            for rbin, gval in zip(r_nm, g_atom):
-                rdf_rows.append({"block": block_idx, "atom": name, "r_nm": rbin, "g_r": gval})
+        fp_table = block.fp_table().assign(block=block_idx, t_start_ns=t_start_ns, t_end_ns=t_end_ns,
+                                           t_mid_ns=0.5 * (t_start_ns + t_end_ns))
+        fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
+        rdf_tables.append(block.profile_table().assign(block=block_idx)[["block", "atom", "r_nm", "g_r"]])
 
         if previous is not None:
             stability = check_stability(block.results, previous.results, tol)
@@ -447,8 +448,8 @@ def main():
                 stop_time_ns = t_end_ns
                 stop_block = block_idx
 
-        pd.DataFrame(fp_rows).to_csv(outdir / "fp_values_per_block.csv", index=False)
-        pd.DataFrame(rdf_rows).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+        write_block_rows(fp_tables[-1], outdir / "fp_values_per_block.csv", first_block=block_idx == 0)
+        write_block_rows(rdf_tables[-1], outdir / "rdf_profiles_per_block.csv", first_block=block_idx == 0)
         pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
 
         previous = block
@@ -457,8 +458,8 @@ def main():
         if converged:
             break
 
-    fp_df = pd.DataFrame(fp_rows)
-    rdf_df = pd.DataFrame(rdf_rows)
+    fp_df = pd.concat(fp_tables, ignore_index=True)
+    rdf_df = pd.concat(rdf_tables, ignore_index=True)
 
     for name in heavy_names:
         plot_atom(name, fp_df, rdf_df, outdir)
