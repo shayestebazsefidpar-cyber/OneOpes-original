@@ -8,8 +8,8 @@ dataclass), and plot_atom(). All synthetic data, no real
 trajectory/MDAnalysis needed - the per-block waterfp.WaterFP analysis in
 main() needs a real .tpr/.xtc and is covered by tests/test_waterfp.py.
 
-check_stability() takes per-atom arrays: fp of shape (n_atoms,) and g of
-shape (n_atoms, n_bins), atoms in the same order in both blocks.
+check_stability() takes two blocks' WaterFP results: fp of shape (n_atoms,)
+and g of shape (n_atoms, n_bins), atoms in the same order in both blocks.
 
 Tolerances used below (fp_rel_tol=0.10, rdf_nrmsd_tol=0.15,
 spearman_tol=0.90, n_stable=3) are the actual defaults from
@@ -21,6 +21,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+from MDAnalysis.analysis.results import Results
 
 from ligand_waterfp.convergence.monitor_convergence import (
     check_stability,
@@ -47,12 +48,17 @@ def _same_g(n_atoms):
     return np.tile([0.0, 0.5, 1.0, 1.0, 1.0], (n_atoms, 1))
 
 
+def _block(fp, g):
+    """A block's WaterFP results, as check_stability() receives them."""
+    return Results(fp=np.asarray(fp), g=np.asarray(g))
+
+
 def test_stable_transition_passes_all_three_criteria():
     prev_fp = np.array([-10.0, -8.0, -5.0])
     fp_this = np.array([-10.5, -8.3, -5.1])  # 5%, 3.75%, 2% changes - same order
     g = _same_g(3)
 
-    result = check_stability(fp_this, g, prev_fp, g, TOL)
+    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     assert isinstance(result, StabilityResult)
     assert result.value_stable
@@ -69,7 +75,7 @@ def test_fp_change_above_threshold_makes_transition_unstable():
     fp_this = np.array([-11.5, -8.1, -5.05])  # first atom changed 15% > 10% tol; order unchanged
     g = _same_g(3)
 
-    result = check_stability(fp_this, g, prev_fp, g, TOL)
+    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     assert not result.value_stable
     assert result.rdf_stable     # isolate: only FP failed
@@ -86,7 +92,7 @@ def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
     g_this = prev_g.copy()
     g_this[0] = [1.0, 1.0, 1.0, 0.5, 0.0]
 
-    result = check_stability(fp_this, g_this, prev_fp, prev_g, TOL)
+    result = check_stability(_block(fp_this, g_this), _block(prev_fp, prev_g), TOL)
 
     assert result.value_stable
     assert not result.rdf_stable    # isolate: only RDF failed
@@ -102,7 +108,7 @@ def test_ranking_instability_makes_transition_unstable():
     fp_this = np.array([-10.25, -10.15, -10.05, -9.95])  # order reversed
     g = _same_g(4)
 
-    result = check_stability(fp_this, g, prev_fp, g, TOL)
+    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     # sanity: every individual atom's own relative change stayed under 10%
     assert np.all(np.abs(fp_this - prev_fp) / np.abs(prev_fp) <= FP_REL_TOL)
@@ -142,7 +148,7 @@ def test_requires_n_stable_consecutive_transitions():
 
     for block_idx in range(1, len(blocks_fp)):
         fp_this = blocks_fp[block_idx]
-        result = check_stability(fp_this, g, prev_fp, g, TOL)
+        result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
         stable_streak = stable_streak + 1 if result.block_stable else 0
         streak_history.append(stable_streak)
         if converged_at is None and stable_streak >= N_STABLE:
@@ -164,7 +170,7 @@ def test_stability_result_matches_previous_dict_implementation_values():
     fp_this = np.array([-10.5, -8.3, -5.1])
     g = _same_g(3)
 
-    result = check_stability(fp_this, g, prev_fp, g, TOL)
+    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
 
     expected = {
         "max_fp_relative_change": pytest.approx(0.05),
@@ -180,9 +186,8 @@ def test_stability_result_matches_previous_dict_implementation_values():
 
 
 def test_stability_result_is_frozen():
-    fp = np.array([-10.0, -5.0])
-    g = _same_g(2)
-    result = check_stability(fp, g, fp, g, TOL)
+    block = _block([-10.0, -5.0], _same_g(2))
+    result = check_stability(block, block, TOL)
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.block_stable = False
 
@@ -203,7 +208,7 @@ def test_tolerances_dataclass_reproduces_configured_defaults_behavior():
     fp_this = np.array([-11.5, -8.1])  # first atom changed 15% > 10% tol
     g = _same_g(2)
 
-    result = check_stability(fp_this, g, prev_fp, g, tol)
+    result = check_stability(_block(fp_this, g), _block(prev_fp, g), tol)
     assert not result.value_stable
     assert not result.block_stable
 

@@ -70,6 +70,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import MDAnalysis as mda
+from MDAnalysis.analysis.results import Results
 from scipy.stats import spearmanr
 import matplotlib
 matplotlib.use("Agg")
@@ -171,20 +172,16 @@ def nrmsd(g_a, g_b):
     return rmsd / norm
 
 
-def check_stability(fp: np.ndarray, g: np.ndarray, prev_fp: np.ndarray, prev_g: np.ndarray,
-                    tol: Tolerances) -> StabilityResult:
-    """Compare the current block to the previous one against `tol`'s three
-    criteria (FP relative change, RDF nRMSD, Spearman rank correlation)
-    and return the resulting StabilityResult. Streak bookkeeping across
-    transitions stays in main(), not here.
-
-    fp/prev_fp have shape (n_atoms,) and g/prev_g (n_atoms, n_bins), with
-    the atoms in the same order in both blocks. Spearman ranks the FP
-    values itself, so no separate ranking is needed.
+def check_stability(current: Results, previous: Results, tol: Tolerances) -> StabilityResult:
+    """Compare two consecutive blocks' WaterFP results (same atoms, same order)
+    against `tol`'s three criteria (FP relative change, RDF nRMSD, Spearman
+    rank correlation of the FP values) and return the resulting
+    StabilityResult. Streak bookkeeping across transitions stays in main().
     """
+    fp, prev_fp = current.fp, previous.fp
     max_rel_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
-    max_nrmsd = float(max(nrmsd(g_atom, prev_g_atom) for g_atom, prev_g_atom in zip(g, prev_g)))
-    rho, _ = spearmanr(fp, prev_fp)
+    max_nrmsd = float(max(nrmsd(g, prev_g) for g, prev_g in zip(current.g, previous.g)))
+    rho, _ = spearmanr(fp, prev_fp)  # ranks the FP values itself
 
     value_ok = max_rel_change <= tol.fp_rel_tol
     rank_ok = bool(rho >= tol.spearman_tol)
@@ -364,8 +361,7 @@ def main():
     rdf_rows = []
     metric_rows = []
 
-    prev_fp = None
-    prev_g = None
+    previous = None  # the previous block's WaterFP analysis
     stable_streak = 0
     block_idx = 0
     converged = False
@@ -418,8 +414,8 @@ def main():
             for rbin, gval in zip(r_nm, g_atom):
                 rdf_rows.append({"block": block_idx, "atom": name, "r_nm": rbin, "g_r": gval})
 
-        if prev_fp is not None:
-            stability = check_stability(fp, g, prev_fp, prev_g, tol)
+        if previous is not None:
+            stability = check_stability(block.results, previous.results, tol)
             block_stable = stability.block_stable
             stable_streak = stable_streak + 1 if block_stable else 0
 
@@ -455,8 +451,7 @@ def main():
         pd.DataFrame(rdf_rows).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
         pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
 
-        prev_fp = fp
-        prev_g = g
+        previous = block
         block_idx += 1
 
         if converged:

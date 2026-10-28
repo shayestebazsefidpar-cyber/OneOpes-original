@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from MDAnalysis.analysis.results import Results
 from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
 from waterfp import (
     NORM_TAIL_BINS_DEFAULT,
@@ -57,15 +58,13 @@ class ConvergenceTracker:
     first_converged_block: int | None = None
     first_converged_ns: float | None = None
     rows: list = field(default_factory=list)
-    _prev: tuple | None = None
+    _prev: Results | None = None
 
     def add_block(self, block: int, t_start_ns: float, t_end_ns: float, fp: dict, g: dict,
                   order: list[str]) -> None:
-        fp_arr = np.array([fp[a] for a in order])
-        g_arr = np.array([g[a] for a in order])
+        current = Results(fp=np.array([fp[a] for a in order]), g=np.array([g[a] for a in order]))
         if self._prev is not None:
-            prev_fp, prev_g = self._prev
-            res = check_stability(fp_arr, g_arr, prev_fp, prev_g, self.tol)
+            res = check_stability(current, self._prev, self.tol)
             self.streak = self.streak + 1 if res.block_stable else 0
             if self.streak >= self.tol.n_stable and self.first_converged_block is None:
                 self.first_converged_block = block
@@ -86,7 +85,7 @@ class ConvergenceTracker:
                 "stable_transition_count": self.streak,
                 "convergence_reached": self.first_converged_block is not None,
             })
-        self._prev = (fp_arr, g_arr)
+        self._prev = current
 
     @property
     def status(self) -> str:
