@@ -1,64 +1,17 @@
 """
-Block-wise hydration RDF/fingerprint (FP) convergence monitor for a
-ligand-in-water unbiased MD run.
+Convergence monitor for an unbiased ligand-in-water MD run.
 
-This script owns only the ONLINE, BLOCK-WISE, CONVERGENCE-TESTING logic
-(splitting an accumulating trajectory into blocks, comparing consecutive
-blocks, deciding when to stop). The actual RDF and WaterFP math is not
-duplicated here - each block is analysed with the shared `waterfp.WaterFP`
-analysis (FP and g(r) per atom), which has no notion of convergence or
-blocks.
+Analyses the trajectory block by block as mdrun writes it (waterfp.WaterFP),
+compares each block with the previous one (the convergence module), and stops
+once --n-stable transitions in a row are stable, sending SIGTERM to the given
+mdrun PID. Tables, plots and a summary are written to --outdir.
+METHOD_RATIONALE.md explains the criteria.
 
-For each block of --block-ns newly-accumulated nanoseconds, this script
-tracks, per ligand heavy atom:
-  (a) RDF-profile stability: normalised RMSD of g(r) vs. the previous block
-  (b) FP stability: relative change of the scalar FP vs. the previous block
-  (c) Ranking stability: Spearman correlation of the FP-based atom ranking
-      vs. the previous block
-
-Convergence = ALL THREE criteria hold for --n-stable consecutive
-block-to-block transitions. On convergence, and if a running mdrun PID was
-given, SIGTERM is sent to stop production early. All numbers/plots/summary
-are written under the output directory. See METHOD_RATIONALE.md in this
-folder for the full reasoning behind the compound criterion and the
-stopping rule.
-
-Does NOT perform G1/G2 atom selection or any downstream CV construction -
-see the official_selection subpackage onward for that.
-
-Usage (after `pip install -e .` from the package root):
-    ligand-waterfp-monitor [mdrun_pid] [options]
-    python -m ligand_waterfp.convergence.monitor_convergence [mdrun_pid] [options]
-
+Usage:
     ligand-waterfp-monitor                       # no auto-stop, just monitor/report
-    ligand-waterfp-monitor 12345                  # SIGTERM pid 12345 on convergence
+    ligand-waterfp-monitor 12345                 # SIGTERM pid 12345 on convergence
     ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc \\
         --ligand-resname MOL --water-resname SOL --water-atom-name O
-
---- Module structure (refactored per code-review Rules 2 and 5) ---
-The computational/reporting pieces main() used to do inline are pulled out
-into their own functions, each returning data rather than printing it:
-
-    plot_atom()        - one atom's accumulated history -> two PNG files
-    write_reports()    - the full run's accumulated history -> summary
-                          dict + the wide-format CSVs/JSON/TXT report files
-
-Each block itself is analysed directly with `waterfp.WaterFP`, and
-consecutive blocks are compared with the shared `convergence.check_stability`.
-
-main() itself only coordinates: it owns the block-polling loop (which
-needs live state - a growing trajectory, streak counters, accumulator
-lists - that doesn't belong in a pure function) and is the only place
-that prints progress or writes the human-facing summary text, per Rule 5.
-No formula, threshold, output filename, CSV/JSON schema, or printed
-message was changed by this refactor - see METHOD_RATIONALE.md for the
-science, which this change does not touch.
-
---- Structured values ---
-check_stability() returns a StabilityResult; Tolerances bundles the 4
-threshold/streak values main() builds once from the CLI args (both from
-the `convergence` module). Report field names are mapped explicitly from
-these dataclasses.
 """
 import argparse
 import os
@@ -73,7 +26,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from convergence import Tolerances, check_stability
+from convergence import Tolerances, check_stability, first_convergence, stable_in_a_row, transitions_table
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
@@ -127,6 +80,15 @@ def process_alive(pid):
         return True
     except OSError:
         return False
+
+
+def wait_for_frames(load_universe, n_frames: int, mdrun_pid: int | None, poll_seconds: float) -> mda.Universe:
+    """Reload the trajectory until it has ``n_frames`` frames or mdrun is no longer running."""
+    while True:
+        u = load_universe()
+        if len(u.trajectory) >= n_frames or not process_alive(mdrun_pid):
+            return u
+        time.sleep(poll_seconds)
 
 
 def write_block_rows(table: pd.DataFrame, path: Path, first_block: bool) -> None:
@@ -292,102 +254,72 @@ def main():
     print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
-    ts_per_frame_ps = None
-    fp_tables = []   # one table per block: fp_values_per_block.csv rows
-    rdf_tables = []  # one table per block: rdf_profiles_per_block.csv rows
-    metric_rows = []
+    u = wait_for_frames(get_universe, 2, args.mdrun_pid, args.poll_seconds)
+    if len(u.trajectory) < 2:
+        raise SystemExit("[monitor] the trajectory needs at least two frames to know the time step.")
+    dt_ps = u.trajectory[1].time - u.trajectory[0].time
+    frames_per_block = int(round(args.block_ns * 1000.0 / dt_ps))
+    block_len_ns = frames_per_block * dt_ps / 1000.0
+    print(f"[monitor] dt/frame = {dt_ps} ps -> {frames_per_block} frames/block ({args.block_ns} ns)")
 
-    previous = None  # the previous block's WaterFP analysis
-    stable_streak = 0
-    block_idx = 0
-    converged = False
-    stop_reason = None
-    stop_time_ns = None
-    stop_block = None
-    frames_per_block = None
+    block_results, block_times, stabilities = [], [], []
+    fp_tables, rdf_tables = [], []  # one table per block
+    converged_at = None  # index of the transition completing convergence
 
-    while True:
-        u = get_universe()
-        if ts_per_frame_ps is None and len(u.trajectory) >= 2:
-            ts_per_frame_ps = u.trajectory[1].time - u.trajectory[0].time
-            frames_per_block = int(round(args.block_ns * 1000.0 / ts_per_frame_ps))
-            print(f"[monitor] dt/frame = {ts_per_frame_ps} ps -> {frames_per_block} frames/block ({args.block_ns} ns)")
-
-        n_frames = len(u.trajectory)
-        if frames_per_block is None:
-            time.sleep(args.poll_seconds)
-            continue
-
-        needed = (block_idx + 1) * frames_per_block
-        if n_frames < needed:
-            if not process_alive(args.mdrun_pid):
-                stop_reason = (
-                    f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
-                    f"{block_idx} could complete ({n_frames} frames available, {needed} needed). "
-                    "Simulation ended (finished its full length, crashed, or was stopped externally) "
-                    "before convergence was detected by this monitor."
-                )
-                stop_time_ns = u.trajectory[-1].time / 1000.0 if n_frames > 0 else 0.0
-                stop_block = block_idx
-                break
-            time.sleep(args.poll_seconds)
-            continue
-
-        start_f = block_idx * frames_per_block
-        end_f = needed
+    # Analyse one block at a time as mdrun writes it, until convergence or until mdrun stops.
+    while converged_at is None:
+        b = len(block_results)
+        start, stop = b * frames_per_block, (b + 1) * frames_per_block
+        u = wait_for_frames(get_universe, stop, args.mdrun_pid, args.poll_seconds)
+        if len(u.trajectory) < stop:
+            break  # mdrun ended before this block was complete
 
         block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
-                        norm_tail_bins=args.norm_tail_bins)
-        block.run(start=start_f, stop=end_f)
-        t_start_ns, t_end_ns = block.times[0] / 1000.0, block.times[-1] / 1000.0
+                        norm_tail_bins=args.norm_tail_bins).run(start=start, stop=stop)
+        t_start_ns = block.times[0] / 1000.0
+        t_end_ns = t_start_ns + block_len_ns
+        block_results.append(block.results)
+        block_times.append((t_start_ns, t_end_ns))
 
-        fp_table = block.fp_table().assign(block=block_idx, t_start_ns=t_start_ns, t_end_ns=t_end_ns,
+        fp_table = block.fp_table().assign(block=b, t_start_ns=t_start_ns, t_end_ns=t_end_ns,
                                            t_mid_ns=0.5 * (t_start_ns + t_end_ns))
         fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
-        rdf_tables.append(block.profile_table().assign(block=block_idx)[["block", "atom", "r_nm", "g_r"]])
+        rdf_tables.append(block.profile_table().assign(block=b)[["block", "atom", "r_nm", "g_r"]])
+        write_block_rows(fp_tables[-1], outdir / "fp_values_per_block.csv", first_block=b == 0)
+        write_block_rows(rdf_tables[-1], outdir / "rdf_profiles_per_block.csv", first_block=b == 0)
 
-        if previous is not None:
-            stability = check_stability(block.results, previous.results, tol)
-            block_stable = stability.passed
-            stable_streak = stable_streak + 1 if block_stable else 0
+        if b > 0:
+            stabilities.append(check_stability(block_results[-1], block_results[-2], tol))
+            converged_at = first_convergence(stabilities, tol.n_stable)
+            transitions_table(stabilities, block_times, tol.n_stable).to_csv(
+                outdir / "convergence_metrics.csv", index=False)
+            s = stabilities[-1]
+            print(f"[monitor] block {b} (t={t_end_ns:.1f} ns): max|dFP/FP|={s.fp_change:.3f} "
+                  f"max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
+                  f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
 
-            metric_rows.append({
-                "block_transition": f"{block_idx-1}->{block_idx}",
-                "t_end_ns": t_end_ns,
-                "max_FP_relative_change": stability.fp_change,
-                "max_RDF_nRMSD": stability.rdf_nrmsd,
-                "spearman_rank_corr": stability.spearman_rho,
-                "value_stable": stability.fp_pass,
-                "rdf_stable": stability.rdf_pass,
-                "rank_stable": stability.spearman_pass,
-                "block_stable": block_stable,
-                "stable_streak": stable_streak,
-            })
-            print(f"[monitor] block {block_idx} (t={t_end_ns:.1f} ns): "
-                  f"max|dFP/FP|={stability.fp_change:.3f} "
-                  f"max_nRMSD_RDF={stability.rdf_nrmsd:.3f} "
-                  f"spearman={stability.spearman_rho:.3f} stable={block_stable} streak={stable_streak}")
-
-            if stable_streak >= tol.n_stable:
-                converged = True
-                stop_reason = (
-                    f"RDF profile, FP values, and FP-based heavy-atom ranking were all stable "
-                    f"(max FP relative change <= {tol.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
-                    f"<= {tol.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {tol.spearman_tol}) "
-                    f"across {tol.n_stable} consecutive block-to-block transitions."
-                )
-                stop_time_ns = t_end_ns
-                stop_block = block_idx
-
-        write_block_rows(fp_tables[-1], outdir / "fp_values_per_block.csv", first_block=block_idx == 0)
-        write_block_rows(rdf_tables[-1], outdir / "rdf_profiles_per_block.csv", first_block=block_idx == 0)
-        pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
-
-        previous = block
-        block_idx += 1
-
-        if converged:
-            break
+    if not block_results:
+        raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
+    converged = converged_at is not None
+    if converged:
+        stop_block = converged_at + 1
+        stop_time_ns = block_times[stop_block][1]
+        stop_reason = (
+            f"RDF profile, FP values, and FP-based heavy-atom ranking were all stable "
+            f"(max FP relative change <= {tol.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
+            f"<= {tol.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {tol.spearman_tol}) "
+            f"across {tol.n_stable} consecutive block-to-block transitions."
+        )
+    else:
+        stop_block = len(block_results)
+        stop_time_ns = u.trajectory[-1].time / 1000.0
+        stop_reason = (
+            f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
+            f"{stop_block} could complete ({len(u.trajectory)} frames available, "
+            f"{(stop_block + 1) * frames_per_block} needed). "
+            "Simulation ended (finished its full length, crashed, or was stopped externally) "
+            "before convergence was detected by this monitor."
+        )
 
     fp_df = pd.concat(fp_tables, ignore_index=True)
     rdf_df = pd.concat(rdf_tables, ignore_index=True)
@@ -397,7 +329,7 @@ def main():
 
     summary = write_reports(
         outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
-        args.block_ns, tol, args.ligand_resname, heavy_names, block_idx,
+        args.block_ns, tol, args.ligand_resname, heavy_names, len(block_results),
     )
 
     print(f"[monitor] DONE. converged={summary['converged']} stop_block={summary['stop_block']} "
