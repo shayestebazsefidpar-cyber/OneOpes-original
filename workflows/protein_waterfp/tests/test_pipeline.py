@@ -80,8 +80,8 @@ def test_final_table_has_every_candidate_once(analysis):
 
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
-    from protein_waterfp.convergence import block_waterfp
     from protein_waterfp.trajectory import structural_block
+    from waterfp import WaterFP
 
     n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
     u, meta = _run(tmp_path, n_frames=n_frames)
@@ -89,9 +89,9 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     sel = select_system(u)
     labels = list(pd.read_csv(tmp_path / "candidate_atom_mapping.csv")["Atom"])
     idx = table.loc[labels, "Atom_index"].to_numpy()
-    fp_full, _g, _r = block_waterfp(u, 0, n_frames, idx, sel.water_oxygens, labels)
+    fp_full = WaterFP(u.atoms[idx], u.atoms[sel.water_oxygens]).run(start=0, stop=n_frames).results.fp
     st_full = structural_block(u, 0, n_frames, idx, sel.ligand_heavy, sel.water_oxygens)
-    np.testing.assert_allclose(table.loc[labels, "FP"], [fp_full[a] for a in labels], rtol=1e-12)
+    np.testing.assert_allclose(table.loc[labels, "FP"], fp_full, rtol=1e-12)
     np.testing.assert_allclose(table.loc[labels, "Contact_occupancy_5A"], st_full.contact_occupancy)
     np.testing.assert_allclose(table.loc[labels, "Bridge_occupancy"], st_full.bridge_occupancy)
     last_block = pd.read_csv(tmp_path / "fp_values_per_block.csv").query("block == block.max()").set_index("atom")

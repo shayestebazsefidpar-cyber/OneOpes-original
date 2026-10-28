@@ -1,9 +1,9 @@
 """
-Block-wise WaterFP for the candidate atoms and the convergence verdict.
+Convergence verdict over the blocks' WaterFP results.
 
 Reuses the shared implementations unchanged:
 
-* FP and g(r): ``waterfp.WaterFP`` (water-O distances 0-2.001 nm, 0.001 nm bins).
+* FP and g(r) of each block: ``waterfp.WaterFP`` (run by ``cli.run_analysis``).
 * Stability of one block transition:
   ``ligand_waterfp.convergence.monitor_convergence.check_stability`` with
   ``Tolerances`` (FP relative change, RDF nRMSD, Spearman; all three must pass).
@@ -21,16 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import numpy as np
 import pandas as pd
 from MDAnalysis.analysis.results import Results
 from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
-from waterfp import (
-    NORM_TAIL_BINS_DEFAULT,
-    RDF_BINWIDTH_NM_DEFAULT,
-    RDF_RMAX_NM_DEFAULT,
-    WaterFP,
-)
 
 DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
 
@@ -60,9 +53,8 @@ class ConvergenceTracker:
     rows: list = field(default_factory=list)
     _prev: Results | None = None
 
-    def add_block(self, block: int, t_start_ns: float, t_end_ns: float, fp: dict, g: dict,
-                  order: list[str]) -> None:
-        current = Results(fp=np.array([fp[a] for a in order]), g=np.array([g[a] for a in order]))
+    def add_block(self, block: int, t_start_ns: float, t_end_ns: float, current: Results) -> None:
+        """Score the transition from the previous block to ``current`` (a block's WaterFP results)."""
         if self._prev is not None:
             res = check_stability(current, self._prev, self.tol)
             self.streak = self.streak + 1 if res.block_stable else 0
@@ -102,13 +94,3 @@ class ConvergenceTracker:
         return {"n_transitions_after_first_convergence": len(later),
                 "n_unstable_transitions_after_first_convergence": unstable,
                 "remained_stable_after_first_convergence": unstable == 0}
-
-
-def block_waterfp(u, start: int, end: int, cand_idx, water_o_idx, labels: list[str],
-                  rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
-                  norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT):
-    """FP and g(r) of each candidate over frames [start, end) (shared WaterFP code)."""
-    analysis = WaterFP(u.atoms[np.asarray(cand_idx)], u.atoms[np.asarray(water_o_idx)],
-                       rmax_nm=rmax_nm, binwidth_nm=binwidth_nm, norm_tail_bins=norm_tail_bins)
-    results = analysis.run(start=start, stop=end).results
-    return dict(zip(labels, results.fp.tolist())), dict(zip(labels, results.g)), results.r_nm
