@@ -1,7 +1,7 @@
 """Block-wise convergence of WaterFP results: is the next block like the previous one?"""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import accumulate, pairwise
 
 import numpy as np
@@ -34,11 +34,11 @@ class StabilityResult:
     passed: bool
 
 
-def nrmsd(g_a, g_b):
-    """RMS difference of two g(r) curves, relative to their highest peak."""
-    rmsd = np.sqrt(np.mean((g_a - g_b) ** 2))
-    norm = max(np.max(g_a), np.max(g_b), 1e-8)
-    return rmsd / norm
+def nrmsd(g: np.ndarray, prev_g: np.ndarray) -> np.ndarray:
+    """RMS difference of g(r) curves, relative to their highest peak; one value per atom (last axis = r)."""
+    rmsd = np.sqrt(np.mean((g - prev_g) ** 2, axis=-1))
+    peak = np.maximum(np.max(g, axis=-1), np.max(prev_g, axis=-1))
+    return rmsd / np.maximum(peak, 1e-8)  # floor: g(r) that is zero everywhere
 
 
 def check_stability(current: Results, previous: Results, tol: Tolerances) -> StabilityResult:
@@ -48,8 +48,8 @@ def check_stability(current: Results, previous: Results, tol: Tolerances) -> Sta
     and the FP rank correlation are all within ``tol``.
     """
     fp, prev_fp = current.fp, previous.fp
-    fp_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
-    rdf_nrmsd = float(max(nrmsd(g, prev_g) for g, prev_g in zip(current.g, previous.g)))
+    fp_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))  # floor: FP of ~0
+    rdf_nrmsd = float(np.max(nrmsd(current.g, previous.g)))
     rho, _ = spearmanr(fp, prev_fp)  # ranks the FP values itself
 
     fp_pass = fp_change <= tol.fp_rel_tol
@@ -79,6 +79,18 @@ def first_convergence(stabilities: Sequence[StabilityResult], n_stable: int) -> 
     return next((i for i, count in enumerate(stable_in_a_row(stabilities)) if count >= n_stable), None)
 
 
+# Column name of each StabilityResult field in convergence_metrics.csv, in column order.
+CSV_COLUMNS = {
+    "fp_change": "FP_relative_change",
+    "fp_pass": "FP_pass",
+    "rdf_nrmsd": "RDF_nRMSD",
+    "rdf_pass": "RDF_pass",
+    "spearman_rho": "Spearman_rho",
+    "spearman_pass": "Spearman_pass",
+    "passed": "all_criteria_pass",
+}
+
+
 def transitions_table(stabilities: Sequence[StabilityResult], block_times: Sequence[tuple[float, float]],
                       n_stable: int) -> pd.DataFrame:
     """One row per transition: the columns of convergence_metrics.csv.
@@ -86,23 +98,17 @@ def transitions_table(stabilities: Sequence[StabilityResult], block_times: Seque
     ``block_times[i]`` is the (start_ns, end_ns) of block i.
     """
     first = first_convergence(stabilities, n_stable)
-    rows = []
-    for i, (s, count) in enumerate(zip(stabilities, stable_in_a_row(stabilities))):
-        start_ns, end_ns = block_times[i + 1]
-        rows.append({
-            "transition": f"{i}->{i + 1}",
-            "previous_block": i,
-            "block": i + 1,
-            "block_start_ns": float(start_ns),
-            "block_end_ns": float(end_ns),
-            "FP_relative_change": s.fp_change,
-            "FP_pass": s.fp_pass,
-            "RDF_nRMSD": s.rdf_nrmsd,
-            "RDF_pass": s.rdf_pass,
-            "Spearman_rho": s.spearman_rho,
-            "Spearman_pass": s.spearman_pass,
-            "all_criteria_pass": s.passed,
-            "stable_transition_count": count,
-            "convergence_reached": first is not None and i >= first,
-        })
-    return pd.DataFrame(rows)
+    block = np.arange(1, len(stabilities) + 1)  # the later block of each transition
+    start_ns, end_ns = np.array(block_times, dtype=float)[block].T
+    blocks = pd.DataFrame({
+        "transition": [f"{b - 1}->{b}" for b in block],
+        "previous_block": block - 1,
+        "block": block,
+        "block_start_ns": start_ns,
+        "block_end_ns": end_ns,
+    })
+    metrics = pd.DataFrame([asdict(s) for s in stabilities], columns=list(CSV_COLUMNS)).rename(columns=CSV_COLUMNS)
+    return blocks.join(metrics).assign(
+        stable_transition_count=stable_in_a_row(stabilities),
+        convergence_reached=False if first is None else block - 1 >= first,
+    )
