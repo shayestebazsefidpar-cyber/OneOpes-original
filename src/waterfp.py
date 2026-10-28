@@ -5,14 +5,17 @@ Original at: github.com/valeriorizzi/WaterFP
 
 from dataclasses import dataclass
 import numpy as np
-from MDAnalysis.lib.distances import distance_array
+from MDAnalysis.analysis.base import AnalysisBase
+from MDAnalysis.analysis.results import ResultsGroup
+from MDAnalysis.core.groups import AtomGroup
+from MDAnalysis.lib.distances import capped_distance, distance_array
 
 
 RDF_RMAX_NM_DEFAULT = 2.001
 RDF_BINWIDTH_NM_DEFAULT = 0.001
 NORM_TAIL_BINS_DEFAULT = 500
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class WaterCounts:
     counts: np.ndarray          # (n_atoms, n_bins) int64: water O counts per bin, summed over frames
     n_frames: int               # frames contributing to counts
@@ -29,7 +32,7 @@ class WaterCounts:
         return np.linspace(0.0, self.rmax_nm, self.n_bins + 1)
 
     @property
-    def r_nm(self) -> np.ndarray:            # bin centres; today's centers_nm
+    def r_nm(self) -> np.ndarray:            # bin centres
         e = self.edges_nm
         return 0.5 * (e[:-1] + e[1:])
 
@@ -42,6 +45,50 @@ class WaterCounts:
     def density_nm3(self) -> np.ndarray:     # (n_atoms, n_bins)
         return self.counts / self.n_frames / self.shell_volumes_nm3
 
+
+class WaterCountsAnalysis(AnalysisBase):
+    """Histogram of water-oxygen distances around each solute atom, summed over the analysed frames.
+
+    Usage: ``WaterCountsAnalysis(solute, water_oxygens).run(start=..., stop=...).results.water_counts``.
+    Counts add up across frames, so the analysis can also run in parallel,
+    e.g. ``run(backend="multiprocessing", n_workers=4)``.
+    """
+
+    _analysis_algorithm_is_parallelizable = True
+
+    @classmethod
+    def get_supported_backends(cls) -> tuple[str, ...]:
+        return ("serial", "multiprocessing", "dask")
+
+    def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *,
+                 rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
+                 **kwargs) -> None:
+        super().__init__(solute.universe.trajectory, **kwargs)
+        self.solute = solute
+        self.water_oxygens = water_oxygens
+        self.rmax_nm = rmax_nm
+        self.binwidth_nm = binwidth_nm
+        n_bins = round(rmax_nm / binwidth_nm)
+        self._distance_edges_a = 10.0 * np.linspace(0.0, rmax_nm, n_bins + 1)  # MDAnalysis uses Angstrom
+        self._atom_edges = np.arange(len(solute) + 1)  # one histogram row per solute atom
+
+    def _prepare(self) -> None:
+        shape = (len(self._atom_edges) - 1, len(self._distance_edges_a) - 1)
+        self.results.counts = np.zeros(shape, dtype=np.int64)
+
+    def _single_frame(self) -> None:
+        pairs, distances = capped_distance(self.solute.positions, self.water_oxygens.positions,
+                                           max_cutoff=self._distance_edges_a[-1], box=self._ts.dimensions)
+        histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(self._atom_edges, self._distance_edges_a))
+        self.results.counts += histogram.astype(np.int64)
+
+    def _get_aggregator(self) -> ResultsGroup:
+        return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
+
+    def _conclude(self) -> None:
+        self.results.water_counts = WaterCounts(counts=self.results.counts, n_frames=self.n_frames,
+                                                solute_indices=self.solute.indices.copy(),
+                                                rmax_nm=self.rmax_nm, binwidth_nm=self.binwidth_nm)
 
 
 def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):

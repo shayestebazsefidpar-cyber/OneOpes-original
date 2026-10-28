@@ -1,11 +1,11 @@
 """
 Block-wise WaterFP for the candidate atoms and the convergence verdict.
 
-Reuses the tracked ligand-side implementation unchanged:
+Reuses the shared implementations unchanged:
 
-* RDF: ``ligand_waterfp.waterfp.calculate_rdf.make_bins`` /
-  ``compute_density_profile`` (water-O number density, 0-2.001 nm, 0.001 nm bins).
-* FP: ``ligand_waterfp.waterfp.calculate_fingerprint.fp_from_density_profile``.
+* Water counts / density: ``waterfp.WaterCountsAnalysis`` (water-O counts,
+  0-2.001 nm, 0.001 nm bins) and ``WaterCounts.density_nm3``.
+* FP: ``waterfp.fp_from_density_profile``.
 * Stability of one block transition:
   ``ligand_waterfp.convergence.monitor_convergence.check_stability`` with
   ``Tolerances`` (FP relative change, RDF nRMSD, Spearman; all three must pass).
@@ -26,11 +26,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
-from ligand_waterfp.waterfp.calculate_fingerprint import NORM_TAIL_BINS_DEFAULT, fp_from_density_profile
-from waterfp import make_bins, compute_density_profile
-from ligand_waterfp.waterfp.calculate_rdf import (
+from waterfp import (
+    NORM_TAIL_BINS_DEFAULT,
     RDF_BINWIDTH_NM_DEFAULT,
-    RDF_RMAX_NM_DEFAULT
+    RDF_RMAX_NM_DEFAULT,
+    WaterCountsAnalysis,
+    fp_from_density_profile,
 )
 
 DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
@@ -109,12 +110,14 @@ class ConvergenceTracker:
 def block_waterfp(u, start: int, end: int, cand_idx, water_o_idx, labels: list[str],
                   rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
                   norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT):
-    """FP and g(r) of each candidate over frames [start, end) (ligand-side WaterFP code)."""
-    _edges_nm, centers_nm, edges_a, shell_vol = make_bins(rmax_nm, binwidth_nm)
-    n_r = compute_density_profile(u, np.asarray(cand_idx), np.asarray(water_o_idx), start, end, edges_a, shell_vol)
+    """FP and g(r) of each candidate over frames [start, end) (shared WaterFP code)."""
+    analysis = WaterCountsAnalysis(u.atoms[np.asarray(cand_idx)], u.atoms[np.asarray(water_o_idx)],
+                                   rmax_nm=rmax_nm, binwidth_nm=binwidth_nm)
+    counts = analysis.run(start=start, stop=end).results.water_counts
+    density = counts.density_nm3
     fp, g = {}, {}
     for i, name in enumerate(labels):
-        value, g_i, _norm = fp_from_density_profile(n_r[i], centers_nm, binwidth_nm, norm_tail_bins)
+        value, g_i, _norm = fp_from_density_profile(density[i], counts.r_nm, binwidth_nm, norm_tail_bins)
         fp[name] = float(value)
         g[name] = g_i
-    return fp, g, centers_nm
+    return fp, g, counts.r_nm
