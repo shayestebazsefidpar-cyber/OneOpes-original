@@ -9,6 +9,8 @@ import pandas as pd
 from MDAnalysis.analysis.results import Results
 from scipy.stats import spearmanr
 
+from waterfp import WaterFP
+
 
 @dataclass(frozen=True)
 class Tolerances:
@@ -77,6 +79,28 @@ def stable_in_a_row(stabilities: Sequence[StabilityResult]) -> list[int]:
 def first_convergence(stabilities: Sequence[StabilityResult], n_stable: int) -> int | None:
     """Index of the transition completing the first run of n_stable stable ones, or None."""
     return next((i for i, count in enumerate(stable_in_a_row(stabilities)) if count >= n_stable), None)
+
+
+def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+    """Rank of each atom's FP (per column): 1 = most negative; ties keep the atoms' order."""
+    return fp.rank(method="first").astype(int)
+
+
+def fp_per_block(blocks: Sequence[WaterFP], times_ns: Sequence[tuple[float, float]],
+                 labels: Sequence[str] | None = None) -> pd.DataFrame:
+    """One row per (block, atom): block, t_start_ns, t_end_ns, t_mid_ns, atom, FP.
+
+    ``times_ns[i]`` is the (start, end) of block i; ``labels`` name the atoms (default: atom names).
+    """
+    tables = [block.fp_table(labels).assign(block=b, t_start_ns=start, t_end_ns=end, t_mid_ns=0.5 * (start + end))
+              for b, (block, (start, end)) in enumerate(zip(blocks, times_ns))]
+    return pd.concat(tables, ignore_index=True)[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]]
+
+
+def rdf_per_block(blocks: Sequence[WaterFP], labels: Sequence[str] | None = None) -> pd.DataFrame:
+    """One row per (block, atom, r): block, atom, r_nm, g_r. ``labels`` name the atoms (default: atom names)."""
+    tables = [block.profile_table(labels).assign(block=b) for b, block in enumerate(blocks)]
+    return pd.concat(tables, ignore_index=True)[["block", "atom", "r_nm", "g_r"]]
 
 
 # Column name of each StabilityResult field in convergence_metrics.csv, in column order.

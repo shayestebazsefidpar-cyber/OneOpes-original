@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-
-from .convergence import fp_ranks
+from convergence import fp_ranks
 
 FINAL_COLUMNS = [
     "FP_Rank",
@@ -47,7 +46,7 @@ def build_final_table(candidates: pd.DataFrame, fp: np.ndarray, contact: np.ndar
             raise ValueError(f"{name} has {len(values)} values for {len(labels)} candidate atoms.")
     table = candidates.copy()
     table["FP"] = fp
-    table["FP_Rank"] = fp_ranks(dict(zip(labels, fp)), labels).astype(int).to_numpy()
+    table["FP_Rank"] = fp_ranks(table["FP"])
     table["Contact_occupancy_5A"] = contact
     table["Bridge_occupancy"] = bridge
     table["SASA_A2"] = sasa

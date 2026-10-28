@@ -27,6 +27,17 @@ def frames_per_block(block_ns: float, dt_ps: float) -> int:
     return n
 
 
+def frame_time_ns(u: Universe, frame: int) -> float:
+    """Simulation time of a frame (ns)."""
+    return float(u.trajectory[frame].time) / 1000.0
+
+
+def time_span_ns(u: Universe, frames: range, dt_ps: float) -> tuple[float, float]:
+    """Start and end (ns) of a block of frames: the time of its first frame, and that plus its length."""
+    start = frame_time_ns(u, frames.start)
+    return start, start + len(frames) * dt_ps / 1000.0
+
+
 def complete_blocks(start: int, stop: int, length: int) -> list[range]:
     """The complete blocks of ``length`` frames in frames [start, stop); leftover frames at the end are skipped."""
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]

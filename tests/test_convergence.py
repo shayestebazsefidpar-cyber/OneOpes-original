@@ -2,6 +2,7 @@
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import pytest
 from MDAnalysis.analysis.results import Results
 
@@ -12,6 +13,7 @@ from convergence import (
     check_stability,
     compare_blocks,
     first_convergence,
+    fp_ranks,
     nrmsd,
     stable_in_a_row,
     transitions_table,
@@ -135,3 +137,13 @@ def test_transitions_table_rows_and_times():
     assert list(table["block_end_ns"]) == [17.5, 20.0, 22.5, 25.0, 27.5]
     assert list(table["stable_transition_count"]) == [0, 1, 2, 3, 0]
     assert list(table["convergence_reached"]) == [False, False, False, True, True]
+
+
+def test_fp_rank_one_is_the_most_negative_fp():
+    fp = pd.Series({"x": -3.0, "y": -40.0, "z": 2.0})
+    assert fp_ranks(fp).to_dict() == {"x": 2, "y": 1, "z": 3}
+
+
+def test_fp_ranks_per_block_with_ties_in_atom_order():
+    fp = pd.DataFrame({0: [-1.0, -1.0, -5.0], 1: [0.0, -2.0, -1.0]}, index=["x", "y", "z"])
+    assert fp_ranks(fp).to_dict() == {0: {"x": 2, "y": 3, "z": 1}, 1: {"x": 3, "y": 1, "z": 2}}

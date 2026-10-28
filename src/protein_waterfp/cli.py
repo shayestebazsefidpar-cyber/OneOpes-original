@@ -27,19 +27,21 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from trajectory_blocks import complete_blocks, frame_step_ps, frames_per_block
 from convergence import (
     DEFAULT_TOLERANCES,
     StabilityResult,
     compare_blocks,
     first_convergence,
+    fp_per_block,
+    fp_ranks,
+    rdf_per_block,
     stable_in_a_row,
     transitions_table,
 )
+from trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import WaterFP
 
 from . import __version__
-from .convergence import fp_ranks
 from .final_table import build_final_table, final_table_markdown
 from .sasa import static_sasa
 from .selection import (
@@ -76,22 +78,6 @@ def _after_convergence(stabilities: list[StabilityResult], converged_at: int | N
             "n_unstable_transitions_after_first_convergence": unstable,
             "remained_stable_after_first_convergence": unstable == 0}
 
-
-def _frame_time_ns(u, frame: int) -> float:
-    return float(u.trajectory[frame].time) / 1000.0
-
-
-def _fp_per_block(blocks: list[WaterFP], block_times: list[tuple[float, float]], labels: list[str]) -> pd.DataFrame:
-    """fp_values_per_block.csv: one row per (block, candidate atom)."""
-    tables = [block.fp_table(labels).assign(block=b, t_start_ns=start, t_end_ns=end, t_mid_ns=0.5 * (start + end))
-              for b, (block, (start, end)) in enumerate(zip(blocks, block_times))]
-    return pd.concat(tables, ignore_index=True)[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]]
-
-
-def _rdf_per_block(blocks: list[WaterFP], labels: list[str]) -> pd.DataFrame:
-    """rdf_profiles_per_block.csv: one row per (block, candidate atom, r)."""
-    tables = [block.profile_table(labels).assign(block=b) for b, block in enumerate(blocks)]
-    return pd.concat(tables, ignore_index=True)[["block", "atom", "r_nm", "g_r"]]
 
 
 def _contacts_per_block(contacts: list[StructuralBlock], block_times: list[tuple[float, float]],
@@ -169,9 +155,9 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     if not block_ranges:
         raise ValueError(f"Frames [{first_frame}, {end_frame}) hold less than one {options.block_ns} ns block.")
     unused_tail_frames = end_frame - block_ranges[-1].stop
-    block_len_ns = block_length * dt_ps / 1000.0
-    traj_start_ns, traj_end_ns = _frame_time_ns(u_traj, 0), _frame_time_ns(u_traj, n_frames - 1)
-    analysis_start_ns, analysis_end_ns = _frame_time_ns(u_traj, first_frame), _frame_time_ns(u_traj, end_frame - 1)
+    block_times = [time_span_ns(u_traj, frames, dt_ps) for frames in block_ranges]
+    traj_start_ns, traj_end_ns = frame_time_ns(u_traj, 0), frame_time_ns(u_traj, n_frames - 1)
+    analysis_start_ns, analysis_end_ns = frame_time_ns(u_traj, first_frame), frame_time_ns(u_traj, end_frame - 1)
     trajectory_length_ns = traj_end_ns - traj_start_ns
     final_analysis_time_ns = analysis_end_ns - analysis_start_ns
     log(f"[protein-waterfp] trajectory: {n_frames} frames, dt {dt_ps} ps, {traj_start_ns:g}-{traj_end_ns:g} ns "
@@ -182,14 +168,12 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     # Compute: WaterFP and contacts of each block, then of the whole analysed range.
     candidate_atoms = u_traj.atoms[cand_idx]
     water_oxygens = u_traj.atoms[sel.water_oxygens]
-    blocks, contacts, block_times = [], [], []
-    for b, frames in enumerate(block_ranges):
+    blocks, contacts = [], []
+    for b, (frames, (start_ns, end_ns)) in enumerate(zip(block_ranges, block_times)):
         blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=frames.start, stop=frames.stop))
         contacts.append(structural_block(u_traj, frames.start, frames.stop, cand_idx, sel.ligand_heavy,
                                          sel.water_oxygens))
-        t_start = _frame_time_ns(u_traj, frames.start)
-        block_times.append((t_start, t_start + block_len_ns))
-        log(f"[protein-waterfp] block {b} ({t_start:g}-{t_start + block_len_ns:g} ns) done")
+        log(f"[protein-waterfp] block {b} ({start_ns:g}-{end_ns:g} ns) done")
     log(f"[protein-waterfp] full-trajectory pass over frames {first_frame}-{end_frame - 1}")
     fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=first_frame, stop=end_frame).results.fp
     st_full = structural_block(u_traj, first_frame, end_frame, cand_idx, sel.ligand_heavy, sel.water_oxygens)
@@ -202,17 +186,15 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     log(f"[protein-waterfp] first sustained convergence: {first_converged_ns} ns")
 
     # Report: per-block tables, convergence metrics, the final per-atom table and the summary.
-    fp_df = _fp_per_block(blocks, block_times, labels)
+    fp_df = fp_per_block(blocks, block_times, labels)
     fp_df.to_csv(outdir / "fp_values_per_block.csv", index=False)
-    _rdf_per_block(blocks, labels).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+    rdf_per_block(blocks, labels).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
     _contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     transitions = transitions_table(stabilities, block_times, tol.n_stable)
     transitions.to_csv(outdir / "convergence_metrics.csv", index=False)
     wide = fp_df.pivot(index="atom", columns="block", values="FP").loc[labels]
     wide.to_csv(outdir / "fp_values_by_block_wide.csv")
-    ranks = pd.DataFrame({b: fp_ranks(wide[b].to_dict(), labels) for b in wide.columns}).astype(int)
-    ranks.index.name = "atom"
-    ranks.to_csv(outdir / "fp_ranking_by_block_wide.csv")
+    fp_ranks(wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
     table = build_final_table(candidates, fp_full, st_full.contact_occupancy, st_full.bridge_occupancy,
