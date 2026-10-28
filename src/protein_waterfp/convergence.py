@@ -4,8 +4,7 @@ Convergence verdict over the blocks' WaterFP results.
 Reuses the shared implementations unchanged:
 
 * FP and g(r) of each block: ``waterfp.WaterFP`` (run by ``cli.run_analysis``).
-* Stability of one block transition:
-  ``ligand_waterfp.convergence.monitor_convergence.check_stability`` with
+* Stability of one block transition: ``convergence.check_stability`` with
   ``Tolerances`` (FP relative change, RDF nRMSD, Spearman; all three must pass).
 
 Retrospective analysis of an existing trajectory: every block is analysed and
@@ -23,7 +22,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 from MDAnalysis.analysis.results import Results
-from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
+from convergence import Tolerances, check_stability
 
 DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
 

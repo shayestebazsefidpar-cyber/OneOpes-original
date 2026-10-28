@@ -151,7 +151,7 @@ def test_convergence_metrics_are_a_separate_table(analysis):
 
 
 def test_worst_case_metrics_match_per_atom_block_data(analysis):
-    from ligand_waterfp.convergence.monitor_convergence import nrmsd
+    from convergence import nrmsd
 
     _u, _meta, out = analysis
     fp = pd.read_csv(out / "fp_values_per_block.csv")

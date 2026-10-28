@@ -311,7 +311,7 @@ trajectory (length detected from the input)
   3.5 Å of both the candidate and a ligand heavy atom.
 * **SASA**: static, on the complex (protein + ligand heavy atoms, no
   water/ions), freesasa defaults.
-* **Convergence**: `ligand_waterfp`'s `check_stability` with FP relative
+* **Convergence**: the shared `convergence.check_stability` with FP relative
   change ≤ 0.10, RDF nRMSD ≤ 0.15, Spearman ≥ 0.90 — all three in a
   transition (FP change and nRMSD are the worst case over all candidates).
   Sustained convergence = 3 consecutive stable transitions; the end time of
@@ -340,8 +340,8 @@ trajectory (length detected from the input)
   relative criterion, `max |FP_now − FP_prev| / max(|FP_prev|, 1e-6)` over
   all candidates. Atoms with FP close to zero (bulk-like, solvent-exposed) can
   produce very large relative changes and can dominate the verdict. This is
-  inherited from the current ligand-side implementation
-  (`ligand_waterfp.check_stability`) and is intentionally unchanged here.
+  inherited from the ligand-side criterion (now the shared
+  `convergence.check_stability`) and is intentionally unchanged here.
 * **Reference structure.** Candidate selection and `SASA_A2` use only the
   supplied `--complex` structure. SASA is static (one structure), not
   trajectory-averaged.

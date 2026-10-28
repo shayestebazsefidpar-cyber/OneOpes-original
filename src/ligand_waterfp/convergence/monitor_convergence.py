@@ -39,12 +39,12 @@ Usage (after `pip install -e .` from the package root):
 The computational/reporting pieces main() used to do inline are pulled out
 into their own functions, each returning data rather than printing it:
 
-    check_stability()  - two blocks' FP/g(r) -> stability verdict
     plot_atom()        - one atom's accumulated history -> two PNG files
     write_reports()    - the full run's accumulated history -> summary
                           dict + the wide-format CSVs/JSON/TXT report files
 
-Each block itself is analysed directly with `waterfp.WaterFP`.
+Each block itself is analysed directly with `waterfp.WaterFP`, and
+consecutive blocks are compared with the shared `convergence.check_stability`.
 
 main() itself only coordinates: it owns the block-polling loop (which
 needs live state - a growing trajectory, streak counters, accumulator
@@ -56,26 +56,24 @@ science, which this change does not touch.
 
 --- Structured values ---
 check_stability() returns a StabilityResult; Tolerances bundles the 4
-threshold/streak values main() builds once from the CLI args. Report
-field names are unchanged - mapped explicitly from these dataclasses.
+threshold/streak values main() builds once from the CLI args (both from
+the `convergence` module). Report field names are mapped explicitly from
+these dataclasses.
 """
 import argparse
 import os
 import json
 import time
 import signal
-from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import MDAnalysis as mda
-from MDAnalysis.analysis.results import Results
-from scipy.stats import spearmanr
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from convergence import Tolerances, check_stability
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
@@ -84,41 +82,6 @@ FP_METHOD_TEXT = (
     "g(r)=n(r)/norm, norm=mean of the last norm_tail_bins bins of the raw "
     "water-O number-density profile n(r) around the ligand heavy atom."
 )
-
-
-@dataclass(frozen=True)
-class Tolerances:
-    """Convergence thresholds used by check_stability(): max FP relative
-    change, max RDF nRMSD, min Spearman rank correlation, and the number
-    of consecutive stable transitions required for convergence.
-
-    block_ns (block size) is not a tolerance and stays a separate
-    parameter in main().
-    """
-    fp_rel_tol: float
-    rdf_nrmsd_tol: float
-    spearman_tol: float
-    n_stable: int
-
-
-@dataclass(frozen=True)
-class StabilityResult:
-    """The three convergence metrics (FP relative change, RDF nRMSD,
-    Spearman rank correlation), each one's pass/fail flag, and the
-    combined block_stable verdict - returned by check_stability() for one
-    block-to-block transition.
-
-    Field names are lower_snake_case; the CSV/JSON report keys
-    (max_FP_relative_change, max_RDF_nRMSD, ...) differ and are mapped
-    explicitly where each report is built, not via dataclasses.asdict().
-    """
-    max_fp_relative_change: float
-    max_rdf_nrmsd: float
-    spearman_rank_corr: float
-    value_stable: bool
-    rdf_stable: bool
-    rank_stable: bool
-    block_stable: bool
 
 
 def parse_args():
@@ -166,42 +129,9 @@ def process_alive(pid):
         return False
 
 
-def nrmsd(g_a, g_b):
-    rmsd = np.sqrt(np.mean((g_a - g_b) ** 2))
-    norm = max(np.max(g_a), np.max(g_b), 1e-8)
-    return rmsd / norm
-
-
 def write_block_rows(table: pd.DataFrame, path: Path, first_block: bool) -> None:
     """Write one block's rows to ``path``: a new file (with header) for the first block, appended after."""
     table.to_csv(path, mode="w" if first_block else "a", header=first_block, index=False)
-
-
-def check_stability(current: Results, previous: Results, tol: Tolerances) -> StabilityResult:
-    """Compare two consecutive blocks' WaterFP results (same atoms, same order)
-    against `tol`'s three criteria (FP relative change, RDF nRMSD, Spearman
-    rank correlation of the FP values) and return the resulting
-    StabilityResult. Streak bookkeeping across transitions stays in main().
-    """
-    fp, prev_fp = current.fp, previous.fp
-    max_rel_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
-    max_nrmsd = float(max(nrmsd(g, prev_g) for g, prev_g in zip(current.g, previous.g)))
-    rho, _ = spearmanr(fp, prev_fp)  # ranks the FP values itself
-
-    value_ok = max_rel_change <= tol.fp_rel_tol
-    rank_ok = bool(rho >= tol.spearman_tol)
-    rdf_ok = max_nrmsd <= tol.rdf_nrmsd_tol
-    block_stable = value_ok and rank_ok and rdf_ok
-
-    return StabilityResult(
-        max_fp_relative_change=max_rel_change,
-        max_rdf_nrmsd=max_nrmsd,
-        spearman_rank_corr=rho,
-        value_stable=value_ok,
-        rdf_stable=rdf_ok,
-        rank_stable=rank_ok,
-        block_stable=block_stable,
-    )
 
 
 def plot_atom(atom_name, fp_df, rdf_df, outdir):

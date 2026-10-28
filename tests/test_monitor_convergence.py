@@ -23,13 +23,8 @@ import pandas as pd
 import pytest
 from MDAnalysis.analysis.results import Results
 
-from ligand_waterfp.convergence.monitor_convergence import (
-    check_stability,
-    write_reports,
-    plot_atom,
-    StabilityResult,
-    Tolerances,
-)
+from convergence import StabilityResult, Tolerances, check_stability
+from ligand_waterfp.convergence.monitor_convergence import plot_atom, write_reports
 
 FP_REL_TOL = 0.10
 RDF_NRMSD_TOL = 0.15
