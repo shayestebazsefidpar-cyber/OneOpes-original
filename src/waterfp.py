@@ -9,6 +9,7 @@ from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
 from MDAnalysis.lib.distances import capped_distance, distance_array
+from scipy.special import xlogy
 
 
 RDF_RMAX_NM_DEFAULT = 2.001
@@ -46,10 +47,28 @@ class WaterCounts:
         return self.counts / self.n_frames / self.shell_volumes_nm3
 
 
-class WaterCountsAnalysis(AnalysisBase):
-    """Histogram of water-oxygen distances around each solute atom, summed over the analysed frames.
+def fingerprint(counts: WaterCounts,
+                norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT) -> tuple[np.ndarray, np.ndarray]:
+    """WaterFP and g(r) of every solute atom in ``counts``.
 
-    Usage: ``WaterCountsAnalysis(solute, water_oxygens).run(start=..., stop=...).results.water_counts``.
+    g(r) is the water density relative to the bulk plateau (mean of the last
+    ``norm_tail_bins`` bins); FP integrates -2*pi*bulk*(g ln g - g + 1)*r^2 over r.
+    Returns (fp of shape (n_atoms,), g of shape (n_atoms, n_bins)).
+    """
+    density = counts.density_nm3
+    bulk = density[:, -norm_tail_bins:].mean(axis=1, keepdims=True)
+    g = density / bulk
+    integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.r_nm ** 2  # xlogy(0, 0) = 0
+    fp = np.trapezoid(integrand, dx=counts.binwidth_nm, axis=1)
+    return fp, g
+
+
+class WaterFP(AnalysisBase):
+    """WaterFP of each solute atom over the analysed frames.
+
+    Usage: ``results = WaterFP(solute, water_oxygens).run(start=..., stop=...).results``, then
+    ``results.fp`` (n_atoms,), ``results.g`` (n_atoms, n_bins), ``results.r_nm`` (n_bins,) and
+    ``results.water_counts`` (the raw, additive WaterCounts, e.g. for combining blocks).
     Counts add up across frames, so the analysis can also run in parallel,
     e.g. ``run(backend="multiprocessing", n_workers=4)``.
     """
@@ -62,12 +81,13 @@ class WaterCountsAnalysis(AnalysisBase):
 
     def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *,
                  rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
-                 **kwargs) -> None:
+                 norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, **kwargs) -> None:
         super().__init__(solute.universe.trajectory, **kwargs)
         self.solute = solute
         self.water_oxygens = water_oxygens
         self.rmax_nm = rmax_nm
         self.binwidth_nm = binwidth_nm
+        self.norm_tail_bins = norm_tail_bins
         n_bins = round(rmax_nm / binwidth_nm)
         self._distance_edges_a = 10.0 * np.linspace(0.0, rmax_nm, n_bins + 1)  # MDAnalysis uses Angstrom
         self._atom_edges = np.arange(len(solute) + 1)  # one histogram row per solute atom
@@ -86,9 +106,12 @@ class WaterCountsAnalysis(AnalysisBase):
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        self.results.water_counts = WaterCounts(counts=self.results.counts, n_frames=self.n_frames,
-                                                solute_indices=self.solute.indices.copy(),
-                                                rmax_nm=self.rmax_nm, binwidth_nm=self.binwidth_nm)
+        water_counts = WaterCounts(counts=self.results.counts, n_frames=self.n_frames,
+                                   solute_indices=self.solute.indices.copy(),
+                                   rmax_nm=self.rmax_nm, binwidth_nm=self.binwidth_nm)
+        self.results.water_counts = water_counts
+        self.results.fp, self.results.g = fingerprint(water_counts, self.norm_tail_bins)
+        self.results.r_nm = water_counts.r_nm
 
 
 def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
