@@ -1,0 +1,29 @@
+[project]
+name = "protein-waterfp"
+version = "0.1.0"
+description = "Protein-side WaterFP hydration analysis: protein heavy atoms near the ligand -> block-wise WaterFP/Contact/Bridge -> convergence -> per-atom table"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "MDAnalysis>=2.0",
+    "numpy",
+    "pandas",
+    "scipy",
+    "freesasa",
+    "ligand-waterfp",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+protein-waterfp = "protein_waterfp.cli:main"
+
+# ligand-waterfp is the sibling package in this repository
+# (workflows/ligand_waterfp); its WaterFP/RDF/convergence functions are reused.
+[tool.uv.sources]
+ligand-waterfp = { path = "../ligand_waterfp", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
