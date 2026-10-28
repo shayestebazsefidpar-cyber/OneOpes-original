@@ -14,8 +14,8 @@ import numpy as np
 from .selection import heavy_mask
 
 
-def static_sasa(u, protein_all, ligand_all, candidate_indices) -> dict[int, float]:
-    """SASA (A^2) of each candidate atom index, computed on ``u``'s current frame."""
+def static_sasa(u, protein_all, ligand_all, candidate_indices) -> np.ndarray:
+    """SASA (A^2) of each candidate atom, in ``candidate_indices`` order, on ``u``'s current frame."""
     import freesasa
 
     freesasa.setVerbosity(freesasa.silent)
@@ -32,4 +32,4 @@ def static_sasa(u, protein_all, ligand_all, candidate_indices) -> dict[int, floa
     missing = [int(i) for i in candidate_indices if int(i) not in position]
     if missing:
         raise RuntimeError(f"Candidate atoms missing from the SASA structure: {missing[:5]}")
-    return {int(i): float(result.atomArea(position[int(i)])) for i in candidate_indices}
+    return np.array([result.atomArea(position[int(i)]) for i in candidate_indices])

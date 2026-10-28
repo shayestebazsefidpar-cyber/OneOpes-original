@@ -10,6 +10,7 @@ of first sustained convergence are carried here.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from .convergence import fp_ranks
@@ -33,24 +34,23 @@ FINAL_COLUMNS = [
 ]
 
 
-def build_final_table(candidates: pd.DataFrame, fp: dict, contact: dict, bridge: dict, sasa: dict,
-                      analysis_time_ns: float, first_convergence_ns: float | None) -> pd.DataFrame:
-    """Merge full-trajectory per-atom results (keyed by ``Atom`` label; SASA by ``Atom_index``).
+def build_final_table(candidates: pd.DataFrame, fp: np.ndarray, contact: np.ndarray, bridge: np.ndarray,
+                      sasa: np.ndarray, analysis_time_ns: float, first_convergence_ns: float | None) -> pd.DataFrame:
+    """The final table from full-trajectory per-atom values, each in ``candidates`` row order.
 
     ``first_convergence_ns`` is None (written as an empty cell) when sustained
     convergence was never reached.
     """
     labels = list(candidates["Atom"])
-    for name, values in (("FP", fp), ("Contact", contact), ("Bridge", bridge)):
-        missing = set(labels) - set(values)
-        if missing:
-            raise ValueError(f"{name} is missing for {len(missing)} candidate atoms.")
+    for name, values in (("FP", fp), ("Contact", contact), ("Bridge", bridge), ("SASA", sasa)):
+        if len(values) != len(labels):
+            raise ValueError(f"{name} has {len(values)} values for {len(labels)} candidate atoms.")
     table = candidates.copy()
-    table["FP"] = [fp[a] for a in labels]
-    table["FP_Rank"] = fp_ranks(fp, labels).astype(int).to_numpy()
-    table["Contact_occupancy_5A"] = [contact[a] for a in labels]
-    table["Bridge_occupancy"] = [bridge[a] for a in labels]
-    table["SASA_A2"] = [sasa[int(i)] for i in table["Atom_index"]]
+    table["FP"] = fp
+    table["FP_Rank"] = fp_ranks(dict(zip(labels, fp)), labels).astype(int).to_numpy()
+    table["Contact_occupancy_5A"] = contact
+    table["Bridge_occupancy"] = bridge
+    table["SASA_A2"] = sasa
     table["Analysis_time_ns"] = float(analysis_time_ns)
     table["First_convergence_ns"] = float("nan") if first_convergence_ns is None else float(first_convergence_ns)
     table = table[FINAL_COLUMNS].sort_values("FP_Rank").reset_index(drop=True)

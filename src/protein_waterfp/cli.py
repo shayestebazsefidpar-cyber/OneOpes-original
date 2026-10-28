@@ -69,10 +69,6 @@ class AnalysisOptions:
     water_selection: str | None = None
 
 
-def _write_csv(df: pd.DataFrame, path: Path, **kw) -> None:
-    df.to_csv(path, index=False, **kw)
-
-
 def _after_convergence(stabilities: list[StabilityResult], converged_at: int | None) -> dict:
     """How the transitions after the first convergence behaved."""
     if converged_at is None:
@@ -139,14 +135,13 @@ def _write_summary_txt(path: Path, summary: dict, transitions: pd.DataFrame) -> 
                      f"count={row['stable_transition_count']} reached={row['convergence_reached']}\n")
 
 
-def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print, chain_ids=None) -> dict:
+def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print, complex_structure=None) -> dict:
     """Retrospective analysis of an existing trajectory; writes all outputs to ``outdir``.
 
-    The trajectory length is read from ``u_traj``; every complete block is
-    analysed and every transition scored, whether or not convergence has been
-    reached. Final per-atom values cover the whole analysed frame range.
-    ``chain_ids``: per-atom chain IDs read from the complex structure file
-    (:func:`structure_chain_ids`); ``Chain_ID`` is left empty when None.
+    Every complete block is analysed and every transition scored, whether or not
+    convergence is reached; final per-atom values cover the whole analysed range.
+    ``complex_structure``: the complex file read on its own; its protein and ligand
+    atom names are checked and its chain IDs fill ``Chain_ID`` (empty when None).
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -156,12 +151,16 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     log(f"[protein-waterfp] ligand: {sel.ligand_description} ({len(sel.ligand_heavy)} heavy atoms); "
         f"water: {sel.water_description} ({len(sel.water_oxygens)} oxygens)")
 
-    if chain_ids is not None and len(chain_ids) != len(u_traj.atoms):
-        raise ValueError(f"{len(chain_ids)} chain IDs for {len(u_traj.atoms)} atoms.")
+    chain_ids = None
+    if complex_structure is not None:
+        # water/hydrogen naming may legitimately differ between file formats: check protein and ligand heavy atoms
+        validate_same_atoms(u_traj, complex_structure, "complex structure",
+                            indices=np.concatenate([sel.protein_heavy, sel.ligand_heavy]))
+        chain_ids = structure_chain_ids(complex_structure)
     candidates = select_candidates(u_complex, sel, options.candidate_cutoff_A, chain_ids)
     labels = list(candidates["Atom"])
     cand_idx = candidates["Atom_index"].to_numpy()
-    _write_csv(candidates, outdir / "candidate_atom_mapping.csv")
+    candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
     log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
 
     n_frames = len(u_traj.trajectory)
@@ -201,11 +200,11 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
     # Report: per-block tables, convergence metrics, the final per-atom table and the summary.
     fp_df = _fp_per_block(blocks, block_times, labels)
-    _write_csv(fp_df, outdir / "fp_values_per_block.csv")
-    _write_csv(_rdf_per_block(blocks, labels), outdir / "rdf_profiles_per_block.csv")
-    _write_csv(_contacts_per_block(contacts, block_times, labels), outdir / "contact_occupancy_per_block.csv")
+    fp_df.to_csv(outdir / "fp_values_per_block.csv", index=False)
+    _rdf_per_block(blocks, labels).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+    _contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     transitions = transitions_table(stabilities, block_times, tol.n_stable)
-    _write_csv(transitions, outdir / "convergence_metrics.csv")
+    transitions.to_csv(outdir / "convergence_metrics.csv", index=False)
     wide = fp_df.pivot(index="atom", columns="block", values="FP").loc[labels]
     wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     ranks = pd.DataFrame({b: fp_ranks(wide[b].to_dict(), labels) for b in wide.columns}).astype(int)
@@ -213,13 +212,9 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     ranks.to_csv(outdir / "fp_ranking_by_block_wide.csv")
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
-    table = build_final_table(
-        candidates, dict(zip(labels, fp_full.tolist())),
-        dict(zip(labels, st_full.contact_occupancy.tolist())),
-        dict(zip(labels, st_full.bridge_occupancy.tolist())),
-        sasa, final_analysis_time_ns, first_converged_ns,
-    )
-    _write_csv(table, outdir / "final_per_atom_table.csv")
+    table = build_final_table(candidates, fp_full, st_full.contact_occupancy, st_full.bridge_occupancy,
+                              sasa, final_analysis_time_ns, first_converged_ns)
+    table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
     summary = {
@@ -273,11 +268,8 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
 
 def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
     with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
 def _versions() -> dict:
@@ -329,18 +321,12 @@ def main(argv=None) -> int:
         raw_complex = mda.Universe(args.complex)
     except Exception as err:
         raise SystemExit(f"[protein-waterfp] topology and complex are incompatible: {err}") from err
-    # The complex supplies protein/ligand coordinates (candidate selection, SASA): check the
-    # atom count, and the names of the protein and ligand heavy atoms (water/hydrogen naming
-    # conventions may legitimately differ between file formats).
-    sel = select_system(u_traj, args.ligand_selection, args.water_selection)
-    validate_same_atoms(u_traj, raw_complex, "complex structure",
-                        indices=np.concatenate([sel.protein_heavy, sel.ligand_heavy]))
 
     options = AnalysisOptions(
         candidate_cutoff_A=args.candidate_cutoff_A, block_ns=args.block_ns, first_frame=args.first_frame,
         last_frame=args.last_frame, ligand_selection=args.ligand_selection, water_selection=args.water_selection,
     )
-    meta = run_analysis(u_complex, u_traj, options, outdir, chain_ids=structure_chain_ids(raw_complex))
+    meta = run_analysis(u_complex, u_traj, options, outdir, complex_structure=raw_complex)
     meta["inputs"] = {name: {"file": Path(p).name, "sha256": _sha256(Path(p)), "bytes": Path(p).stat().st_size}
                       for name, p in inputs.items()}
     meta["options"] = asdict(options)

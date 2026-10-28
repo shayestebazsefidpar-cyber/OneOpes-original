@@ -1,5 +1,6 @@
 """Final table on synthetic per-atom results."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -20,11 +21,10 @@ def _inputs():
         "Residue_number": [3, 4, 9], "Chain_ID": ["", "", ""],
         "Min_distance_to_ligand_A": [6.1, 2.9, 8.8],
     })
-    labels = list(cand["Atom"])
-    fp = dict(zip(labels, [-5.0, -21.0, -0.7]))
-    contact = dict(zip(labels, [0.2, 1.0, 0.0]))
-    bridge = dict(zip(labels, [0.1, 0.4, 0.0]))
-    sasa = {7: 3.0, 14: 11.5, 59: 25.0}
+    fp = np.array([-5.0, -21.0, -0.7])  # each array in candidate row order
+    contact = np.array([0.2, 1.0, 0.0])
+    bridge = np.array([0.1, 0.4, 0.0])
+    sasa = np.array([3.0, 11.5, 25.0])
     return cand, fp, contact, bridge, sasa, 137.5, 62.5
 
 
@@ -60,9 +60,8 @@ def test_not_converged_leaves_first_convergence_empty():
 
 def test_missing_value_for_a_candidate_fails():
     cand, fp, *rest = _inputs()
-    fp.pop("GLY3_CA_id8")
-    with pytest.raises(ValueError, match="FP"):
-        build_final_table(cand, fp, *rest)
+    with pytest.raises(ValueError, match="FP has 2 values for 3 candidate atoms"):
+        build_final_table(cand, fp[:2], *rest)
 
 
 def test_markdown_copy_has_same_rows_and_columns():

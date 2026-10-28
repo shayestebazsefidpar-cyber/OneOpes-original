@@ -3,7 +3,7 @@ name = "ligand-waterfp"
 version = "0.1.0"
 description = "Ligand-only WaterFP hydration-CV workflow: unbiased MD -> WaterFP -> convergence -> official atom selection -> G1/G2 -> ligand-side CV"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "MDAnalysis>=2.0",
     "numpy>=2",
