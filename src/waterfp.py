@@ -3,6 +3,7 @@
 Original at: github.com/valeriorizzi/WaterFP
 """
 
+from dataclasses import dataclass
 import numpy as np
 from MDAnalysis.lib.distances import distance_array
 
@@ -10,6 +11,37 @@ from MDAnalysis.lib.distances import distance_array
 RDF_RMAX_NM_DEFAULT = 2.001
 RDF_BINWIDTH_NM_DEFAULT = 0.001
 NORM_TAIL_BINS_DEFAULT = 500
+
+@dataclass(frozen=True)
+class WaterCounts:
+    counts: np.ndarray          # (n_atoms, n_bins) int64: water O counts per bin, summed over frames
+    n_frames: int               # frames contributing to counts
+    solute_indices: np.ndarray  # (n_atoms,) global atom indices; row i of counts <-> solute_indices[i]
+    rmax_nm: float
+    binwidth_nm: float
+
+    @property
+    def n_bins(self) -> int:
+        return round(self.rmax_nm / self.binwidth_nm)
+
+    @property
+    def edges_nm(self) -> np.ndarray:
+        return np.linspace(0.0, self.rmax_nm, self.n_bins + 1)
+
+    @property
+    def r_nm(self) -> np.ndarray:            # bin centres; today's centers_nm
+        e = self.edges_nm
+        return 0.5 * (e[:-1] + e[1:])
+
+    @property
+    def shell_volumes_nm3(self) -> np.ndarray:
+        e = self.edges_nm
+        return (4.0 / 3.0) * np.pi * (e[1:] ** 3 - e[:-1] ** 3)
+
+    @property
+    def density_nm3(self) -> np.ndarray:     # (n_atoms, n_bins)
+        return self.counts / self.n_frames / self.shell_volumes_nm3
+
 
 
 def make_bins(rmax_nm=RDF_RMAX_NM_DEFAULT, binwidth_nm=RDF_BINWIDTH_NM_DEFAULT):
