@@ -30,11 +30,17 @@ than assumed valid. `run_official_selection.main()` converts the parsed
 dict to a SelectionResult immediately, before calling the writer.
 """
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+import networkx as nx
+import numpy as np
 import yaml
+from MDAnalysis.core.groups import AtomGroup
 
 LINE_RE = re.compile(r"(anti-bulk|bulk) fp selection:\s*(\w+)\s*\((\d+)\),\s*(\w+)\s*\((\d+)\)")
+SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 
 
 @dataclass(frozen=True)
@@ -113,3 +119,73 @@ def write_g1_g2_yaml(result, out_path, system_id=None):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
         yaml.safe_dump(payload, f, sort_keys=False)
+
+
+def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> SelectionResult:
+    """G1 (anti-bulk pair) and G2 (bulk pair) among a ligand's heavy atoms, from their FP values.
+
+    Same rules as WaterFP's fp_driven_atom_selection.ipynb (checked against it in the tests).
+    Ties in FP keep the atoms' order.
+    """
+    order = list(np.argsort(fp, kind="stable"))  # positions in ``atoms``, most negative FP first
+    distance = bond_distances(atoms)
+    g1 = anti_bulk_pair(order, np.round(fp, fp_round_decimals), distance)
+    g2 = bulk_pair(order, distance)
+
+    def ref(position: int) -> AtomRef:
+        return AtomRef(name=atoms[position].name, serial=int(atoms[position].index) + 1)
+
+    return SelectionResult(G1=(ref(g1[0]), ref(g1[1])), G2=(ref(g2[0]), ref(g2[1])))
+
+
+def anti_bulk_pair(order: Sequence[int], fp_round: np.ndarray, distance: Callable[[int, int], int]) -> tuple[int, int]:
+    """The most negative FP atom, and the atom farthest from it among the next most negative FPs.
+
+    Atoms bonded to the anchor are skipped. The partner is the first remaining atom, replaced by a
+    later one with the same rounded FP (within SAME_FP) that is farther from the anchor; an equally
+    far one stops the search.
+    """
+    anchor = order[0]
+    if np.count_nonzero(fp_round == fp_round[anchor]) > 2:
+        raise ValueError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")
+    partner = None
+    for candidate in order[1:]:
+        d = distance(candidate, anchor)
+        if d <= 1:
+            continue  # bonded to the anchor
+        if partner is None:
+            partner = candidate
+        elif abs(fp_round[candidate] - fp_round[partner]) < SAME_FP:
+            if d > distance(partner, anchor):
+                partner = candidate
+            elif d == distance(partner, anchor):
+                break
+    if partner is None:
+        raise ValueError("every other heavy atom is bonded to the most negative FP atom: no anti-bulk partner")
+    return anchor, partner
+
+
+def bulk_pair(order: Sequence[int], distance: Callable[[int, int], int]) -> tuple[int, int]:
+    """The least negative FP atom, and the next least negative one at least three bonds away."""
+    anchor = order[-1]
+    partner = next((c for c in reversed(order[:-1]) if distance(c, anchor) > 2), None)
+    if partner is None:
+        raise ValueError("no heavy atom is three or more bonds from the least negative FP atom: no bulk partner")
+    return anchor, partner
+
+
+def bond_distances(atoms: AtomGroup) -> Callable[[int, int], int]:
+    """Number of bonds between two of ``atoms`` (by position), counting only bonds among them."""
+    position = {index: i for i, index in enumerate(atoms.indices)}
+    graph = nx.Graph()
+    graph.add_nodes_from(range(len(atoms)))
+    graph.add_edges_from((position[a], position[b]) for a, b in atoms.bonds.indices
+                         if a in position and b in position)
+    lengths = dict(nx.all_pairs_shortest_path_length(graph))
+
+    def distance(a: int, b: int) -> int:
+        if b not in lengths[a]:
+            raise ValueError(f"heavy atoms {atoms[a].name} and {atoms[b].name} are not connected by bonds")
+        return lengths[a][b]
+
+    return distance
