@@ -24,12 +24,7 @@ dev = ["pytest>=7"]
 # (oneopes.funnel) needs BioSimSpace, which is conda-only.
 
 [project.scripts]
-ligand-waterfp-prepare-system = "oneopes.ligand.setup:main"
-ligand-waterfp-monitor = "oneopes.ligand.monitor:main"
-ligand-waterfp-select = "oneopes.ligand.g1_g2:main"
-ligand-waterfp-build-cv = "oneopes.ligand.plumed_cv:main"
-ligand-waterfp-add-legend = "oneopes.render.add_legend:main"
-protein-waterfp = "oneopes.protein.analysis:main"
+oneopes = "oneopes.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.6,<0.13.0"]

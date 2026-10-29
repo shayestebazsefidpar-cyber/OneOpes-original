@@ -1,6 +1,5 @@
-"""G1/G2 result types, their YAML file, and the ligand-waterfp-select command on a synthetic system."""
+"""G1/G2 result types, their YAML file, and the `oneopes select` command on a synthetic system."""
 import dataclasses
-import sys
 
 import MDAnalysis as mda
 import numpy as np
@@ -8,7 +7,8 @@ import pandas as pd
 import pytest
 import yaml
 
-from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, main, select_g1_g2, write_g1_g2_yaml
+from oneopes.cli import main
+from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2, write_g1_g2_yaml
 
 RAW = {
     "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
@@ -60,11 +60,10 @@ def ligand_in_water(tmp_path, n_frames: int = 3) -> tuple[str, str]:
     return top, traj
 
 
-def test_select_command_writes_waterfp_and_g1_g2(tmp_path, monkeypatch):
+def test_select_command_writes_waterfp_and_g1_g2(tmp_path):
     top, traj = ligand_in_water(tmp_path)
     outdir = tmp_path / "selection"
-    monkeypatch.setattr(sys, "argv", ["ligand-waterfp-select", "--tpr", top, "--xtc", traj, "--outdir", str(outdir)])
-    main()
+    main(["select", "--tpr", top, "--xtc", traj, "--outdir", str(outdir)])
 
     fingerprints = pd.read_csv(outdir / "fingerprints.csv")
     assert list(fingerprints.columns) == ["atom", "fp"]

@@ -1,20 +1,23 @@
 """
-Composite a legend onto a raw render (from render_selected_atoms.py or
-render_selected_atoms_chimera.py) and save the final annotated figure.
+Add a legend to a raw render of the selected atoms and save the annotated figure.
 
-Legend entries and caption text are passed as arguments - nothing about a
+The raw render comes from render_selected_atoms.py (PyMOL) or
+render_selected_atoms_chimera.py. Legend entries and caption text are passed as arguments - nothing about a
 specific system, ligand, or set of selected atoms is hardcoded here.
 
 Usage:
-    ligand-waterfp-add-legend --src selected_atoms_raw.png --dst selected_atoms.png \\
+    oneopes add-legend --src selected_atoms_raw.png --dst selected_atoms.png \\
         --title "WaterFP selected atoms" \\
         --entry "Anti-bulk (G1):ATOM1, ATOM2:220,20,20" \\
         --entry "Bulk (G2):ATOM3, ATOM4:30,60,220" \\
         --caption "grey = protein pocket, yellow = ligand"
 """
-import argparse
 import os
+from argparse import ArgumentParser, Namespace
+
 from PIL import Image, ImageDraw, ImageFont
+
+from oneopes.arguments import existing_file
 
 DEFAULT_FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -32,9 +35,8 @@ def parse_entry(spec):
     return f"{title}:  {detail}", (r, g, b)
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--src", required=True)
+def add_arguments(p: ArgumentParser) -> None:
+    p.add_argument("--src", type=existing_file, required=True)
     p.add_argument("--dst", required=True)
     p.add_argument("--title", default="Selected atoms")
     p.add_argument("--entry", action="append", required=True,
@@ -42,7 +44,6 @@ def parse_args():
     p.add_argument("--caption", default="")
     p.add_argument("--title-font-size", type=int, default=34)
     p.add_argument("--body-font-size", type=int, default=30)
-    return p.parse_args()
 
 
 def load_fonts(title_size, body_size):
@@ -54,8 +55,7 @@ def load_fonts(title_size, body_size):
     return ImageFont.load_default(), ImageFont.load_default()
 
 
-def main():
-    args = parse_args()
+def run(args: Namespace) -> None:
     entries = [parse_entry(e) for e in args.entry]
 
     img = Image.open(args.src).convert("RGB")
@@ -86,7 +86,3 @@ def main():
     os.makedirs(os.path.dirname(args.dst) or ".", exist_ok=True)
     img.save(args.dst, dpi=(300, 300))
     print(f"[add_legend] wrote {args.dst}")
-
-
-if __name__ == "__main__":
-    main()

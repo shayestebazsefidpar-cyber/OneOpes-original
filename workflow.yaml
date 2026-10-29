@@ -2,8 +2,7 @@
 # Describes stage order, modules, and their inputs/outputs. Parameter
 # defaults live in configs/ligand_waterfp.yaml, not here. `module` paths
 # are importable oneopes submodules (pip install -e . first);
-# `console_script` names are the entry points pyproject.toml registers
-# for the same module's main().
+# `command` is the `oneopes` subcommand that runs the module.
 
 name: oneopes
 description: >
@@ -18,13 +17,13 @@ upstream_method:
 stages:
   - id: system_setup
     module: oneopes.ligand.setup
-    console_script: ligand-waterfp-prepare-system
+    command: oneopes prepare-system
     inputs: [ligand_gro, ligand_top]
     outputs: [npt_gro, npt_cpt, system_top]
 
   - id: convergence
     module: oneopes.ligand.monitor
-    console_script: ligand-waterfp-monitor
+    command: oneopes monitor
     depends_on: [system_setup]
     inputs: [tpr, xtc]
     outputs: [convergence_summary_json, convergence_metrics_csv, fp_values_by_block_wide_csv,
@@ -32,7 +31,7 @@ stages:
 
   - id: selection
     module: oneopes.ligand.g1_g2
-    console_script: ligand-waterfp-select
+    command: oneopes select
     depends_on: [convergence]
     inputs: [tpr, xtc]
     outputs: [rdf_csv, fingerprints_csv, g1_g2_yaml]
@@ -45,7 +44,7 @@ stages:
 
   - id: ligand_cv
     module: oneopes.ligand.plumed_cv
-    console_script: ligand-waterfp-build-cv
+    command: oneopes build-cv
     depends_on: [convergence]
     inputs: [g1_g2_yaml]
     outputs: [plumed_fragment_dat]
@@ -53,10 +52,10 @@ stages:
   - id: visualization
     optional: true
     modules:
-      - module: oneopes.render.render_selected_atoms       # invoked via `pymol -cq <path> -- ...`, not a console script
-      - module: oneopes.render.render_selected_atoms_chimera  # invoked via `chimera --script <path> ...`, not a console script
+      - module: oneopes.render.render_selected_atoms       # invoked via `pymol -cq <path> -- ...`, not a subcommand
+      - module: oneopes.render.render_selected_atoms_chimera  # invoked via `chimera --script <path> ...`, not a subcommand
       - module: oneopes.render.add_legend
-        console_script: ligand-waterfp-add-legend
+        command: oneopes add-legend
     depends_on: [selection]
     inputs: [complex_pdb, g1_g2_yaml]
     outputs: [selected_atoms_png]

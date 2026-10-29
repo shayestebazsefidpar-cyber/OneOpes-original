@@ -1,5 +1,5 @@
 """
-Convergence monitor for an unbiased ligand-in-water MD run.
+Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
 
 Analyses the trajectory block by block as mdrun writes it (oneopes.waterfp.WaterFP),
 compares each block with the previous one (oneopes.convergence), and stops
@@ -9,14 +9,14 @@ the G1/G2 selection of the converged block goes to --outdir/selection.
 docs/METHOD_RATIONALE.md explains the criteria.
 
 Usage:
-    ligand-waterfp-monitor                       # no auto-stop, just monitor/report
-    ligand-waterfp-monitor 12345                 # SIGTERM pid 12345 on convergence
-    ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc --ligand-selection "resname MOL"
+    oneopes monitor                       # no auto-stop, just monitor/report
+    oneopes monitor 12345                 # SIGTERM pid 12345 on convergence
+    oneopes monitor --tpr prod.tpr --xtc prod.xtc --ligand-selection "resname MOL"
 """
-import argparse
 import os
 import time
 import signal
+from argparse import ArgumentParser, Namespace
 from collections.abc import Callable, Iterator
 from itertools import count
 from pathlib import Path
@@ -26,8 +26,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from oneopes.arguments import (
+    add_convergence_arguments,
+    add_grid_arguments,
+    add_system_arguments,
+    existing_file,
+    radial_grid,
+    tolerances,
+)
 from oneopes.convergence import (
-    Tolerances,
     compare_blocks,
     first_convergence,
     fp_per_block,
@@ -40,36 +47,22 @@ from oneopes.convergence import (
 from oneopes.ligand.g1_g2 import write_selection
 from oneopes.system import SystemDefinitionError, select_system
 from oneopes.trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.waterfp import WaterFP
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(p: ArgumentParser) -> None:
     p.add_argument("mdrun_pid", type=int, nargs="?", default=None,
                    help="PID of a running gmx mdrun to SIGTERM on convergence (optional)")
-    p.add_argument("--tpr", default="prod.tpr")
-    p.add_argument("--xtc", default="prod.xtc")
-    p.add_argument("--outdir", default="outputs/convergence")
-    p.add_argument("--ligand-selection", default=None, help="MDAnalysis selection (default: auto-detect)")
-    p.add_argument("--water-selection", default=None, help="MDAnalysis selection (default: known water names)")
-    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
-    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
-    p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
-    p.add_argument("--block-ns", type=float, default=5.0,
-                    help="Trajectory block size in ns (default: 5.0)")
-    p.add_argument("--fp-rel-tol", type=float, default=0.10,
-                    help="Max allowed relative FP change between blocks (default: 0.10 = 10%%)")
-    p.add_argument("--rdf-nrmsd-tol", type=float, default=0.15,
-                    help="Max allowed normalised RMSD between consecutive g(r) curves (default: 0.15 = 15%%)")
-    p.add_argument("--spearman-tol", type=float, default=0.90,
-                    help="Min Spearman rank correlation between consecutive FP rankings (default: 0.90)")
-    p.add_argument("--n-stable", type=int, default=3,
-                    help="Consecutive stable block-transitions required to declare convergence (default: 3)")
+    p.add_argument("--tpr", type=existing_file, default="prod.tpr")
+    p.add_argument("--xtc", type=existing_file, default="prod.xtc")
+    p.add_argument("--outdir", type=Path, default="outputs/convergence")
+    add_system_arguments(p)
+    add_grid_arguments(p)
+    add_convergence_arguments(p)
     p.add_argument("--poll-seconds", type=int, default=30,
-                    help="Wait time between polls when waiting for more trajectory frames (default: 30)")
+                   help="Wait time between polls when waiting for more trajectory frames (default: 30)")
     p.add_argument("--fp-round-decimals", type=int, default=1,
-                    help="Decimals FP is rounded to when the G1/G2 selection compares atoms (default: 1)")
-    return p.parse_args()
+                   help="Decimals FP is rounded to when the G1/G2 selection compares atoms (default: 1)")
 
 
 def process_alive(pid):
@@ -148,36 +141,14 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     return fp_plot_path, rdf_plot_path
 
 
-def main():
-    args = parse_args()
-    tol = Tolerances(
-        fp_rel_tol=args.fp_rel_tol,
-        rdf_nrmsd_tol=args.rdf_nrmsd_tol,
-        spearman_tol=args.spearman_tol,
-        n_stable=args.n_stable,
-    )
-
-    # Validate the required trajectory files before any expensive
-    # processing, and echo the resolved paths this run is using.
-    tpr_path = Path(args.tpr)
-    xtc_path = Path(args.xtc)
-    outdir = Path(args.outdir)
-
-    if not tpr_path.is_file():
-        raise SystemExit(f"[monitor] --tpr file not found: {tpr_path.resolve()}")
-    if not xtc_path.is_file():
-        raise SystemExit(f"[monitor] --xtc file not found: {xtc_path.resolve()}")
-
-    print(f"[monitor] tpr: {tpr_path.resolve()}")
-    print(f"[monitor] xtc: {xtc_path.resolve()}")
-    print(f"[monitor] outdir: {outdir.resolve()}")
-
-    outdir.mkdir(parents=True, exist_ok=True)
+def run(args: Namespace) -> None:
+    tol = tolerances(args)
+    outdir = args.outdir
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
 
     def get_universe():
-        return mda.Universe(str(tpr_path), str(xtc_path))
+        return mda.Universe(str(args.tpr), str(args.xtc))
 
     u = get_universe()
     try:
@@ -187,7 +158,7 @@ def main():
     heavy_names = list(u.atoms[sel.ligand_heavy].names)
     print(f"[monitor] {len(heavy_names)} ligand heavy atoms ({sel.ligand_description}): {heavy_names}")
     print(f"[monitor] {len(sel.water_oxygens)} water oxygens ({sel.water_description})")
-    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
+    grid = radial_grid(args)
     print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 

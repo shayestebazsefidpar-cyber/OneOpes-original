@@ -56,13 +56,14 @@ a quick visual check.
     │   ├── g1_g2.py             <- 3. WaterFP over the converged block -> G1/G2
     │   └── plumed_cv.py         <- 4. starting-point PLUMED CV fragment
     ├── render/                  <- 5. optional: render selected atoms
-    ├── protein/                 <- protein-side analysis (`protein-waterfp`)
-    └── funnel/                  <- BioSimSpace funnel CV
+    ├── protein/                 <- protein-side analysis (`oneopes protein`)
+    ├── funnel/                  <- BioSimSpace funnel CV
+    ├── cli.py                   <- the `oneopes` command, one subcommand per stage
+    └── arguments.py             <- arguments shared by several subcommands
 ```
 
-Each stage has its notes in `docs/`. `main()` in every stage's module is
-registered as a console-script entry point in `pyproject.toml` (see
-section 4).
+Each stage has its notes in `docs/`. Each stage's module provides
+`add_arguments()` and `run()`, and `cli.py` turns it into a subcommand.
 
 ## 3. Install
 
@@ -70,14 +71,14 @@ section 4).
 pip install -e .        # or: uv pip install -e .
 ```
 
-This installs the `oneopes` package and its `ligand-waterfp-*` console
-commands (one per stage - see section 4).
+This installs the `oneopes` package and the `oneopes` command;
+`oneopes --help` lists its subcommands, one per stage (see section 6).
 
 Additional, non-pip dependencies:
 
 - GROMACS (tested against 2021.7) on `PATH`, for stage 1/production MD
 - PyMOL and/or UCSF Chimera, only if you use stage 5's rendering scripts
-  (invoked by file path, not as console scripts - see `docs/render.md`)
+  (invoked by file path, not as subcommands - see `docs/render.md`)
 
 ## 4. Input requirements
 
@@ -94,7 +95,7 @@ Additional, non-pip dependencies:
 
 ```bash
 # Stage 1 - build the system
-ligand-waterfp-prepare-system \
+oneopes prepare-system \
     --ligand-gro ligand.gro --ligand-top ligand.top --outdir outputs/lig_system/
 
 # ... production MD (see docs/ligand_setup.md), then:
@@ -102,16 +103,16 @@ ligand-waterfp-prepare-system \
 # Stage 2 - convergence monitor (auto-stops production once converged).
 # Stage 3 runs here too: on convergence it writes rdf.csv, fingerprints.csv
 # and g1_g2.yaml for the converged block to outputs/convergence/selection.
-ligand-waterfp-monitor $MDRUN_PID \
+oneopes monitor $MDRUN_PID \
     --tpr outputs/lig_system/prod.tpr --xtc outputs/lig_system/prod.xtc \
     --outdir outputs/convergence
 
 # Stage 3 by hand, only to select over another frame window (see
 # docs/ligand_monitor.md for the converged block's frame range):
-# ligand-waterfp-select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
+# oneopes select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
 
 # Stage 4 - ligand-side CV fragment
-ligand-waterfp-build-cv \
+oneopes build-cv \
     --g1-g2 outputs/convergence/selection/g1_g2.yaml --out outputs/ligand_cv/plumed_fragment.dat
 
 # Stage 5 - optional visualization, see docs/render.md
@@ -123,13 +124,14 @@ flag.
 
 ## 6. What each stage does
 
-| Stage | Module | Console command(s) | Purpose |
+| Stage | Module | Command | Purpose |
 |---|---|---|---|
-| 1 | `oneopes.ligand.setup` | `ligand-waterfp-prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
-| 2 | `oneopes.ligand.monitor` | `ligand-waterfp-monitor` | Block-wise hydration convergence monitor + auto-stop |
-| 3 | `oneopes.ligand.g1_g2` | `ligand-waterfp-select` | WaterFP over the converged block, then G1/G2 by the official selection rules |
-| 4 | `oneopes.ligand.plumed_cv` | `ligand-waterfp-build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
-| 5 | `oneopes.render` | `ligand-waterfp-add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
+| 1 | `oneopes.ligand.setup` | `oneopes prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
+| 2 | `oneopes.ligand.monitor` | `oneopes monitor` | Block-wise hydration convergence monitor + auto-stop |
+| 3 | `oneopes.ligand.g1_g2` | `oneopes select` | WaterFP over the converged block, then G1/G2 by the official selection rules |
+| 4 | `oneopes.ligand.plumed_cv` | `oneopes build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
+| 5 | `oneopes.render` | `oneopes add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
+| - | `oneopes.protein.analysis` | `oneopes protein` | Protein-side WaterFP, contacts and SASA around the bound ligand |
 
 ## 7. Where generated outputs are written
 
@@ -241,7 +243,7 @@ tree, or set `ONEOPES_FUNNEL_REF_DIRS`.
 
 Code in `src/oneopes/funnel/`, tests in `tests/funnel/`.
 
-# oneopes.protein (`protein-waterfp`)
+# oneopes.protein (`oneopes protein`)
 
 Protein-side WaterFP hydration analysis of one protein-ligand system, run
 **retrospectively on an existing, completed unbiased MD trajectory**. The
@@ -324,12 +326,14 @@ trajectory (length detected from the input)
 ## Usage
 
 ```bash
-protein-waterfp --complex complex.pdb --topology prod.tpr --trajectory prod.xtc \
+oneopes protein --complex complex.pdb --topology prod.tpr --trajectory prod.xtc \
     --output-dir outputs/run1
 ```
 
-Options: `--candidate-cutoff-A`, `--block-ns`, `--first-frame`,
-`--last-frame` (exclusive), `--ligand-selection`, `--water-selection`.
+Options: `--candidate-cutoff-A`, `--first-frame`, `--last-frame` (exclusive),
+`--ligand-selection`, `--water-selection`, and the same `--block-ns` and
+tolerance flags as `oneopes monitor` (`--fp-rel-tol`, `--rdf-nrmsd-tol`,
+`--spearman-tol`, `--n-stable`).
 
 The topology must carry masses and match the trajectory atom-for-atom. The
 complex must have the same atom count and the same protein/ligand heavy-atom

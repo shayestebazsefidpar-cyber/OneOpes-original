@@ -1,18 +1,18 @@
 """End-to-end runs on synthetic systems (no funnel, no Zone, no PLUMED)."""
 
 import json
-import sys
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from oneopes.protein import analysis as cli
-from oneopes.protein.analysis import AnalysisOptions, main, run_analysis
+from oneopes.cli import main, parse_args
+from oneopes.protein.analysis import AnalysisOptions, run_analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
-from protein_systems import build_universe, simple_protein
 from oneopes.system import select_system
+from protein_systems import build_universe, simple_protein
+from test_selection import protein_args
 
 LIGAND = [("C1", "C", (30.0, 16.0, 10.0)), ("N1", "N", (31.3, 16.0, 10.0)),
           ("O1", "O", (32.0, 17.1, 10.0)), ("H1", "H", (29.5, 16.8, 10.0))]
@@ -59,13 +59,13 @@ def test_no_zone_funnel_or_plumed_anywhere_in_a_run(analysis):
     assert "Zone" not in table.columns and "Funnel_axis_projection_mean_nm" not in table.columns
 
 
-def test_cli_has_no_funnel_zone_or_plumed_options():
-    base = ["--complex", "c", "--topology", "t", "--trajectory", "x", "--output-dir", "o"]
-    cli.parse_args(base)
+def test_cli_has_no_funnel_zone_or_plumed_options(tmp_path):
+    base = protein_args(tmp_path)
+    parse_args(base)
     for extra in (["--plumed", "p.dat"], ["--funnel-structure", "a.top"], ["--deep-end", "p0"],
                   ["--deep-middle-tol-nm", "0.0"]):
         with pytest.raises(SystemExit):
-            cli.parse_args(base + extra)
+            parse_args(base + extra)
 
 
 def test_final_table_has_every_candidate_once(analysis):
@@ -198,9 +198,8 @@ def test_cli_end_to_end_from_files(tmp_path):
         for _ts in u.trajectory:
             w.write(u.atoms)
     out = tmp_path / "result"
-    rc = main(["--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
-               "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS)])
-    assert rc == 0
+    main(["protein", "--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
+          "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS)])
     for name in ("candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
                  "convergence_summary.json", "final_per_atom_table.csv",
@@ -245,14 +244,16 @@ def test_cli_explicit_10_A_cutoff_end_to_end(tmp_path):
         for _ts in u.trajectory:
             w.write(u.atoms)
     out = tmp_path / "result"
-    assert main(["--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
-                 "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS),
-                 "--candidate-cutoff-A", "10.0"]) == 0
+    main(["protein", "--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
+          "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS),
+          "--candidate-cutoff-A", "10.0"])
     assert json.loads((out / "run_metadata.json").read_text())["candidate_cutoff_A"] == 10.0
     assert pd.read_csv(out / "final_per_atom_table.csv")["Min_distance_to_ligand_A"].max() <= 10.0
 
 
-def test_missing_input_fails_early(tmp_path):
-    with pytest.raises(SystemExit, match="not found"):
-        main(["--complex", str(tmp_path / "nope.pdb"), "--topology", "x", "--trajectory", "y",
+def test_missing_input_fails_early(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(["protein", "--complex", str(tmp_path / "nope.pdb"), "--topology", "x", "--trajectory", "y",
               "--output-dir", str(tmp_path / "o")])
+    assert "file not found" in capsys.readouterr().err
+    assert not (tmp_path / "o").exists()

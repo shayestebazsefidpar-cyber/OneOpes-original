@@ -31,7 +31,7 @@ chimera --nogui --silent --script "render_selected_atoms_chimera.py \
     out_raw=outputs/visualization/selected_atoms_raw.png"
 
 # then, either way:
-ligand-waterfp-add-legend \
+oneopes add-legend \
     --src outputs/visualization/selected_atoms_raw.png \
     --dst outputs/visualization/selected_atoms.png \
     --title "WaterFP selected atoms" \

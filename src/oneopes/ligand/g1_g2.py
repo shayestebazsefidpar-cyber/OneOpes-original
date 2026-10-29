@@ -1,7 +1,7 @@
 """
-G1/G2 selection: the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP.
+Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
-    ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
+    oneopes select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
         [--start-frame N] [--end-frame M] [--ligand-selection "resname MOL"]
 
 The monitor already does this for its converged block; use this command for any other frame
@@ -10,7 +10,7 @@ window. Writes, for review:
     fingerprints.csv  (atom,fp)        WaterFP per ligand heavy atom
     g1_g2.yaml        G1 and G2 atom names and 1-based serials (MDAnalysis index + 1)
 """
-import argparse
+from argparse import ArgumentParser, Namespace
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,8 +21,9 @@ import numpy as np
 import yaml
 from MDAnalysis.core.groups import AtomGroup
 
+from oneopes.arguments import add_grid_arguments, add_system_arguments, existing_file, radial_grid
 from oneopes.system import SystemDefinitionError, select_system
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.waterfp import WaterFP
 
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 
@@ -151,46 +152,33 @@ def bond_distances(atoms: AtomGroup) -> Callable[[int, int], int]:
     return distance
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--tpr", required=True, help="topology with bonds")
-    p.add_argument("--xtc", required=True)
-    p.add_argument("--outdir", required=True)
-    p.add_argument("--ligand-selection", default=None, help="MDAnalysis selection (default: auto-detect)")
-    p.add_argument("--water-selection", default=None, help="MDAnalysis selection (default: known water names)")
+def add_arguments(p: ArgumentParser) -> None:
+    p.add_argument("--tpr", type=existing_file, required=True, help="topology with bonds")
+    p.add_argument("--xtc", type=existing_file, required=True)
+    p.add_argument("--outdir", type=Path, required=True)
+    add_system_arguments(p)
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None)
-    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
-    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
-    p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
+    add_grid_arguments(p)
     p.add_argument("--fp-round-decimals", type=int, default=1, help="decimals FP is rounded to when comparing atoms")
-    return p.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    outdir = Path(args.outdir)
-
-    u = mda.Universe(args.tpr, args.xtc)
+def run(args: Namespace) -> None:
+    u = mda.Universe(str(args.tpr), str(args.xtc))
     try:
         sel = select_system(u, args.ligand_selection, args.water_selection)
     except SystemDefinitionError as e:
         raise SystemExit(f"[select] {e}")
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
-    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
-    waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=args.norm_tail_bins)
+    waterfp = WaterFP(ligand, water, grid=radial_grid(args), norm_tail_bins=args.norm_tail_bins)
     waterfp.run(start=args.start_frame, stop=args.end_frame)
     print(f"[select] {len(ligand)} ligand heavy atoms, frames {waterfp.frames[0]}-{waterfp.frames[-1]}")
     print(waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
 
     try:
-        selection = write_selection(waterfp, outdir, args.fp_round_decimals)
+        selection = write_selection(waterfp, args.outdir, args.fp_round_decimals)
     except ValueError as e:
         raise SystemExit(f"[select] no G1/G2 selection: {e}")
     print(f"[select] {selection}")
-    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {outdir}")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {args.outdir}")

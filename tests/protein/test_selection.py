@@ -5,7 +5,8 @@ import inspect
 import numpy as np
 import pytest
 
-from oneopes.protein import analysis as cli
+from oneopes.cli import parse_args
+from oneopes.protein import analysis
 from oneopes.protein.candidates import (
     CANDIDATE_CUTOFF_A_DEFAULT,
     select_candidates,
@@ -21,18 +22,25 @@ def _min_dist(u, sel, idx):
     return np.min(np.linalg.norm(lig - u.atoms[idx].position, axis=1))
 
 
-def test_default_cutoff_is_exactly_7_A():
+def protein_args(tmp_path) -> list[str]:
+    """`oneopes protein` with its required inputs as (empty) files in ``tmp_path``."""
+    for name in ("c.pdb", "t.tpr", "x.xtc"):
+        (tmp_path / name).touch()
+    return ["protein", "--complex", str(tmp_path / "c.pdb"), "--topology", str(tmp_path / "t.tpr"),
+            "--trajectory", str(tmp_path / "x.xtc"), "--output-dir", str(tmp_path / "o")]
+
+
+def test_default_cutoff_is_exactly_7_A(tmp_path):
     assert CANDIDATE_CUTOFF_A_DEFAULT == 7.0
-    assert cli.AnalysisOptions().candidate_cutoff_A == 7.0
-    args = cli.parse_args(["--complex", "c", "--topology", "t", "--trajectory", "x", "--output-dir", "o"])
-    assert args.candidate_cutoff_A == 7.0
+    assert analysis.AnalysisOptions().candidate_cutoff_A == 7.0
+    assert parse_args(protein_args(tmp_path)).candidate_cutoff_A == 7.0
     assert inspect.signature(select_candidates).parameters["cutoff_A"].default == 7.0
 
 
 @pytest.mark.parametrize("value", [7.0, 10.0])
-def test_explicit_cli_cutoff_overrides_default(value):
-    base = ["--complex", "c", "--topology", "t", "--trajectory", "x", "--output-dir", "o"]
-    assert cli.parse_args(base + ["--candidate-cutoff-A", str(value)]).candidate_cutoff_A == value
+def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
+    args = parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", str(value)])
+    assert args.candidate_cutoff_A == value
 
 
 def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):
@@ -71,7 +79,7 @@ def test_seven_angstrom_only_as_the_configurable_default():
     import re
     from pathlib import Path
 
-    src = Path(cli.__file__).parent
+    src = Path(analysis.__file__).parent
     pattern = re.compile(r"(?<![\d.])7(\.0+)?\s*(A\b|Å|angstrom)|cutoff\w*\s*=\s*7(\.0+)?\b", re.IGNORECASE)
     hits = [f"{p.name}:{line.strip()}" for p in src.glob("*.py") for line in p.read_text().splitlines()
             if pattern.search(line)]

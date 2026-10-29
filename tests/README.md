@@ -20,7 +20,7 @@ pytest
 - `test_system.py` - ligand, water oxygen and heavy-atom detection without
   a protein (hydrogens, virtual sites, explicit selections).
 - `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, and
-  `ligand-waterfp-select` end to end on a synthetic ligand in water.
+  `oneopes select` end to end on a synthetic ligand in water.
 - `test_g1_g2_reference.py` - `select_g1_g2` picks the same atoms as the
   vendored WaterFP notebook code on hundreds of random ligands.
 - `test_build_ligand_cv_consumer.py` - `build_ligand_cv.py`'s consumption

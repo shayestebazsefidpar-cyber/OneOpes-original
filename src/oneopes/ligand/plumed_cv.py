@@ -1,8 +1,7 @@
 """
-Build a PLUMED input fragment defining GROUP and COORDINATION collective
-variables from the G1/G2 result written by
-`oneopes.ligand.g1_g2`.
+Write a starting-point PLUMED fragment with GROUP and COORDINATION CVs for G1 and G2.
 
+The G1/G2 atoms come from the g1_g2.yaml written by `oneopes.ligand.g1_g2`.
 This produces a STARTING-POINT fragment, not a complete, ready-to-run
 plumed.dat: it defines G1/G2 as atom GROUPs and a COORDINATION CV for each
 against a water-oxygen group, using placeholder switching-function
@@ -13,14 +12,16 @@ production. Nothing here is fit to, or copied from, any specific system's
 real plumed.dat.
 
 Usage:
-    ligand-waterfp-build-cv --g1-g2 outputs/selection/g1_g2.yaml \\
+    oneopes build-cv --g1-g2 outputs/selection/g1_g2.yaml \\
         --water-group-def "GROUPA=<water oxygen atom indices>" \\
         --out outputs/ligand_cv/plumed_fragment.dat
 """
-import argparse
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
+
 import yaml
 
+from oneopes.arguments import existing_file
 from oneopes.ligand.g1_g2 import SelectionResult
 
 FRAGMENT_TEMPLATE = """\
@@ -47,34 +48,18 @@ PRINT ARG=g1_coord,g2_coord STRIDE=500 FILE=LIGAND_WATERFP_CV.dat
 """
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--g1-g2", required=True, help="YAML written by `oneopes.ligand.g1_g2`")
+def add_arguments(p: ArgumentParser) -> None:
+    p.add_argument("--g1-g2", type=existing_file, required=True, help="YAML written by `oneopes.ligand.g1_g2`")
     p.add_argument("--water-group-def", default=None,
-                    help="A full PLUMED GROUP line body for the water-oxygen reference group, e.g. "
-                         "'GROUPA=1305-14858' (atom indices, force-field/system dependent). "
-                         "If omitted, the fragment references a WATER_O group you must define yourself.")
-    p.add_argument("--out", required=True)
-    return p.parse_args()
+                   help="A full PLUMED GROUP line body for the water-oxygen reference group, e.g. "
+                        "'GROUPA=1305-14858' (atom indices, force-field/system dependent). "
+                        "If omitted, the fragment references a WATER_O group you must define yourself.")
+    p.add_argument("--out", type=Path, required=True)
 
 
-def main():
-    args = parse_args()
-
-    # Validate the required input before processing, and echo the
-    # resolved paths this run is using.
-    g1_g2_path = Path(args.g1_g2)
-    out_path = Path(args.out)
-
-    if not g1_g2_path.is_file():
-        raise SystemExit(f"[build_ligand_cv] --g1-g2 file not found: {g1_g2_path.resolve()}")
-
-    print(f"[build_ligand_cv] g1_g2: {g1_g2_path.resolve()}")
-    print(f"[build_ligand_cv] out: {out_path.resolve()}")
-
-    with g1_g2_path.open() as f:
-        data = yaml.safe_load(f)
-    selection = SelectionResult.from_dict(data)
+def run(args: Namespace) -> None:
+    out_path = args.out
+    selection = SelectionResult.from_dict(yaml.safe_load(args.g1_g2.read_text()))
 
     g1_serials = ",".join(str(a.serial) for a in selection.G1)
     g2_serials = ",".join(str(a.serial) for a in selection.G2)
@@ -101,7 +86,3 @@ def main():
     print(f"[build_ligand_cv] G1 atoms (serials): {g1_serials}")
     print(f"[build_ligand_cv] G2 atoms (serials): {g2_serials}")
     print(f"[build_ligand_cv] wrote {out_path.resolve()}")
-
-
-if __name__ == "__main__":
-    main()

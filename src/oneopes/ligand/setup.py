@@ -1,7 +1,7 @@
 """
-Build a standalone ligand-in-water GROMACS system (no protein present):
-box definition -> solvation -> ionization -> EM -> NVT -> NPT, ready for
-the unbiased production run that the `convergence` subpackage monitors.
+Build and equilibrate a ligand-in-water GROMACS system for the unbiased run the monitor follows.
+
+Box definition -> solvation -> ionization -> EM -> NVT -> NPT, with no protein present.
 
 Wraps the `gmx` command sequence documented in docs/ligand_setup.md as a
 single reproducible script instead of manually-run commands. Takes an
@@ -14,16 +14,17 @@ of your own) so you can launch
 `oneopes.ligand.monitor` against the running
 mdrun's PID for online convergence monitoring.
 
-Usage (after `pip install -e .` from the package root):
-    ligand-waterfp-prepare-system --ligand-gro ligand.gro --ligand-top ligand.top \\
+Usage:
+    oneopes prepare-system --ligand-gro ligand.gro --ligand-top ligand.top \\
         --outdir build/ [--box-distance-nm 1.2] [--water-model spc216] \\
         [--ion-conc 0.0] [--mdp-dir mdp]
 """
-import argparse
 import os
 import shutil
 import subprocess
-import sys
+from argparse import ArgumentParser, Namespace
+
+from oneopes.arguments import existing_file
 
 STEPS = [
     "box", "solvate", "ions_tpr", "genion",
@@ -31,15 +32,16 @@ STEPS = [
 ]
 
 
-def run(cmd, cwd):
+def run_command(cmd, cwd):
     print(f"[prepare_ligand_system] $ {' '.join(cmd)}")
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ligand-gro", required=True, help="Prepared ligand structure (no water/protein)")
-    p.add_argument("--ligand-top", required=True, help="Matching GROMACS topology for --ligand-gro")
+def add_arguments(p: ArgumentParser) -> None:
+    p.add_argument("--ligand-gro", type=existing_file, required=True,
+                   help="Prepared ligand structure (no water/protein)")
+    p.add_argument("--ligand-top", type=existing_file, required=True,
+                   help="Matching GROMACS topology for --ligand-gro")
     p.add_argument("--outdir", required=True, help="Working directory for all intermediate/output files")
     p.add_argument("--mdp-dir", default=os.path.join(os.path.dirname(__file__), "mdp"),
                     help="Directory containing em.mdp, ions.mdp, nvt.mdp, npt.mdp "
@@ -57,11 +59,9 @@ def parse_args():
     p.add_argument("--gmx", default="gmx", help="gmx executable/binary name (default: gmx)")
     p.add_argument("--start-from", choices=STEPS, default=STEPS[0],
                     help="Resume from a specific step instead of the beginning")
-    return p.parse_args()
 
 
-def main():
-    args = parse_args()
+def run(args: Namespace) -> None:
     os.makedirs(args.outdir, exist_ok=True)
 
     ligand_gro = os.path.abspath(args.ligand_gro)
@@ -79,15 +79,15 @@ def main():
     gmx = args.gmx
 
     if "box" in steps_to_run:
-        run([gmx, "editconf", "-f", ligand_gro, "-o", "ligand_box.gro",
+        run_command([gmx, "editconf", "-f", ligand_gro, "-o", "ligand_box.gro",
              "-c", "-d", str(args.box_distance_nm), "-bt", args.box_type], cwd=args.outdir)
 
     if "solvate" in steps_to_run:
-        run([gmx, "solvate", "-cp", "ligand_box.gro", "-cs", args.water_model,
+        run_command([gmx, "solvate", "-cp", "ligand_box.gro", "-cs", args.water_model,
              "-o", "ligand_solv.gro", "-p", "system.top"], cwd=args.outdir)
 
     if "ions_tpr" in steps_to_run:
-        run([gmx, "grompp", "-f", mdp("ions.mdp"), "-c", "ligand_solv.gro",
+        run_command([gmx, "grompp", "-f", mdp("ions.mdp"), "-c", "ligand_solv.gro",
              "-p", "system.top", "-o", "ions.tpr", "-maxwarn", "1"], cwd=args.outdir)
 
     if "genion" in steps_to_run:
@@ -96,30 +96,26 @@ def main():
         if args.ion_conc > 0:
             genion_cmd += ["-conc", str(args.ion_conc)]
         print(f"[prepare_ligand_system] $ echo SOL | {' '.join(genion_cmd)}")
-        proc = subprocess.run(genion_cmd, cwd=args.outdir, input="SOL\n", text=True, check=True)
+        subprocess.run(genion_cmd, cwd=args.outdir, input="SOL\n", text=True, check=True)
 
     if "em_tpr" in steps_to_run:
-        run([gmx, "grompp", "-f", mdp("em.mdp"), "-c", "ligand_ions.gro",
+        run_command([gmx, "grompp", "-f", mdp("em.mdp"), "-c", "ligand_ions.gro",
              "-p", "system.top", "-o", "em.tpr", "-maxwarn", "1"], cwd=args.outdir)
     if "em_run" in steps_to_run:
-        run([gmx, "mdrun", "-deffnm", "em", "-v"], cwd=args.outdir)
+        run_command([gmx, "mdrun", "-deffnm", "em", "-v"], cwd=args.outdir)
 
     if "nvt_tpr" in steps_to_run:
-        run([gmx, "grompp", "-f", mdp("nvt.mdp"), "-c", "em.gro",
+        run_command([gmx, "grompp", "-f", mdp("nvt.mdp"), "-c", "em.gro",
              "-p", "system.top", "-o", "nvt.tpr", "-maxwarn", "1"], cwd=args.outdir)
     if "nvt_run" in steps_to_run:
-        run([gmx, "mdrun", "-deffnm", "nvt", "-v"], cwd=args.outdir)
+        run_command([gmx, "mdrun", "-deffnm", "nvt", "-v"], cwd=args.outdir)
 
     if "npt_tpr" in steps_to_run:
-        run([gmx, "grompp", "-f", mdp("npt.mdp"), "-c", "nvt.gro", "-t", "nvt.cpt",
+        run_command([gmx, "grompp", "-f", mdp("npt.mdp"), "-c", "nvt.gro", "-t", "nvt.cpt",
              "-p", "system.top", "-o", "npt.tpr", "-maxwarn", "1"], cwd=args.outdir)
     if "npt_run" in steps_to_run:
-        run([gmx, "mdrun", "-deffnm", "npt", "-v"], cwd=args.outdir)
+        run_command([gmx, "mdrun", "-deffnm", "npt", "-v"], cwd=args.outdir)
 
     print(f"[prepare_ligand_system] done. NPT output: {os.path.join(args.outdir, 'npt.gro')}")
     print("[prepare_ligand_system] next: grompp+mdrun production with mdp/prod.mdp, then hand the "
-          "mdrun PID to ligand-waterfp-monitor")
-
-
-if __name__ == "__main__":
-    main()
+          "mdrun PID to oneopes monitor")

@@ -35,7 +35,7 @@ venv/
 # src/oneopes/ligand/mdp/ are legitimate, generic
 # reproducibility inputs and must stay tracked (and are bundled into the
 # built package - see pyproject.toml). Per-system topologies you build
-# with ligand-waterfp-prepare-system belong under outputs/ (already ignored
+# with `oneopes prepare-system` belong under outputs/ (already ignored
 # above), not this tree.
 
 # pytest

@@ -4,7 +4,7 @@ Builds a standalone ligand-in-water GROMACS system (no protein present) as
 the starting point for the unbiased MD run that Stage 2 monitors:
 box definition -> solvation -> ionization -> EM -> NVT -> NPT.
 
-`ligand-waterfp-prepare-system` (`oneopes.ligand.setup`) wraps this whole sequence into one reproducible
+`oneopes prepare-system` (`oneopes.ligand.setup`) wraps this whole sequence into one reproducible
 command. Everything it *produces* (`.gro`/`.top`/`.tpr`/`.cpt`/`.itp`
 files) is per-system output, not code - run it into `--outdir` under your
 own `outputs/` tree (git-ignored), never into this folder.
@@ -25,7 +25,7 @@ own `outputs/` tree (git-ignored), never into this folder.
 ## Usage
 
 ```bash
-ligand-waterfp-prepare-system \
+oneopes prepare-system \
     --ligand-gro ligand.gro --ligand-top ligand.top \
     --outdir outputs/lig_system/ \
     --mdp-dir mdp/                # defaults to src/oneopes/ligand/mdp/, override if needed
@@ -38,7 +38,7 @@ and can capture its PID):
 cd outputs/lig_system/
 gmx grompp -f <repo>/src/oneopes/ligand/mdp/prod.mdp -c npt.gro -t npt.cpt -p system.top -o prod.tpr -maxwarn 1
 gmx mdrun -deffnm prod -v &
-ligand-waterfp-monitor $! --tpr prod.tpr --xtc prod.xtc
+oneopes monitor $! --tpr prod.tpr --xtc prod.xtc
 ```
 
 `prod.mdp` sets a 100 ns cap as a safety ceiling only - in practice
@@ -56,7 +56,7 @@ during EM/NVT/NPT, generate `posre_lig.itp` with `gmx genrestr` on the
 sub-molecule. Restraint files included inside a molecule's own
 `moleculetype` block need atom indices local to that molecule - running
 `genrestr` against a bigger system and reusing the result produces global
-indices that silently restrain the wrong atoms. `ligand-waterfp-prepare-system`
+indices that silently restrain the wrong atoms. `oneopes prepare-system`
 does not generate restraint files itself; add this step yourself before
 `em_tpr` if your topology needs it.
 

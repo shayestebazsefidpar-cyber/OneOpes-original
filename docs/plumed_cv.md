@@ -12,7 +12,7 @@ against a water-oxygen reference group.
 ## Usage
 
 ```bash
-ligand-waterfp-build-cv \
+oneopes build-cv \
     --g1-g2 outputs/selection/g1_g2.yaml \
     --out outputs/ligand_cv/plumed_fragment.dat
 ```

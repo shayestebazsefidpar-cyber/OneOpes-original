@@ -22,15 +22,15 @@ converged enough to stop early or to trust for the next stage.
 ```bash
 # live monitoring, auto-SIGTERM the mdrun once converged
 gmx mdrun -deffnm prod -v &
-ligand-waterfp-monitor $! --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergence
+oneopes monitor $! --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergence
 
 # one-shot report on an already-finished trajectory (no PID -> no auto-stop)
-ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergence
+oneopes monitor --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergence
 ```
 
 Override any threshold/setting via CLI flags (`--block-ns`, `--fp-rel-tol`,
 `--rdf-nrmsd-tol`, `--spearman-tol`, `--n-stable`, `--ligand-selection`,
-`--water-selection`, ...) - see `ligand-waterfp-monitor
+`--water-selection`, ...) - see `oneopes monitor
 --help`, or set them once in `../configs/ligand_waterfp.yaml` and
 pass them through your own driver.
 
@@ -39,9 +39,9 @@ pass them through your own driver.
 On convergence the monitor also runs the G1/G2 selection on the converged
 block and writes `rdf.csv`, `fingerprints.csv` and `g1_g2.yaml` to
 `--outdir/selection` (`--fp-round-decimals` sets the FP rounding). Pass
-that `g1_g2.yaml` to `ligand-waterfp-build-cv`.
+that `g1_g2.yaml` to `oneopes build-cv`.
 
-To redo the selection by hand, run `ligand-waterfp-select` over the same
+To redo the selection by hand, run `oneopes select` over the same
 block (`converged_block` and `block_ns` are in `convergence_summary.json`),
 not the whole trajectory:
 
