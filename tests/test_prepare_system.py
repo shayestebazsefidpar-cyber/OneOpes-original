@@ -51,6 +51,16 @@ def test_ion_concentration_is_passed_to_genion(tmp_path, caplog):
     assert genion[0] == "genion" and genion[-2:] == ["-conc", "0.15"]
 
 
+def test_a_relative_mdp_dir_is_found_from_where_the_command_runs(tmp_path, caplog, monkeypatch):
+    """gmx runs inside --outdir, so the mdp paths it gets must not be relative."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "my_mdp").mkdir()
+    for mdp in MDP_DIR.glob("*.mdp"):
+        (tmp_path / "my_mdp" / mdp.name).write_text(mdp.read_text())
+    grompp = gmx_commands(tmp_path, caplog, "--mdp-dir", "my_mdp", "--start-from", "em_tpr")[0]
+    assert grompp[grompp.index("-f") + 1] == str(tmp_path / "my_mdp" / "em.mdp")
+
+
 def errors(caplog) -> list[str]:
     return [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
 

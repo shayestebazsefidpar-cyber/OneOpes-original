@@ -79,6 +79,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     start_from
         Resume from this step instead of the beginning.
     """
+    mdp_dir = mdp_dir.resolve()
     for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp", "prod.mdp"):
         if not (mdp_dir / name).is_file():
             raise InputError(f"Required mdp file not found: {mdp_dir / name}")
