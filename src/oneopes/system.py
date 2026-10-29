@@ -33,6 +33,15 @@ class SystemDefinitionError(InputError):
 
 
 @dataclass(frozen=True)
+class SystemOptions:
+    """How to find the ligand and the water; also command options."""
+    ligand_selection: str | None = None
+    """MDAnalysis selection of the ligand (default: auto-detect)."""
+    water_selection: str | None = None
+    """MDAnalysis selection of the water (default: known water residue names)."""
+
+
+@dataclass(frozen=True)
 class SystemSelection:
     """0-based atom indices of each part of the system, and the selections that found the ligand and water.
 
@@ -94,13 +103,12 @@ def find_ligand(u: Universe, ligand_selection: str | None, protein: AtomGroup,
     return ligand, ligand_selection
 
 
-def select_system(u: Universe, ligand_selection: str | None = None,
-                  water_selection: str | None = None) -> SystemSelection:
+def select_system(u: Universe, options: SystemOptions = SystemOptions()) -> SystemSelection:
     """Identify the protein, ligand and water oxygens in ``u`` (guessing its elements if it has none)."""
     ensure_elements(u)
     protein = u.select_atoms("protein")
-    water, water_selection = find_water(u, water_selection)
-    ligand, ligand_selection = find_ligand(u, ligand_selection, protein, water)
+    water, water_selection = find_water(u, options.water_selection)
+    ligand, ligand_selection = find_ligand(u, options.ligand_selection, protein, water)
     ligand_heavy = heavy_atoms(ligand)
     if len(ligand_heavy) == 0:
         raise SystemDefinitionError(f"Ligand selection {ligand_selection!r} has no heavy atoms.")

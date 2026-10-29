@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from oneopes.errors import InputError
-from oneopes.waterfp import RadialGrid, WaterFP, hydration, measure_hydration
+from oneopes.waterfp import HydrationOptions, RadialGrid, WaterFP, hydration, measure_hydration
 from water_systems import random_universe, universe_from_coordinates
 
 BULK_DENSITY_NM3 = 33.4  # water-O number density of bulk water
@@ -85,9 +85,8 @@ def test_radial_grid_needs_a_positive_bin_within_rmax(rmax_nm, binwidth_nm):
 
 @pytest.mark.parametrize("norm_tail_bins", [0, 2002])
 def test_bulk_tail_must_lie_within_the_grid(norm_tail_bins):
-    u = random_universe()
     with pytest.raises(InputError, match="norm_tail_bins"):
-        WaterFP(u.atoms[:3], u.atoms[3:], norm_tail_bins=norm_tail_bins)
+        HydrationOptions(norm_tail_bins=norm_tail_bins)
 
 
 def test_rmax_beyond_half_the_box_warns():

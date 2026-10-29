@@ -55,6 +55,13 @@ ignore = [
     "N813",  # import MDAnalysis as mda, MDAnalysis' own convention
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# Frozen option dataclasses: safe defaults of other option dataclasses.
+extend-immutable-calls = [
+    "oneopes.system.SystemOptions", "oneopes.trajectory_blocks.FrameWindow",
+    "oneopes.waterfp.HydrationOptions", "oneopes.block_run.BlockOptions",
+]
+
 [tool.pyright]
 include = ["src"]
 exclude = ["src/oneopes/render/render_selected_atoms.py", "src/oneopes/render/render_selected_atoms_chimera.py"]

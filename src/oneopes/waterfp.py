@@ -10,9 +10,12 @@ the water around the atom differs from bulk.
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Annotated
 
 import numpy as np
 import xarray as xr
+from cyclopts import Parameter
+from cyclopts.validators import Number
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
@@ -63,6 +66,19 @@ class RadialGrid:
         """Volume of the spherical shell each bin covers around an atom."""
         lower, upper = self.edges_nm[:-1], self.edges_nm[1:]
         return (4.0 / 3.0) * np.pi * (upper ** 3 - lower ** 3)
+
+
+@dataclass(frozen=True)
+class HydrationOptions:
+    """How the water around an atom is counted and normalised; also command options."""
+    grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid()
+    norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT
+    """Bins at the end of the profile whose mean is the bulk density."""
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.norm_tail_bins <= self.grid.n_bins:
+            raise InputError(f"norm_tail_bins must be between 1 and the {self.grid.n_bins} radial bins, "
+                             f"got {self.norm_tail_bins}.")
 
 
 def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: RadialGrid,
@@ -117,19 +133,16 @@ class WaterFP(AnalysisBase):
     def get_supported_backends(cls) -> tuple[str, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
         return ("serial", "multiprocessing", "dask")
 
-    def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *, grid: RadialGrid = RadialGrid(),
-                 norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, labels: Sequence[str] | None = None,
+    def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *,
+                 options: HydrationOptions = HydrationOptions(), labels: Sequence[str] | None = None,
                  **kwargs) -> None:
-        if not 1 <= norm_tail_bins <= grid.n_bins:
-            raise InputError(
-                f"norm_tail_bins must be between 1 and the {grid.n_bins} radial bins, got {norm_tail_bins}.")
         if labels is not None and len(labels) != len(solute):
             raise ValueError(f"{len(labels)} labels for {len(solute)} solute atoms.")
         super().__init__(solute.universe.trajectory, **kwargs)
         self.solute = solute
         self.water_oxygens = water_oxygens
-        self.grid = grid
-        self.norm_tail_bins = norm_tail_bins
+        self.options = options
+        self.grid = options.grid
         self.labels = list(solute.names) if labels is None else list(labels)
 
     def _prepare(self) -> None:
@@ -153,12 +166,13 @@ class WaterFP(AnalysisBase):
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        measured = hydration(self.results.counts, self.n_frames, self.grid, self.labels, self.norm_tail_bins)
+        measured = hydration(self.results.counts, self.n_frames, self.grid, self.labels, self.options.norm_tail_bins)
         self.results.hydration = measured.assign_coords(atom_index=("atom", self.solute.indices))
 
 
-def measure_hydration(solute: AtomGroup, water_oxygens: AtomGroup, frames: range, grid: RadialGrid = RadialGrid(),
-                      tail_bins: int = NORM_TAIL_BINS_DEFAULT, labels: Sequence[str] | None = None) -> xr.Dataset:
+def measure_hydration(solute: AtomGroup, water_oxygens: AtomGroup, frames: range,
+                      options: HydrationOptions = HydrationOptions(),
+                      labels: Sequence[str] | None = None) -> xr.Dataset:
     """The :func:`hydration` of ``solute`` over ``frames`` of its trajectory."""
-    analysis = WaterFP(solute, water_oxygens, grid=grid, norm_tail_bins=tail_bins, labels=labels)
+    analysis = WaterFP(solute, water_oxygens, options=options, labels=labels)
     return analysis.run(start=frames.start, stop=frames.stop).results.hydration

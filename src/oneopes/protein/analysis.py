@@ -19,8 +19,7 @@ from cyclopts.validators import Number
 from MDAnalysis import AtomGroup, Universe
 
 from oneopes import __version__
-from oneopes.block_run import block_run, run_summary
-from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances
+from oneopes.block_run import BlockOptions, block_run, run_summary
 from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
@@ -28,8 +27,9 @@ from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
 from oneopes.reports import write_run
-from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, FrameLayout, frame_layout, label_block
-from oneopes.waterfp import measure_hydration
+from oneopes.system import SystemOptions
+from oneopes.trajectory_blocks import FrameLayout, FrameWindow, frame_layout, label_block
+from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -40,26 +40,19 @@ class AnalysisOptions:
     candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
         CANDIDATE_CUTOFF_A_DEFAULT)
     """Largest distance (A) from the ligand of a candidate protein atom."""
-    block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT
-    """Trajectory block size (ns)."""
-    first_frame: int = 0
-    """First analysed frame."""
-    last_frame: int | None = None
-    """Exclusive end frame (default: end of the trajectory)."""
-    ligand_selection: str | None = None
-    """MDAnalysis selection of the ligand (default: auto-detect)."""
-    water_selection: str | None = None
-    """MDAnalysis selection of the water (default: known water residue names)."""
-    tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
+    system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions()
+    window: Annotated[FrameWindow, Parameter(name="*")] = FrameWindow()
+    hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions()
+    blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
 
 
-def measure_frames(system: ProteinSystem, candidate_atoms: AtomGroup, labels: Sequence[str],
-                   frames: range) -> xr.Dataset:
+def measure_frames(system: ProteinSystem, candidate_atoms: AtomGroup, labels: Sequence[str], frames: range,
+                   hydration: HydrationOptions) -> xr.Dataset:
     """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
     ``frames``, along ``atom`` (named by ``labels``)."""
     atoms = system.trajectory.atoms
     ligand, water = atoms[system.selection.ligand_heavy], atoms[system.selection.water_oxygens]
-    return xr.merge([measure_hydration(candidate_atoms, water, frames, labels=labels),
+    return xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
                      measure_contacts(candidate_atoms, ligand, water, frames, labels)])
 
 
@@ -90,17 +83,17 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     candidates = select_candidates(system, options.candidate_cutoff_A)
     candidate_index = candidates["Atom_index"].to_numpy()
     logger.info("%d candidate protein heavy atoms within %s A", len(candidates), options.candidate_cutoff_A)
-    layout = frame_layout(system.trajectory, options.block_ns, options.first_frame, options.last_frame)
+    layout = frame_layout(system.trajectory, options.blocks.block_ns, options.window)
     logger.info("%s", layout.describe())
 
     candidate_atoms = system.trajectory.atoms[candidate_index]
     labels = list(candidates["Atom"])
-    measured = [label_block(measure_frames(system, candidate_atoms, labels, block.frames), block)
+    measured = [label_block(measure_frames(system, candidate_atoms, labels, block.frames, options.hydration), block)
                 for block in layout.blocks]
-    blocks = block_run(measured, options.tolerances, options.block_ns,
+    blocks = block_run(measured, options.blocks, options.hydration,
                        trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
                        analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
-    full = measure_frames(system, candidate_atoms, labels, layout.analysed)
+    full = measure_frames(system, candidate_atoms, labels, layout.analysed, options.hydration)
     logger.info("first sustained convergence: %s ns", run_summary(blocks).converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
                            full=full, sasa=static_sasa(system, candidate_index))
@@ -196,7 +189,7 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     except Exception as err:
         raise InputError(f"topology and complex are incompatible: {err}") from err
 
-    system = protein_system(u_traj, u_complex, complex_file, options.ligand_selection, options.water_selection)
+    system = protein_system(u_traj, u_complex, complex_file, options.system)
     analysis = run_analysis(system, options)
     write_outputs(output_dir, analysis)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}

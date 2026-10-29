@@ -111,7 +111,7 @@ oneopes monitor $MDRUN_PID \
 
 # Stage 3 by hand: on another block of the monitor's run, or over any frame window
 # oneopes select-block --tpr ... --run outputs/convergence/blocks.nc --block N --outdir outputs/selection
-# oneopes select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
+# oneopes select --tpr ... --xtc ... --first-frame N --last-frame M --outdir outputs/selection
 
 # Stage 4 - ligand-side CV fragment
 oneopes build-cv \

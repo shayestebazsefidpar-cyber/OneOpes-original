@@ -8,7 +8,7 @@ from oneopes.cli import app
 from oneopes.protein import analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.inputs import protein_system, validate_same_atoms
-from oneopes.system import SystemDefinitionError, select_system
+from oneopes.system import SystemDefinitionError, SystemOptions, select_system
 from protein_systems import build_universe, protein_args, simple_protein
 
 
@@ -90,7 +90,7 @@ def test_ambiguous_ligand_requires_explicit_selection():
                        n_waters=5, extra_residues=[("ZZY", [("X1", "C", (40.0, 40.0, 40.0)), ("X2", "C", (41.0, 40.0, 40.0))])])
     with pytest.raises(SystemDefinitionError, match="ligand"):
         select_system(u)
-    assert len(select_system(u, ligand_selection="resname QZX").ligand_heavy) == 2
+    assert len(select_system(u, SystemOptions(ligand_selection="resname QZX")).ligand_heavy) == 2
 
 
 def test_topology_atom_mismatch_fails(small_system):

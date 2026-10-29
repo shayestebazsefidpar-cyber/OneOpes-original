@@ -17,8 +17,9 @@ from scipy.sparse.csgraph import shortest_path
 from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
 from oneopes.reports import write_hydration_files
-from oneopes.system import select_system
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
+from oneopes.system import SystemOptions, select_system
+from oneopes.trajectory_blocks import FrameWindow
+from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -154,10 +155,9 @@ def read_g1_g2_yaml(path: Path) -> SelectionResult:
 
 
 def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
-           ligand_selection: str | None = None, water_selection: str | None = None,
-           start_frame: int = 0, end_frame: int | None = None,
-           grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
-           norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT,
+           system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
+           window: Annotated[FrameWindow, Parameter(name="*")] = FrameWindow(),
+           hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
@@ -171,26 +171,18 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     ----------
     tpr
         Topology with bonds.
-    ligand_selection
-        MDAnalysis selection of the ligand (default: auto-detect).
-    water_selection
-        MDAnalysis selection of the water (default: known water residue names).
-    end_frame
-        Exclusive end frame (default: end of the trajectory).
-    norm_tail_bins
-        Bins at the end of the profile whose mean is the bulk density.
     fp_round_decimals
         Decimals FP is rounded to when comparing atoms.
     """
     u = mda.Universe(str(tpr), str(xtc))
-    sel = select_system(u, ligand_selection, water_selection)
+    sel = select_system(u, system)
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
-    frames = range(start_frame, len(u.trajectory) if end_frame is None else end_frame)
-    hydration = measure_hydration(ligand, water, frames, grid, norm_tail_bins)
+    frames = window.frames(len(u.trajectory))
+    measurement = measure_hydration(ligand, water, frames, hydration)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
-                frames.start, frames.stop - 1, hydration.fp.sortby(hydration.fp).to_series().to_string())
-    write_selection(ligand, hydration, outdir, fp_round_decimals)
+                frames.start, frames.stop - 1, measurement.fp.sortby(measurement.fp).to_series().to_string())
+    write_selection(ligand, measurement, outdir, fp_round_decimals)
 
 
 def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: int | None = None,

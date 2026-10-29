@@ -102,15 +102,29 @@ class FrameLayout:
                 f"in {len(self.blocks)} blocks of {len(self.blocks[0].frames)} frames, {self.tail_frames} left over")
 
 
-def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame: int | None = None) -> FrameLayout:
-    """Split frames [first_frame, last_frame) of ``u`` (default: all) into complete ``block_ns`` blocks.
+@dataclass(frozen=True)
+class FrameWindow:
+    """The frames to analyse; also command options."""
+    first_frame: int = 0
+    """First analysed frame."""
+    last_frame: int | None = None
+    """Exclusive end frame (default: end of the trajectory)."""
 
-    Raises InputError for an invalid frame range, unevenly spaced frames, or fewer frames than one block.
+    def frames(self, n_frames: int) -> range:
+        """The window in a trajectory of ``n_frames`` frames; raises InputError unless it is a non-empty part of it."""
+        frames = range(self.first_frame, n_frames if self.last_frame is None else self.last_frame)
+        if not 0 <= frames.start < frames.stop <= n_frames:
+            raise InputError(f"Invalid frame range [{frames.start}, {frames.stop}) for a {n_frames}-frame trajectory.")
+        return frames
+
+
+def frame_layout(u: Universe, block_ns: float, window: FrameWindow = FrameWindow()) -> FrameLayout:
+    """Split the ``window`` frames of ``u`` (default: all) into complete ``block_ns`` blocks.
+
+    Raises InputError for an invalid frame window, unevenly spaced frames, or fewer frames than one block.
     """
     n_frames = len(u.trajectory)
-    analysed = range(first_frame, n_frames if last_frame is None else last_frame)
-    if not 0 <= analysed.start < analysed.stop <= n_frames:
-        raise InputError(f"Invalid frame range [{analysed.start}, {analysed.stop}) for a {n_frames}-frame trajectory.")
+    analysed = window.frames(n_frames)
     dt_ps = frame_step_ps(u)
     block_frames = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
     if not block_frames:

@@ -1,39 +1,64 @@
 """A block run: the measured trajectory blocks, each compared with the one before, as one Dataset (blocks.nc).
 
-Its attributes are the settings the comparison used (``block_ns`` and the :class:`Tolerances`) and any
-facts about the run, e.g. the ligand selection; the convergence summary is derived from it, not stored.
+Its attributes are the settings it was made with (the :class:`BlockOptions` and
+:class:`~oneopes.waterfp.HydrationOptions`) and any facts about the run, e.g. the ligand selection;
+the convergence summary is derived from it, not stored.
 """
 
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import xarray as xr
+from cyclopts import Parameter
+from cyclopts.validators import Number
 
-from oneopes.convergence import ConvergenceSummary, Tolerances, compare_blocks, summarize
+from oneopes.convergence import DEFAULT_TOLERANCES, ConvergenceSummary, Tolerances, compare_blocks, summarize
 from oneopes.errors import InputError
-from oneopes.trajectory_blocks import stack_blocks
-
-SETTINGS = ["block_ns", *asdict(Tolerances())]
-"""The attributes holding the settings of the comparison."""
+from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, stack_blocks
+from oneopes.waterfp import HydrationOptions
 
 
-def block_run(measured: Sequence[xr.Dataset], tol: Tolerances, block_ns: float, **facts) -> xr.Dataset:
-    """The measured blocks, stacked and compared (:func:`compare_blocks`), with the settings and ``facts``
-    (strings, numbers or lists of them) as attributes."""
-    return compare_blocks(stack_blocks(measured), tol).assign_attrs(block_ns=block_ns, **asdict(tol), **facts)
+@dataclass(frozen=True)
+class BlockOptions:
+    """How long a block is, and when consecutive blocks count as converged; also command options."""
+    block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT
+    """Trajectory block size (ns)."""
+    tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
 
 
-def run_tolerances(run: xr.Dataset) -> Tolerances:
-    """The tolerances a block run was compared with."""
-    return Tolerances(fp_rel_tol=float(run.attrs["fp_rel_tol"]), rdf_nrmsd_tol=float(run.attrs["rdf_nrmsd_tol"]),
-                      spearman_tol=float(run.attrs["spearman_tol"]), n_stable=int(run.attrs["n_stable"]))
+def settings(blocks: BlockOptions, hydration: HydrationOptions) -> dict[str, float]:
+    """The options a run is made with, as flat attributes."""
+    return {"block_ns": blocks.block_ns, **asdict(blocks.tolerances), **asdict(hydration.grid),
+            "norm_tail_bins": hydration.norm_tail_bins}
+
+
+SETTINGS = list(settings(BlockOptions(), HydrationOptions()))
+"""The attributes holding the settings of a run."""
+
+
+def block_run(measured: Sequence[xr.Dataset], blocks: BlockOptions, hydration: HydrationOptions,
+              **facts) -> xr.Dataset:
+    """The measured blocks, stacked and compared (:func:`compare_blocks`), with the options they were made
+    with and ``facts`` (strings, numbers or lists of them) as attributes."""
+    compared = compare_blocks(stack_blocks(measured), blocks.tolerances)
+    return compared.assign_attrs(**settings(blocks, hydration), **facts)
+
+
+def run_block_options(run: xr.Dataset) -> BlockOptions:
+    """The block options of a run."""
+    tolerances = Tolerances(fp_rel_tol=float(run.attrs["fp_rel_tol"]),
+                            rdf_nrmsd_tol=float(run.attrs["rdf_nrmsd_tol"]),
+                            spearman_tol=float(run.attrs["spearman_tol"]), n_stable=int(run.attrs["n_stable"]))
+    return BlockOptions(block_ns=float(run.attrs["block_ns"]), tolerances=tolerances)
 
 
 def run_summary(run: xr.Dataset) -> ConvergenceSummary:
     """What comparing the blocks of a run concluded."""
-    return summarize(run, float(run.attrs["block_ns"]), run_tolerances(run))
+    options = run_block_options(run)
+    return summarize(run, options.block_ns, options.tolerances)
 
 
 def run_facts(run: xr.Dataset) -> dict:

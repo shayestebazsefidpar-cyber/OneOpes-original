@@ -3,7 +3,7 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from oneopes.system import SystemDefinitionError, select_system
+from oneopes.system import SystemDefinitionError, SystemOptions, select_system
 
 MASSES = {"C": 12.011, "O": 15.999, "H": 1.008, "Na": 22.99, "X": 0.0}
 
@@ -59,11 +59,11 @@ def test_explicit_selections_override_detection():
     u = ligand_in_water(LIGAND, water_resname="XWT", water_names=("O", "H1", "H2"))
     with pytest.raises(SystemDefinitionError, match="water"):
         select_system(u)
-    sel = select_system(u, ligand_selection="resname MOL and name C*", water_selection="resname XWT")
+    sel = select_system(u, SystemOptions(ligand_selection="resname MOL and name C*", water_selection="resname XWT"))
     assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "C2"]
     assert len(sel.water_oxygens) == 3
 
 
 def test_ligand_without_heavy_atoms_is_an_error():
     with pytest.raises(SystemDefinitionError, match="no heavy atoms"):
-        select_system(ligand_in_water(LIGAND), ligand_selection="resname MOL and name H*")
+        select_system(ligand_in_water(LIGAND), SystemOptions(ligand_selection="resname MOL and name H*"))

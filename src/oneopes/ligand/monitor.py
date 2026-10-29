@@ -17,21 +17,14 @@ from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 
-from oneopes.block_run import block_run, run_block, run_summary
-from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, converged_block
+from oneopes.block_run import BlockOptions, block_run, run_block, run_summary
+from oneopes.convergence import converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import write_selection
 from oneopes.reports import write_run
-from oneopes.system import select_system
-from oneopes.trajectory_blocks import (
-    BLOCK_NS_DEFAULT,
-    block_of,
-    frame_step_ps,
-    frame_time_ns,
-    frames_per_block,
-    label_block,
-)
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
+from oneopes.system import SystemOptions, select_system
+from oneopes.trajectory_blocks import block_of, frame_step_ps, frame_time_ns, frames_per_block, label_block
+from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -137,11 +130,9 @@ def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, P
 
 def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),
             xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
-            ligand_selection: str | None = None, water_selection: str | None = None,
-            grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
-            norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT,
-            block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT,
-            tol: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES,
+            system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
+            hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
+            blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
             poll_seconds: Annotated[float, Parameter(validator=Number(gt=0))] = 30,
             fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
@@ -156,14 +147,6 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     ----------
     mdrun_pid
         PID of a running gmx mdrun to SIGTERM on convergence; without it, only report.
-    ligand_selection
-        MDAnalysis selection of the ligand (default: auto-detect).
-    water_selection
-        MDAnalysis selection of the water (default: known water residue names).
-    norm_tail_bins
-        Bins at the end of the profile whose mean is the bulk density.
-    block_ns
-        Trajectory block size (ns).
     poll_seconds
         Wait between polls for more trajectory frames.
     fp_round_decimals
@@ -173,39 +156,39 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         return mda.Universe(str(tpr), str(xtc))
 
     u = load_universe()
-    sel = select_system(u, ligand_selection, water_selection)
+    sel = select_system(u, system)
     ligand = u.atoms[sel.ligand_heavy]
     atom_names = list(ligand.names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_selection, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
-                grid.rmax_nm, grid.n_bins, norm_tail_bins)
+                hydration.grid.rmax_nm, hydration.grid.n_bins, hydration.norm_tail_bins)
 
     dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
-    block_length = frames_per_block(block_ns, dt_ps)
-    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
+    block_length = frames_per_block(blocks.block_ns, dt_ps)
+    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    measured, blocks = [], None
+    measured, run = [], None
     for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
         block = block_of(u, frames, dt_ps)
-        hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames, grid,
-                                      norm_tail_bins)
-        measured.append(label_block(hydration, block))
-        blocks = block_run(measured, tol, block_ns, ligand_selection=sel.ligand_selection,
-                           ligand_heavy_atoms=atom_names)
-        write_run(outdir, blocks)
-        log_progress(blocks)
-        if converged_block(blocks, tol.n_stable) is not None:
+        measurement = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames,
+                                        hydration)
+        measured.append(label_block(measurement, block))
+        run = block_run(measured, blocks, hydration, ligand_selection=sel.ligand_selection,
+                        ligand_heavy_atoms=atom_names)
+        write_run(outdir, run)
+        log_progress(run)
+        if converged_block(run, blocks.tolerances.n_stable) is not None:
             break
-    if blocks is None:
+    if run is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
-    blocks = blocks.assign_attrs(trajectory_end_ns=trajectory_end_ns)
-    write_run(outdir, blocks)
-    summary = run_summary(blocks)
-    plot_blocks(blocks, outdir)
+    run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
+    write_run(outdir, run)
+    summary = run_summary(run)
+    plot_blocks(run, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
                     trajectory_end_ns, summary.n_blocks)
@@ -214,6 +197,6 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
     try:
-        write_selection(ligand, run_block(blocks), outdir / "selection", fp_round_decimals)
+        write_selection(ligand, run_block(run), outdir / "selection", fp_round_decimals)
     except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)

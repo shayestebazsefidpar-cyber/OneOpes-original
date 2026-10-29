@@ -8,6 +8,7 @@ import pytest
 
 from cyclopts import ValidationError
 
+from oneopes.block_run import BlockOptions, load_run
 from oneopes.cli import app, main
 from oneopes.protein.analysis import AnalysisOptions, json_value, run_analysis, run_metadata, write_outputs
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
@@ -37,7 +38,7 @@ def _trajectory(u, n_frames=N_FRAMES, noise=0.3, dt_ps=DT_PS, t0_ps=0.0):
     return u
 
 
-def _run(tmp_path, options=AnalysisOptions(block_ns=BLOCK_NS), **traj_kw):
+def _run(tmp_path, options=AnalysisOptions(blocks=BlockOptions(block_ns=BLOCK_NS)), **traj_kw):
     """Run the analysis on the synthetic system; return the trajectory universe and the run metadata."""
     u_traj = _trajectory(_system(), **traj_kw)
     analysis = run_analysis(protein_system(u_traj, _system()), options)
@@ -196,7 +197,11 @@ def test_cli_end_to_end_from_files(tmp_path):
             w.write(u.atoms)
     out = tmp_path / "result"
     main(["protein", "--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
-          "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS)])
+          "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS),
+          "--rmax-nm", "1.5", "--norm-tail-bins", "300"])
+    run = load_run(out / "blocks.nc")
+    assert (run.attrs["rmax_nm"], run.attrs["norm_tail_bins"], run.attrs["block_ns"]) == (1.5, 300, BLOCK_NS)
+    assert run.r_nm.max() < 1.5
     for name in ("blocks.nc", "candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
                  "convergence_summary.json", "final_per_atom_table.csv",
@@ -213,7 +218,8 @@ def test_cli_end_to_end_from_files(tmp_path):
 @pytest.mark.parametrize("cutoff", [7.0, 10.0])
 def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     u_complex = _system()
-    _u_traj, meta = _run(tmp_path, AnalysisOptions(candidate_cutoff_A=cutoff, block_ns=BLOCK_NS), n_frames=4)
+    options = AnalysisOptions(candidate_cutoff_A=cutoff, blocks=BlockOptions(block_ns=BLOCK_NS))
+    _u_traj, meta = _run(tmp_path, options, n_frames=4)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     expected = select_candidates(protein_system(u_complex, u_complex), cutoff)
     assert meta["candidate_cutoff_A"] == cutoff
