@@ -17,25 +17,31 @@ G_POINTS = 100
 
 
 def per_atom(chart: alt.Chart | alt.LayerChart, run: xr.Dataset) -> alt.FacetChart:
-    """``chart`` repeated in one panel per atom of ``run``, in the run's atom order."""
+    """``chart`` repeated in one panel per atom of ``run``, in the run's atom order, each with its own x axis."""
     atoms = alt.Facet("atom:N", sort=[str(atom) for atom in run.atom.values], title=None)
-    return chart.properties(**PANEL_SIZE).facet(atoms, columns=PANELS_PER_ROW)
+    return chart.properties(**PANEL_SIZE).facet(atoms, columns=PANELS_PER_ROW).resolve_axis(x="independent")
 
 
 def fp_chart(run: xr.Dataset) -> alt.FacetChart:
-    """FP against the blocks' mid time; a dashed line marks the end of the converged block."""
+    """Each atom's FP against the blocks' mid time, as a change from its mean, on one shared scale.
+
+    A relative change, as the convergence criterion measures it, keeps atoms with very different FPs
+    comparable. A dashed line marks the end of the converged block.
+    """
     data = run.fp.to_dataframe().reset_index()[["atom", "block", "t_mid_ns", "fp"]]
+    mean_fp = data.groupby("atom")["fp"].transform("mean")
+    data["fp_change_pct"] = 100 * (data["fp"] - mean_fp) / mean_fp.abs()
     fp = alt.Chart().mark_line(point=True).encode(
         x=alt.X("t_mid_ns:Q", title="time (ns)"),
-        y=alt.Y("fp:Q", title="FP", scale=alt.Scale(zero=False)),
-        tooltip=["block:O", "t_mid_ns:Q", "fp:Q"],
+        y=alt.Y("fp_change_pct:Q", title="FP vs mean (%)"),
+        tooltip=["block:O", "t_mid_ns:Q", "fp:Q", alt.Tooltip("fp_change_pct:Q", format=".1f")],
     )
     layers = [fp]
     converged_ns = convergence_summary(run).converged_ns
     if converged_ns is not None:
         one_per_panel = alt.Chart().transform_aggregate(groupby=["atom"], points="count()")
         layers.append(one_per_panel.mark_rule(strokeDash=[4, 4], color="grey").encode(x=alt.datum(converged_ns)))
-    return per_atom(alt.LayerChart(layer=layers, data=data), run).resolve_scale(y="independent")
+    return per_atom(alt.LayerChart(layer=layers, data=data), run)
 
 
 def g_chart(run: xr.Dataset) -> alt.FacetChart:

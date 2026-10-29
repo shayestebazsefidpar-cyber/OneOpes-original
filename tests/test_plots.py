@@ -11,13 +11,21 @@ from synthetic_blocks import one_frame_blocks
 ATOMS = ["O1", "C1"]
 
 
-def _run(n_blocks: int, n_stable: int) -> xr.Dataset:
-    """Blocks with the same FP and a flat g(r), so every transition is stable."""
+def _run(n_blocks: int, n_stable: int, fps: list[list[float]] | None = None) -> xr.Dataset:
+    """Blocks with a flat g(r) and, unless given, the same FP, so every transition is stable."""
     r_nm = RadialGrid().r_nm
-    measured = xr.Dataset({"fp": ("atom", [-3.0, -1.0]), "g": (("atom", "r_nm"), np.ones((len(ATOMS), r_nm.size)))},
-                          coords={"atom": ATOMS, "r_nm": r_nm})
-    blocks = [block.label(measured) for block in one_frame_blocks(n_blocks)]
+    fps = fps or [[-3.0, -1.0]] * n_blocks
+    measured = [xr.Dataset({"fp": ("atom", fp), "g": (("atom", "r_nm"), np.ones((len(ATOMS), r_nm.size)))},
+                           coords={"atom": ATOMS, "r_nm": r_nm}) for fp in fps]
+    blocks = [block.label(fp) for block, fp in zip(one_frame_blocks(n_blocks), measured, strict=True)]
     return block_run(blocks, BlockOptions(block_ns=1.0, tolerances=Tolerances(n_stable=n_stable)), HydrationOptions())
+
+
+def test_fp_is_drawn_as_a_change_from_each_atom_s_mean_on_one_shared_scale():
+    """Atoms with FPs -4 and -2, then -2 and -1: each is 33% off its mean, either way."""
+    chart = fp_chart(_run(2, n_stable=2, fps=[[-4.0, -2.0], [-2.0, -1.0]]))
+    assert chart.data["fp_change_pct"].round(1).tolist() == [-33.3, -33.3, 33.3, 33.3]
+    assert "scale" not in chart.to_dict().get("resolve", {})
 
 
 def test_panels_follow_the_run_s_atom_order():
