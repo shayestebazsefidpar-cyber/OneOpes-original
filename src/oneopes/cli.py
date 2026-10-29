@@ -9,9 +9,9 @@ from cyclopts import App, Parameter
 from cyclopts.config import Yaml
 
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import select, select_block
 from oneopes.ligand.monitor import monitor
 from oneopes.ligand.plumed_cv import build_cv
+from oneopes.ligand.select import select, select_block
 from oneopes.ligand.setup import prepare_system
 from oneopes.protein.analysis import protein
 from oneopes.render.add_legend import add_legend

@@ -12,7 +12,8 @@ from pydantic import ValidationError
 from ligand_systems import ligand_in_water
 from oneopes.cli import main
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, ligand_atoms, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.select import ligand_atoms
 
 RAW = {
     "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],

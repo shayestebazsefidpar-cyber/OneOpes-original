@@ -22,7 +22,7 @@ from cyclopts.validators import Number
 from oneopes.block_run import BlockOptions, block_run, run_block, run_summary
 from oneopes.convergence import converged_block
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import write_selection
+from oneopes.ligand.select import write_selection
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, load_universe, select_system
