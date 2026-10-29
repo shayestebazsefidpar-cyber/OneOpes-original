@@ -1142,7 +1142,7 @@ requires-dist = [
     { name = "freesasa" },
     { name = "h5netcdf", extras = ["h5py"], specifier = ">=1.8.2" },
     { name = "matplotlib" },
-    { name = "mdanalysis", specifier = ">=2.0" },
+    { name = "mdanalysis", specifier = ">=2.8" },
     { name = "networkx", marker = "extra == 'dev'", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2" },
     { name = "pandas" },

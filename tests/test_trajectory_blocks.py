@@ -24,6 +24,13 @@ def test_frame_step_is_the_spacing_between_frames():
     assert frame_step_ps(universe_with_times(5, 20.0)) == 20.0
 
 
+def test_frame_step_reads_only_the_first_n_frames():
+    u = universe_with_times(5, 20.0)
+    assert frame_step_ps(u, 3) == 20.0
+    with pytest.raises(ValueError, match="two frames"):
+        frame_step_ps(u, 1)
+
+
 def test_frame_step_needs_two_frames():
     with pytest.raises(ValueError, match="two frames"):
         frame_step_ps(universe_with_times(1, 20.0))

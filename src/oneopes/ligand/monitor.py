@@ -43,25 +43,33 @@ def process_alive(pid: int | None) -> bool:
     return True
 
 
-def wait_for_frames(load_universe, n_frames: int, mdrun_pid: int | None, poll_seconds: float) -> mda.Universe:
-    """Reload the trajectory until it has ``n_frames`` frames or mdrun is no longer running."""
+def complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
+    """How many frames of the trajectory are fully written: all once mdrun has stopped; while it runs,
+    all but the last, which mdrun may still be writing (reading it raises an XTC read error)."""
+    n_frames = len(u.trajectory)
+    return n_frames - 1 if process_alive(mdrun_pid) else n_frames
+
+
+def wait_for_frames(load_universe: Callable[[], mda.Universe], n_frames: int, mdrun_pid: int | None,
+                    poll_seconds: float) -> mda.Universe:
+    """Reload the trajectory until it has ``n_frames`` complete frames or mdrun is no longer running."""
     while True:
         u = load_universe()
-        if len(u.trajectory) >= n_frames or not process_alive(mdrun_pid):
+        if complete_frames(u, mdrun_pid) >= n_frames or not process_alive(mdrun_pid):
             return u
         time.sleep(poll_seconds)
 
 
 def completed_blocks(load_universe: Callable[[], mda.Universe], block_length: int, mdrun_pid: int | None,
                      poll_seconds: float) -> Iterator[tuple[mda.Universe, range]]:
-    """Each block of ``block_length`` frames, with a universe holding it, as soon as the trajectory has it.
+    """Each block of ``block_length`` frames, with a universe holding it, as soon as all its frames are complete.
 
     Ends when mdrun is no longer running and the next block is incomplete.
     """
     for first in count(0, block_length):
         frames = range(first, first + block_length)
         u = wait_for_frames(load_universe, frames.stop, mdrun_pid, poll_seconds)
-        if len(u.trajectory) < frames.stop:
+        if complete_frames(u, mdrun_pid) < frames.stop:
             return
         yield u, frames
 
@@ -163,7 +171,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
                 hydration.grid.rmax_nm, hydration.grid.n_bins, hydration.norm_tail_bins)
 
-    dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
+    first_frames = wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds)
+    dt_ps = frame_step_ps(first_frames, complete_frames(first_frames, mdrun_pid))
     block_length = frames_per_block(blocks.block_ns, dt_ps)
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
 

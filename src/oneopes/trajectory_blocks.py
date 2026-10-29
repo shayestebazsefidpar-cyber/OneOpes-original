@@ -11,9 +11,10 @@ from oneopes.errors import InputError
 BLOCK_NS_DEFAULT = 5.0
 
 
-def frame_step_ps(u: Universe) -> float:
-    """Time between frames (ps); raises InputError unless the frames are evenly spaced."""
-    n = len(u.trajectory)
+def frame_step_ps(u: Universe, n_frames: int | None = None) -> float:
+    """Time between frames (ps), checked over the first ``n_frames`` frames (default: all);
+    raises InputError unless they are evenly spaced."""
+    n = len(u.trajectory) if n_frames is None else n_frames
     if n < 2:
         raise InputError("The trajectory needs at least two frames.")
     t0 = u.trajectory[0].time

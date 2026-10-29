@@ -5,7 +5,7 @@ description = "Hydration (WaterFP) and funnel collective variables for OneOPES, 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "MDAnalysis>=2.0",
+    "MDAnalysis>=2.8",
     "numpy>=2",
     "pandas",
     "scipy>=1.11",

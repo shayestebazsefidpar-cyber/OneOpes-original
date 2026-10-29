@@ -1,6 +1,9 @@
 """The ligand convergence monitor: its plots, and `oneopes monitor` end to end on a synthetic ligand in water."""
 import json
+import os
 from dataclasses import asdict
+from itertools import islice
+from types import SimpleNamespace
 
 import MDAnalysis as mda
 import pandas as pd
@@ -10,7 +13,7 @@ from ligand_systems import ligand_in_water
 from oneopes.block_run import load_run, run_facts, run_metadata, run_summary
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
-from oneopes.ligand.monitor import plot_atom
+from oneopes.ligand.monitor import completed_blocks, plot_atom
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -97,3 +100,22 @@ def test_plot_atom_writes_expected_files(tmp_path):
     assert rdf_plot_path == tmp_path / "rdf_plots" / "RDF_per_block_A.png"
     assert (tmp_path / "fp_plots" / "FP_vs_time_A.png").exists()
     assert (tmp_path / "rdf_plots" / "RDF_per_block_A.png").exists()
+
+
+def _trajectories(*n_frames):
+    """Loads of a growing trajectory: each call returns the next one, with that many frames."""
+    loads = iter([SimpleNamespace(trajectory=range(n)) for n in n_frames])
+    return lambda: next(loads)
+
+
+def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it():
+    """The last frame may be half-written, so a block is complete once a later frame exists."""
+    running = os.getpid()
+    blocks = completed_blocks(_trajectories(2, 3, 4, 5, 7), 2, running, poll_seconds=0)
+    assert [(len(u.trajectory), frames) for u, frames in islice(blocks, 3)] == [
+        (3, range(2)), (5, range(2, 4)), (7, range(4, 6))]
+
+
+def test_once_mdrun_has_stopped_every_frame_is_complete():
+    blocks = completed_blocks(_trajectories(4, 4, 4), 2, None, poll_seconds=0)
+    assert [frames for _, frames in blocks] == [range(2), range(2, 4)]
