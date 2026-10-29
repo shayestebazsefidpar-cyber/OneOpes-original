@@ -24,14 +24,7 @@ from oneopes.convergence import (
     write_summary,
 )
 from oneopes.system import select_system
-from oneopes.trajectory_blocks import (
-    BLOCK_NS_DEFAULT,
-    complete_blocks,
-    frame_step_ps,
-    frame_time_ns,
-    frames_per_block,
-    time_span_ns,
-)
+from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, frame_layout
 from oneopes.waterfp import WaterFP
 
 from oneopes import __version__
@@ -82,7 +75,6 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
     chain_ids = None
     if complex_structure is not None:
-        # water/hydrogen naming may legitimately differ between file formats: check protein and ligand heavy atoms
         validate_same_atoms(u_traj, complex_structure, "complex structure",
                             indices=np.concatenate([sel.protein_heavy, sel.ligand_heavy]))
         chain_ids = structure_chain_ids(complex_structure)
@@ -92,56 +84,42 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
     log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
 
-    n_frames = len(u_traj.trajectory)
-    dt_ps = frame_step_ps(u_traj)
-    block_length = frames_per_block(options.block_ns, dt_ps)
-    first_frame = options.first_frame
-    end_frame = n_frames if options.last_frame is None else options.last_frame
-    if not 0 <= first_frame < end_frame <= n_frames:
-        raise ValueError(f"Invalid frame range [{first_frame}, {end_frame}) for a {n_frames}-frame trajectory.")
-    block_ranges = complete_blocks(first_frame, end_frame, block_length)
-    if not block_ranges:
-        raise ValueError(f"Frames [{first_frame}, {end_frame}) hold less than one {options.block_ns} ns block.")
-    unused_tail_frames = end_frame - block_ranges[-1].stop
-    block_times = [time_span_ns(u_traj, frames, dt_ps) for frames in block_ranges]
-    traj_start_ns, traj_end_ns = frame_time_ns(u_traj, 0), frame_time_ns(u_traj, n_frames - 1)
-    analysis_start_ns, analysis_end_ns = frame_time_ns(u_traj, first_frame), frame_time_ns(u_traj, end_frame - 1)
-    trajectory_length_ns = traj_end_ns - traj_start_ns
-    final_analysis_time_ns = analysis_end_ns - analysis_start_ns
-    log(f"[protein-waterfp] trajectory: {n_frames} frames, dt {dt_ps} ps, {traj_start_ns:g}-{traj_end_ns:g} ns "
-        f"({trajectory_length_ns:g} ns); analysed frames {first_frame}-{end_frame - 1} ({final_analysis_time_ns:g} ns)")
-    log(f"[protein-waterfp] {len(block_ranges)} blocks of {block_length} frames ({options.block_ns} ns), "
-        f"{len(block_ranges) - 1} transitions; {unused_tail_frames} trailing frame(s) not in a complete block")
+    layout = frame_layout(u_traj, options.block_ns, options.first_frame, options.last_frame)
+    analysed, block_times = layout.analysed, layout.block_times_ns
+    log(f"[protein-waterfp] trajectory: {layout.n_frames} frames, dt {layout.dt_ps} ps, "
+        f"{layout.trajectory_start_ns:g}-{layout.trajectory_end_ns:g} ns "
+        f"({layout.trajectory_end_ns - layout.trajectory_start_ns:g} ns); "
+        f"analysed frames {analysed.start}-{analysed.stop - 1} ({layout.analysis_time_ns:g} ns)")
+    log(f"[protein-waterfp] {len(layout.blocks)} blocks of {len(layout.blocks[0])} frames ({options.block_ns} ns), "
+        f"{len(layout.blocks) - 1} transitions; {layout.tail_frames} trailing frame(s) not in a complete block")
 
-    # Compute: WaterFP and contacts of each block, then of the whole analysed range.
     candidate_atoms = u_traj.atoms[cand_idx]
     ligand = u_traj.atoms[sel.ligand_heavy]
     water_oxygens = u_traj.atoms[sel.water_oxygens]
     blocks, contacts = [], []
-    for b, (frames, (start_ns, end_ns)) in enumerate(zip(block_ranges, block_times)):
+    for b, (frames, (start_ns, end_ns)) in enumerate(zip(layout.blocks, block_times)):
         blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=frames.start, stop=frames.stop))
         contacts.append(Contacts(candidate_atoms, ligand, water_oxygens).run(start=frames.start, stop=frames.stop))
         log(f"[protein-waterfp] block {b} ({start_ns:g}-{end_ns:g} ns) done")
-    log(f"[protein-waterfp] full-trajectory pass over frames {first_frame}-{end_frame - 1}")
-    fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=first_frame, stop=end_frame).results.fp
-    contacts_full = Contacts(candidate_atoms, ligand, water_oxygens).run(start=first_frame, stop=end_frame).results
+    log(f"[protein-waterfp] full-trajectory pass over frames {analysed.start}-{analysed.stop - 1}")
+    fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=analysed.start, stop=analysed.stop).results.fp
+    contacts_full = Contacts(candidate_atoms, ligand, water_oxygens).run(start=analysed.start, stop=analysed.stop)
 
-    # Judge: convergence over the blocks.
     tol = options.tolerances
     stabilities = compare_blocks([block.results for block in blocks], tol)
     summary = summarize(stabilities, block_times, options.block_ns, tol)
     log(f"[protein-waterfp] first sustained convergence: {summary.converged_ns} ns")
 
-    # Report: per-block tables, convergence summary and the final per-atom table.
     write_block_tables(outdir, blocks, block_times, tol, labels)
     contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     write_summary(outdir / "convergence_summary.json", summary,
-                  trajectory_start_ns=traj_start_ns, trajectory_end_ns=traj_end_ns,
-                  analysis_start_ns=analysis_start_ns, analysis_end_ns=analysis_end_ns)
+                  trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
+                  analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
-    table = build_final_table(candidates, fp_full, contacts_full.contact_occupancy, contacts_full.bridge_occupancy,
-                              sasa, final_analysis_time_ns, summary.converged_ns)
+    table = build_final_table(candidates, fp_full, contacts_full.results.contact_occupancy,
+                              contacts_full.results.bridge_occupancy, sasa, layout.analysis_time_ns,
+                              summary.converged_ns)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
@@ -152,10 +130,10 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         "n_candidate_atoms": len(labels),
         "ligand_selection": sel.ligand_description,
         "water_selection": sel.water_description,
-        "frames": {"n_frames": n_frames, "dt_ps": dt_ps, "frames_per_block": block_length,
-                   "analysed_frame_range": [first_frame, end_frame - 1],
-                   "frames_not_in_a_complete_block": unused_tail_frames,
-                   "blocks": [[frames.start, frames.stop] for frames in block_ranges]},
+        "frames": {"n_frames": layout.n_frames, "dt_ps": layout.dt_ps, "frames_per_block": len(layout.blocks[0]),
+                   "analysed_frame_range": [analysed.start, analysed.stop - 1],
+                   "frames_not_in_a_complete_block": layout.tail_frames,
+                   "blocks": [[frames.start, frames.stop] for frames in layout.blocks]},
         "final_values": {"FP": "full analysed frame range", "Contact_occupancy_5A": "full analysed frame range",
                          "Bridge_occupancy": "full analysed frame range",
                          "SASA_A2": "static, complex structure", "FP_Rank": "1 = most negative FP"},

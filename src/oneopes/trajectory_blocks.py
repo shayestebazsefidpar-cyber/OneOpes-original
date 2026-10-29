@@ -1,4 +1,6 @@
 """Trajectory blocks: consecutive runs of the same number of frames, each a ``range`` of frame indices."""
+from dataclasses import dataclass
+
 import numpy as np
 from MDAnalysis import Universe
 
@@ -43,3 +45,56 @@ def time_span_ns(u: Universe, frames: range, dt_ps: float) -> tuple[float, float
 def complete_blocks(start: int, stop: int, length: int) -> list[range]:
     """The complete blocks of ``length`` frames in frames [start, stop); leftover frames at the end are skipped."""
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]
+
+
+@dataclass(frozen=True)
+class FrameLayout:
+    """The analysed frames of a trajectory, the complete blocks in them, and their times (ns)."""
+    n_frames: int
+    """Frames in the whole trajectory."""
+    dt_ps: float
+    analysed: range
+    blocks: list[range]
+    block_times_ns: list[tuple[float, float]]
+    """(start, end) of each block."""
+    trajectory_start_ns: float
+    trajectory_end_ns: float
+    """Time of the trajectory's last frame."""
+    analysis_start_ns: float
+    analysis_end_ns: float
+    """Time of the last analysed frame."""
+
+    @property
+    def analysis_time_ns(self) -> float:
+        return self.analysis_end_ns - self.analysis_start_ns
+
+    @property
+    def tail_frames(self) -> int:
+        """Analysed frames after the last complete block, in no block."""
+        return self.analysed.stop - self.blocks[-1].stop
+
+
+def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame: int | None = None) -> FrameLayout:
+    """Split frames [first_frame, last_frame) of ``u`` (default: all) into complete ``block_ns`` blocks.
+
+    Raises ValueError for an invalid frame range, unevenly spaced frames, or fewer frames than one block.
+    """
+    n_frames = len(u.trajectory)
+    analysed = range(first_frame, n_frames if last_frame is None else last_frame)
+    if not 0 <= analysed.start < analysed.stop <= n_frames:
+        raise ValueError(f"Invalid frame range [{analysed.start}, {analysed.stop}) for a {n_frames}-frame trajectory.")
+    dt_ps = frame_step_ps(u)
+    blocks = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
+    if not blocks:
+        raise ValueError(f"Frames [{analysed.start}, {analysed.stop}) hold less than one {block_ns} ns block.")
+    return FrameLayout(
+        n_frames=n_frames,
+        dt_ps=dt_ps,
+        analysed=analysed,
+        blocks=blocks,
+        block_times_ns=[time_span_ns(u, frames, dt_ps) for frames in blocks],
+        trajectory_start_ns=frame_time_ns(u, 0),
+        trajectory_end_ns=frame_time_ns(u, n_frames - 1),
+        analysis_start_ns=frame_time_ns(u, analysed.start),
+        analysis_end_ns=frame_time_ns(u, analysed.stop - 1),
+    )
