@@ -2,18 +2,17 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from oneopes.protein.final_table import FINAL_COLUMNS, build_final_table
+from oneopes.protein.final_table import FINAL_COLUMNS, build_final_table, final_table_markdown
 
 REQUIRED = [
     "FP_Rank", "Atom", "Atom_index", "Atom_serial_pdb", "Atom_name", "Residue_name", "Residue_number",
     "Chain_ID", "Min_distance_to_ligand_A", "FP", "Contact_occupancy_5A", "Bridge_occupancy", "SASA_A2",
-    "Analysis_time_ns", "First_convergence_ns",
 ]
 
 
 def _inputs():
+    """Three candidates, their full-range values and their SASA, all in candidate row order."""
     cand = pd.DataFrame({
         "Atom": ["GLY3_CA_id8", "SER4_OG_id15", "TRP9_NE1_id60"],
         "Atom_index": [7, 14, 59], "Atom_serial_pdb": [8, 15, 60],
@@ -21,11 +20,9 @@ def _inputs():
         "Residue_number": [3, 4, 9], "Chain_ID": ["", "", ""],
         "Min_distance_to_ligand_A": [6.1, 2.9, 8.8],
     })
-    fp = np.array([-5.0, -21.0, -0.7])  # each array in candidate row order
-    contact = np.array([0.2, 1.0, 0.0])
-    bridge = np.array([0.1, 0.4, 0.0])
-    sasa = np.array([3.0, 11.5, 25.0])
-    return cand, fp, contact, bridge, sasa, 137.5, 62.5
+    values = pd.DataFrame({"FP": [-5.0, -21.0, -0.7], "Contact_occupancy_5A": [0.2, 1.0, 0.0],
+                           "Bridge_occupancy": [0.1, 0.4, 0.0]})
+    return cand, values, np.array([3.0, 11.5, 25.0])
 
 
 def test_exact_required_columns_and_no_zone():
@@ -35,9 +32,10 @@ def test_exact_required_columns_and_no_zone():
     assert not any("zone" in c.lower() or "funnel" in c.lower() or "projection" in c.lower() for c in table.columns)
 
 
-def test_one_row_per_candidate():
-    t = build_final_table(*_inputs())
-    assert len(t) == 3 and t["Atom"].is_unique
+def test_one_row_per_candidate_with_its_own_values():
+    t = build_final_table(*_inputs()).set_index("Atom")
+    assert len(t) == 3
+    assert (t.loc["TRP9_NE1_id60", "FP"], t.loc["TRP9_NE1_id60", "SASA_A2"]) == (-0.7, 25.0)
 
 
 def test_rank_one_is_most_negative_fp_and_sorted():
@@ -46,27 +44,12 @@ def test_rank_one_is_most_negative_fp_and_sorted():
     assert t.loc[0, "Atom"] == "SER4_OG_id15" and t["FP"].is_monotonic_increasing
 
 
-def test_only_minimal_convergence_metadata_and_no_block_metrics():
+def test_no_block_or_convergence_columns():
     t = build_final_table(*_inputs())
-    assert set(t["Analysis_time_ns"]) == {137.5} and set(t["First_convergence_ns"]) == {62.5}
-    assert not any(k in c for c in t.columns for k in ("nRMSD", "Spearman", "relative_change", "stable", "block"))
-
-
-def test_not_converged_leaves_first_convergence_empty():
-    *args, _first = _inputs()
-    t = build_final_table(*args, None)
-    assert t["First_convergence_ns"].isna().all()
-
-
-def test_missing_value_for_a_candidate_fails():
-    cand, fp, *rest = _inputs()
-    with pytest.raises(ValueError, match="Length of values"):
-        build_final_table(cand, fp[:2], *rest)
+    assert not any(k in c for c in t.columns for k in ("nRMSD", "Spearman", "change", "stable", "block", "_ns"))
 
 
 def test_markdown_copy_has_same_rows_and_columns():
-    from oneopes.protein.final_table import final_table_markdown
-
     table = build_final_table(*_inputs())
     lines = final_table_markdown(table).splitlines()
     cells = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
@@ -74,12 +57,3 @@ def test_markdown_copy_has_same_rows_and_columns():
     assert len(lines) == 2 + len(table)
     assert [row[1] for row in cells[2:]] == list(table["Atom"])
     assert cells[2][REQUIRED.index("FP")] == "-21.000"
-
-
-def test_markdown_leaves_missing_values_empty():
-    """Without convergence, First_convergence_ns (the last column) is an empty cell, not "nan"."""
-    from oneopes.protein.final_table import final_table_markdown
-
-    *args, _first = _inputs()
-    last_row = final_table_markdown(build_final_table(*args, None)).splitlines()[-1]
-    assert last_row.split("|")[-2].strip() == ""

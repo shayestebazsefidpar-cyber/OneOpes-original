@@ -358,12 +358,11 @@ names (water/hydrogen naming may differ between formats).
 
 Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial_pdb, Atom_name,
 Residue_name, Residue_number, Chain_ID, Min_distance_to_ligand_A, FP,
-Contact_occupancy_5A, Bridge_occupancy, SASA_A2, Analysis_time_ns,
-First_convergence_ns`. FP, Contact and Bridge are computed over the full
-analysed frame range with the same code as the blocks; SASA is static;
-`First_convergence_ns` is empty when sustained convergence was not reached;
-`FP_Rank` 1 = most negative FP. Block-wise metrics are only in
-`convergence_metrics.csv`.
+Contact_occupancy_5A, Bridge_occupancy, SASA_A2`. FP, Contact and Bridge are
+computed over the full analysed frame range with the same code as the blocks;
+SASA is static; `FP_Rank` 1 = most negative FP. Block-wise metrics are only in
+`convergence_metrics.csv`; the analysed time range and the time of first
+sustained convergence (`converged_ns`) are in `convergence_summary.json`.
 
 ## Install and test
 

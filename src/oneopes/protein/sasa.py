@@ -7,19 +7,19 @@ are added to freesasa in topology order, so every SASA value maps to its atom
 by index - no file is written or reused.
 """
 
-from __future__ import annotations
-
 import numpy as np
 
+from oneopes.protein.inputs import ProteinSystem
 from oneopes.system import heavy_mask
 
 
-def static_sasa(u, protein_all, ligand_all, candidate_indices) -> np.ndarray:
-    """SASA (A^2) of each candidate atom, in ``candidate_indices`` order, on ``u``'s current frame."""
+def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndarray:
+    """SASA (A^2) of each candidate atom, in ``candidate_indices`` order, in the complex structure."""
     import freesasa
 
     freesasa.setVerbosity(freesasa.silent)
-    atoms = u.atoms[np.union1d(np.asarray(protein_all), np.asarray(ligand_all))]
+    selection = system.selection
+    atoms = system.complex.atoms[np.union1d(selection.protein_all, selection.ligand_all)]
     atoms = atoms[heavy_mask(atoms)]
     structure = freesasa.Structure()
     for atom in atoms:

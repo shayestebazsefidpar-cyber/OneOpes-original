@@ -9,9 +9,10 @@ import pytest
 from cyclopts import ValidationError
 
 from oneopes.cli import app, main
-from oneopes.protein.analysis import AnalysisOptions, json_value, protein_system, run_analysis
+from oneopes.protein.analysis import AnalysisOptions, json_value, run_analysis, run_metadata, write_outputs
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
+from oneopes.protein.inputs import protein_system
 from oneopes.system import select_system
 from protein_systems import build_universe, protein_args, simple_protein
 
@@ -39,8 +40,9 @@ def _trajectory(u, n_frames=N_FRAMES, noise=0.3, dt_ps=DT_PS, t0_ps=0.0):
 def _run(tmp_path, options=AnalysisOptions(block_ns=BLOCK_NS), **traj_kw):
     """Run the analysis on the synthetic system; return the trajectory universe and the run metadata."""
     u_traj = _trajectory(_system(), **traj_kw)
-    meta = run_analysis(protein_system(u_traj, _system()), options, tmp_path)
-    return u_traj, meta
+    analysis = run_analysis(protein_system(u_traj, _system()), options)
+    write_outputs(tmp_path, analysis)
+    return u_traj, run_metadata(analysis)
 
 
 @pytest.fixture
@@ -70,13 +72,11 @@ def test_cli_has_no_funnel_zone_or_plumed_options(tmp_path):
 def test_final_table_has_every_candidate_once(analysis):
     u, meta, out = analysis
     table = pd.read_csv(out / "final_per_atom_table.csv", keep_default_na=False)
-    expected = select_candidates(u, select_system(u), CANDIDATE_CUTOFF_A_DEFAULT)
+    expected = select_candidates(protein_system(u, u), CANDIDATE_CUTOFF_A_DEFAULT)
     assert list(table.columns) == FINAL_COLUMNS
     assert len(table) == len(expected) == meta["n_candidate_atoms"]
     assert set(table["Atom_index"]) == set(expected["Atom_index"])
     assert list(table["FP_Rank"]) == list(range(1, len(table) + 1)) and table["FP"].is_monotonic_increasing
-    summary = json.loads((out / "convergence_summary.json").read_text())
-    assert set(table["Analysis_time_ns"]) == {summary["analysis_end_ns"] - summary["analysis_start_ns"]}
 
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
@@ -96,7 +96,6 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     np.testing.assert_allclose(table.loc[labels, "Bridge_occupancy"], contacts.bridge_occupancy)
     last_block = pd.read_csv(tmp_path / "fp_values_per_block.csv").query("block == block.max()").set_index("atom")
     assert not np.allclose(table.loc[labels, "FP"], last_block.loc[labels, "FP"])  # not the last block
-    assert set(table["Analysis_time_ns"]) == {(n_frames - 1) * DT_PS / 1000.0}
 
 
 @pytest.mark.parametrize("n_frames, dt_ps, t0_ps", [(7, 1000.0, 0.0), (12, 1000.0, 0.0), (17, 1000.0, 0.0),
@@ -133,9 +132,7 @@ def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
     assert summary["unstable_after_convergence"] == 0
     assert pd.read_csv(tmp_path / "fp_values_per_block.csv")["block"].max() == 9
     assert list(metrics["stable_in_a_row"]) == list(range(1, 10))
-    table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
-    assert set(table["First_convergence_ns"]) == {4 * BLOCK_NS}
-    assert set(table["Analysis_time_ns"]) == {(n_frames - 1) * DT_PS / 1000.0}
+    assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * DT_PS / 1000.0)
 
 
 def test_convergence_metrics_are_a_separate_table(analysis):
@@ -216,16 +213,16 @@ def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     u_complex = _system()
     _u_traj, meta = _run(tmp_path, AnalysisOptions(candidate_cutoff_A=cutoff, block_ns=BLOCK_NS), n_frames=4)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
-    expected = select_candidates(u_complex, select_system(u_complex), cutoff)
+    expected = select_candidates(protein_system(u_complex, u_complex), cutoff)
     assert meta["candidate_cutoff_A"] == cutoff
     assert set(table["Atom_index"]) == set(expected["Atom_index"]) and len(table) == len(expected)
     assert table["Min_distance_to_ligand_A"].max() <= cutoff
 
 
 def test_10_A_pool_is_a_superset_of_the_7_A_pool(small_system):
-    sel = select_system(small_system)
-    a7 = set(select_candidates(small_system, sel, 7.0)["Atom_index"])
-    a10 = set(select_candidates(small_system, sel, 10.0)["Atom_index"])
+    system = protein_system(small_system, small_system)
+    a7 = set(select_candidates(system, 7.0)["Atom_index"])
+    a10 = set(select_candidates(system, 10.0)["Atom_index"])
     assert a7 < a10
 
 
