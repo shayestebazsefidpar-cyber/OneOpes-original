@@ -29,8 +29,8 @@ ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergenc
 ```
 
 Override any threshold/setting via CLI flags (`--block-ns`, `--fp-rel-tol`,
-`--rdf-nrmsd-tol`, `--spearman-tol`, `--n-stable`, `--ligand-resname`,
-`--water-resname`, `--water-atom-name`, ...) - see `ligand-waterfp-monitor
+`--rdf-nrmsd-tol`, `--spearman-tol`, `--n-stable`, `--ligand-selection`,
+`--water-selection`, ...) - see `ligand-waterfp-monitor
 --help`, or set them once in `../../../configs/ligand_waterfp.yaml` and
 pass them through your own driver.
 

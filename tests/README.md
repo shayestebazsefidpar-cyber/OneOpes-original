@@ -17,6 +17,8 @@ pytest
   beyond rmax are ignored, frame ranges add up, parallel = serial), and the
   FP integral (a uniform bulk profile gives FP=0; a depleted shell gives a
   negative FP).
+- `test_system.py` - ligand, water oxygen and heavy-atom detection without
+  a protein (hydrogens, virtual sites, explicit selections).
 - `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, and
   `ligand-waterfp-select` end to end on a synthetic ligand in water.
 - `test_g1_g2_reference.py` - `select_g1_g2` picks the same atoms as the

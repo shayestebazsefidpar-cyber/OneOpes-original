@@ -84,8 +84,9 @@ Additional, non-pip dependencies:
 
 - A ligand structure with a GROMACS-compatible topology (built however
   suits your project - CGenFF/CHARMM-GUI, GAFF/acpype, extraction from an
-  existing complex's topology). The default assumed ligand residue name
-  is `MOL`; every script accepts `--ligand-resname` if yours differs.
+  existing complex's topology). The ligand and water are found
+  automatically (`system.py`); every analysis command accepts
+  `--ligand-selection`/`--water-selection` to choose them explicitly.
 - A 3-point water model consistent with the rest of your project.
 - For stage 5 (optional): a bound-complex structure (protein + ligand) to
   render the selected atoms on.

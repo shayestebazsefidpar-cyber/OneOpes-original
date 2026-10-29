@@ -9,12 +9,11 @@ from conftest import build_universe, simple_protein
 from protein_waterfp import cli
 from protein_waterfp.selection import (
     CANDIDATE_CUTOFF_A_DEFAULT,
-    SystemDefinitionError,
     select_candidates,
-    select_system,
     structure_chain_ids,
     validate_same_atoms,
 )
+from system import SystemDefinitionError, select_system
 
 
 def _min_dist(u, sel, idx):

@@ -2,7 +2,7 @@
 G1/G2 selection: the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP.
 
     ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
-        [--start-frame N] [--end-frame M] [--ligand-resname MOL]
+        [--start-frame N] [--end-frame M] [--ligand-selection "resname MOL"]
 
 The monitor already does this for its converged block; use this command for any other frame
 window. Writes, for review:
@@ -21,6 +21,7 @@ import numpy as np
 import yaml
 from MDAnalysis.core.groups import AtomGroup
 
+from system import SystemDefinitionError, select_system
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
@@ -155,9 +156,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tpr", required=True, help="topology with bonds")
     p.add_argument("--xtc", required=True)
     p.add_argument("--outdir", required=True)
-    p.add_argument("--ligand-resname", default="MOL")
-    p.add_argument("--water-resname", default="SOL")
-    p.add_argument("--water-atom-name", default="O")
+    p.add_argument("--ligand-selection", default=None, help="MDAnalysis selection (default: auto-detect)")
+    p.add_argument("--water-selection", default=None, help="MDAnalysis selection (default: known water names)")
     p.add_argument("--start-frame", type=int, default=0)
     p.add_argument("--end-frame", type=int, default=None)
     p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
@@ -172,13 +172,11 @@ def main() -> None:
     outdir = Path(args.outdir)
 
     u = mda.Universe(args.tpr, args.xtc)
-    ligand = u.select_atoms(f"resname {args.ligand_resname} and not name H*")
-    water = u.select_atoms(f"resname {args.water_resname} and name {args.water_atom_name}")
-    if len(ligand) == 0:
-        raise SystemExit(f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}")
-    if len(water) == 0:
-        raise SystemExit(f"No water oxygens found for resname '{args.water_resname}' / "
-                         f"atom name '{args.water_atom_name}' in {args.tpr}")
+    try:
+        sel = select_system(u, args.ligand_selection, args.water_selection)
+    except SystemDefinitionError as e:
+        raise SystemExit(f"[select] {e}")
+    ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
     grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
     waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=args.norm_tail_bins)

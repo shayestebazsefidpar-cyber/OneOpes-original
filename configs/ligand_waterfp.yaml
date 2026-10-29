@@ -9,9 +9,8 @@
 system:
   # Free-text identifier for your own bookkeeping. Not used in any calculation.
   id: null                     # e.g. "my_project-ligand_A"
-  ligand_resname: MOL
-  water_resname: SOL
-  water_atom_name: O
+  ligand_selection: null       # MDAnalysis selection; null = the single non-water, non-ion residue name
+  water_selection: null        # MDAnalysis selection; null = known water residue names
 
 paths:
   ligand_gro: null             # input to stage 1 (prepare_ligand_system.py)

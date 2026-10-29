@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .selection import heavy_mask
+from system import heavy_mask
 
 
 def static_sasa(u, protein_all, ligand_all, candidate_indices) -> np.ndarray:

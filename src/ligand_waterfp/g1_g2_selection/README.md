@@ -22,7 +22,7 @@ converged block's frames). The topology must carry bonds (a `.tpr`).
 
 ```bash
 ligand-waterfp-select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \
-    --start-frame <start> --end-frame <end> [--ligand-resname MOL] [--fp-round-decimals 1]
+    --start-frame <start> --end-frame <end> [--ligand-selection "resname MOL"] [--fp-round-decimals 1]
 ```
 
 Writes, for review:

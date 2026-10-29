@@ -13,9 +13,9 @@ own `outputs/` tree (git-ignored), never into this folder.
 
 - A ligand structure with a GROMACS-compatible topology (e.g. from
   CGenFF/CHARMM-GUI, GAFF/acpype, or extracted from an existing
-  protein-ligand system's own topology). This workflow assumes the ligand
-  residue is named `MOL` in the resulting topology by default - every
-  script downstream takes `--ligand-resname` if yours differs.
+  protein-ligand system's own topology). The analysis commands find the
+  ligand as the only residue name that is not water or an ion, or take
+  `--ligand-selection`.
 - A TIP3P (or compatible 3-point) water model, matching whatever water
   model the rest of your project uses elsewhere, so the ligand-only
   hydration reference stays consistent with any bound-complex simulations

@@ -28,19 +28,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from convergence import DEFAULT_TOLERANCES, compare_blocks, summarize, write_block_tables, write_summary
+from system import select_system
 from trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import WaterFP
 
 from . import __version__
 from .final_table import build_final_table, final_table_markdown
 from .sasa import static_sasa
-from .selection import (
-    CANDIDATE_CUTOFF_A_DEFAULT,
-    select_candidates,
-    select_system,
-    structure_chain_ids,
-    validate_same_atoms,
-)
+from .selection import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates, structure_chain_ids, validate_same_atoms
 from .trajectory import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, StructuralBlock, structural_block
 
 BLOCK_NS_DEFAULT = 5.0

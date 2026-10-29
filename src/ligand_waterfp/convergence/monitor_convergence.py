@@ -11,8 +11,7 @@ METHOD_RATIONALE.md explains the criteria.
 Usage:
     ligand-waterfp-monitor                       # no auto-stop, just monitor/report
     ligand-waterfp-monitor 12345                 # SIGTERM pid 12345 on convergence
-    ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc \\
-        --ligand-resname MOL --water-resname SOL --water-atom-name O
+    ligand-waterfp-monitor --tpr prod.tpr --xtc prod.xtc --ligand-selection "resname MOL"
 """
 import argparse
 import os
@@ -39,6 +38,7 @@ from convergence import (
     write_summary,
 )
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
+from system import SystemDefinitionError, select_system
 from trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
@@ -50,16 +50,8 @@ def parse_args():
     p.add_argument("--tpr", default="prod.tpr")
     p.add_argument("--xtc", default="prod.xtc")
     p.add_argument("--outdir", default="outputs/convergence")
-    p.add_argument("--ligand-resname", default="MOL",
-                    help="Residue name of the ligand in the topology (default: MOL)")
-    p.add_argument("--water-resname", default="SOL",
-                    help="Residue name of the solvent (default: SOL)")
-    p.add_argument("--water-atom-name", default="O",
-                    help="Atom name of the water oxygen within --water-resname (default: O). "
-                         "Water naming is NOT guaranteed consistent across force fields/files - "
-                         "e.g. some topologies name the same water residue WAT/HOH with oxygen "
-                         "atom name OW instead of SOL/O. Check your own .tpr before trusting the "
-                         "defaults on a new system.")
+    p.add_argument("--ligand-selection", default=None, help="MDAnalysis selection (default: auto-detect)")
+    p.add_argument("--water-selection", default=None, help="MDAnalysis selection (default: known water names)")
     p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
     p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
@@ -187,27 +179,14 @@ def main():
     def get_universe():
         return mda.Universe(str(tpr_path), str(xtc_path))
 
-    u0 = get_universe()
-    lig_heavy = u0.select_atoms(f"resname {args.ligand_resname} and not name H*")
-    if len(lig_heavy) == 0:
-        raise SystemExit(
-            f"No heavy atoms found for resname '{args.ligand_resname}' in {args.tpr}. "
-            "Check --ligand-resname against your own topology."
-        )
-    heavy_names = list(lig_heavy.names)
-    heavy_indices = lig_heavy.indices
-    water_O = u0.select_atoms(f"resname {args.water_resname} and name {args.water_atom_name}")
-    if len(water_O) == 0:
-        raise SystemExit(
-            f"No water oxygens found for resname '{args.water_resname}' / atom name "
-            f"'{args.water_atom_name}' in {args.tpr}. Water naming is not standardized across "
-            "force fields/files - check --water-resname/--water-atom-name against your own topology."
-        )
-    water_O_idx = water_O.indices
-    n_heavy = len(heavy_names)
-    print(f"[monitor] {n_heavy} ligand heavy atoms (resname={args.ligand_resname}): {heavy_names}")
-    print(f"[monitor] {len(water_O_idx)} water oxygens "
-          f"(resname={args.water_resname}, atom name={args.water_atom_name})")
+    u = get_universe()
+    try:
+        sel = select_system(u, args.ligand_selection, args.water_selection)
+    except SystemDefinitionError as e:
+        raise SystemExit(f"[monitor] {e}")
+    heavy_names = list(u.atoms[sel.ligand_heavy].names)
+    print(f"[monitor] {len(heavy_names)} ligand heavy atoms ({sel.ligand_description}): {heavy_names}")
+    print(f"[monitor] {len(sel.water_oxygens)} water oxygens ({sel.water_description})")
     grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
     print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
@@ -222,7 +201,7 @@ def main():
 
     blocks, block_times, stabilities = [], [], []
     for u, frames in completed_blocks(get_universe, block_length, args.mdrun_pid, args.poll_seconds):
-        blocks.append(WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
+        blocks.append(WaterFP(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], grid=grid,
                               norm_tail_bins=args.norm_tail_bins).run(start=frames.start, stop=frames.stop))
         block_times.append(time_span_ns(u, frames, dt_ps))
         write_block_tables(outdir, blocks, block_times, tol)
@@ -240,7 +219,7 @@ def main():
     summary = summarize(stabilities, block_times, args.block_ns, tol)
     trajectory_end_ns = frame_time_ns(get_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
-                  ligand_resname=args.ligand_resname, ligand_heavy_atoms=heavy_names)
+                  ligand_selection=sel.ligand_description, ligand_heavy_atoms=heavy_names)
 
     fp_df = fp_per_block(blocks, block_times)
     rdf_df = rdf_per_block(blocks)
