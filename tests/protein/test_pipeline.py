@@ -157,9 +157,8 @@ def test_worst_case_metrics_match_per_atom_block_data(analysis):
     f_prev = fp[fp.block == prev].set_index("atom")["FP"]
     rel = (f_last - f_prev).abs() / f_prev.abs().clip(lower=1e-6)
     assert metrics.loc[last, "fp_change"] == pytest.approx(rel.max(), rel=1e-9)
-    g = {b: rdf[rdf.block == b].sort_values(["atom", "r_nm"]).groupby("atom")["g_r"].apply(np.asarray)
-         for b in (prev, last)}
-    worst = max(nrmsd(g[last][a], g[prev][a]) for a in g[last].index)
+    g = rdf.set_index(["block", "atom", "r_nm"])["g_r"].to_xarray()
+    worst = float(nrmsd(g.sel(block=last), g.sel(block=prev)).max())
     assert metrics.loc[last, "rdf_nrmsd"] == pytest.approx(worst, rel=1e-6)
 
 

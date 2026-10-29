@@ -2,9 +2,9 @@
 
 A transition from one block to the next is stable when all three criteria are within the tolerances:
 
-* ``largest_relative_fp_change``: no atom's FP changed by more than ``fp_rel_tol`` (relative);
-* ``largest_rdf_nrmsd``: no atom's g(r) moved by more than ``rdf_nrmsd_tol`` (RMS change / peak height);
-* ``fp_rank_correlation``: the atoms' FP ranking kept a Spearman correlation of at least ``spearman_tol``.
+* FP change: no atom's FP changed by more than ``fp_rel_tol`` (relative; the previous FP floored at 1e-6);
+* g(r) change: no atom's g(r) moved by more than ``rdf_nrmsd_tol`` (:func:`nrmsd`);
+* FP ranking: the atoms' FP values kept a Spearman correlation of at least ``spearman_tol``.
 
 The run has converged at the transition completing the first ``n_stable`` stable transitions in a row.
 Blocks are the stacked block measurements of :func:`oneopes.trajectory_blocks.stack_blocks`.
@@ -14,7 +14,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import accumulate
 
-import numpy as np
 import xarray as xr
 from scipy.stats import spearmanr
 
@@ -57,36 +56,18 @@ class StabilityResult:
     passed: bool
 
 
-def nrmsd(g: np.ndarray, prev_g: np.ndarray) -> np.ndarray:
-    """RMS difference of g(r) curves relative to their highest peak; one value per atom (last axis = r).
-
-    The peak is floored at 1e-8, for a g(r) that is zero everywhere.
-    """
-    rmsd = np.sqrt(np.mean((g - prev_g) ** 2, axis=-1))
-    peak = np.maximum(np.max(g, axis=-1), np.max(prev_g, axis=-1))
-    return rmsd / np.maximum(peak, 1e-8)
-
-
-def largest_relative_fp_change(fp: np.ndarray, prev_fp: np.ndarray) -> float:
-    """max over atoms of |FP - previous FP| / |previous FP|, the denominator floored at 1e-6 for FP near 0."""
-    return float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
-
-
-def largest_rdf_nrmsd(g: np.ndarray, prev_g: np.ndarray) -> float:
-    """max over atoms of the g(r) change, as :func:`nrmsd`."""
-    return float(np.max(nrmsd(g, prev_g)))
-
-
-def fp_rank_correlation(fp: np.ndarray, prev_fp: np.ndarray) -> float:
-    """Spearman correlation of the atoms' FP values: 1 when the FP ranking of the atoms is unchanged."""
-    return float(spearmanr(fp, prev_fp).statistic)
+def nrmsd(g: xr.DataArray, prev_g: xr.DataArray) -> xr.DataArray:
+    """RMS change of each atom's g(r), relative to the higher peak of the two curves (floored at 1e-8)."""
+    rmsd = xr.ufuncs.sqrt(((g - prev_g) ** 2).mean("r_nm"))
+    peak = xr.ufuncs.maximum(g.max("r_nm"), prev_g.max("r_nm"))
+    return rmsd / peak.clip(min=1e-8)
 
 
 def check_stability(current: xr.Dataset, previous: xr.Dataset, tol: Tolerances) -> StabilityResult:
     """Compare two consecutive blocks' hydration (``fp`` and ``g`` of the same atoms) on the three criteria."""
-    fp_change = largest_relative_fp_change(current.fp.values, previous.fp.values)
-    rdf_nrmsd = largest_rdf_nrmsd(current.g.values, previous.g.values)
-    rho = fp_rank_correlation(current.fp.values, previous.fp.values)
+    fp_change = float((abs(current.fp - previous.fp) / abs(previous.fp).clip(min=1e-6)).max())
+    rdf_nrmsd = float(nrmsd(current.g, previous.g).max())
+    rho = float(spearmanr(current.fp, previous.fp).statistic)
 
     fp_pass = fp_change <= tol.fp_rel_tol
     rdf_pass = rdf_nrmsd <= tol.rdf_nrmsd_tol

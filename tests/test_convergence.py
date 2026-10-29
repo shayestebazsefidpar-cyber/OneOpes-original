@@ -106,10 +106,10 @@ def test_nrmsd_gives_one_value_per_atom():
     prev_g = _same_g(2)
     g = prev_g.copy()
     g[1] = [1.0, 1.0, 1.0, 0.5, 0.0]
-    per_atom = nrmsd(g, prev_g)
-    assert per_atom.shape == (2,)
+    per_atom = nrmsd(_block([0.0, 0.0], g).g, _block([0.0, 0.0], prev_g).g)
+    assert per_atom.dims == ("atom",)
     assert per_atom[0] == 0.0
-    assert per_atom[1] == pytest.approx(nrmsd(g[1], prev_g[1]))  # same as one atom's 1-D curves
+    assert per_atom[1] == pytest.approx(np.sqrt(0.5))  # changes 1, .5, 0, -.5, -1 over a peak of 1
 
 
 def test_results_and_tolerances_are_frozen():
