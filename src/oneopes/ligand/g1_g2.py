@@ -1,5 +1,4 @@
 """G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP (``oneopes select``)."""
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +15,7 @@ from oneopes.system import SystemDefinitionError, select_system
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 SAME_FP_WITHIN = 0.2
-"""Rounded FP values closer than this count as the same FP."""
+"""Rounded FP values less than this apart count as the same FP."""
 
 
 class AtomRef(BaseModel, frozen=True):
@@ -43,19 +42,22 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
     """G1 (anti-bulk pair) and G2 (bulk pair) among a ligand's heavy atoms, from their FP values.
 
     The rules of WaterFP's fp_driven_atom_selection.ipynb, checked against it in the tests.
-    Atoms are handled by their position in ``atoms``; raises ValueError when a pair does not exist.
+    The atoms are put in FP order first (most negative first, ties keeping their order), so the
+    rules below refer to atoms by FP rank. Raises ValueError when a pair does not exist.
     """
     by_fp = np.argsort(fp, kind="stable")
+    atoms, fp = atoms[by_fp], fp[by_fp]
     separation = bond_separation(atoms)
-    g1 = anti_bulk_pair(by_fp, np.round(fp, fp_round_decimals), separation)
-    g2 = bulk_pair(by_fp, separation)
-    return SelectionResult(G1=tuple(AtomRef.of(atoms[i]) for i in g1), G2=tuple(AtomRef.of(atoms[i]) for i in g2))
+    scale = 10 ** fp_round_decimals
+    g1 = anti_bulk_pair(np.rint(fp * scale).astype(int), round(SAME_FP_WITHIN * scale), separation)
+    g2 = bulk_pair(separation)
+    return SelectionResult(G1=tuple(map(AtomRef.of, atoms[list(g1)])), G2=tuple(map(AtomRef.of, atoms[list(g2)])))
 
 
 def bond_separation(atoms: AtomGroup) -> np.ndarray:
     """Number of bonds between each pair of ``atoms`` (n x n), along bonds among them only.
 
-    Raises ValueError unless the atoms form one bonded molecule (e.g. a topology without bonds).
+    Raises ValueError unless the atoms form one bonded molecule (e.g. when bonds are missing).
     """
     position = {index: i for i, index in enumerate(atoms.indices)}
     bonded = np.zeros((len(atoms), len(atoms)), dtype=bool)
@@ -69,42 +71,38 @@ def bond_separation(atoms: AtomGroup) -> np.ndarray:
     return separation.astype(int)
 
 
-def bulk_pair(by_fp: Sequence[int], separation: np.ndarray) -> tuple[int, int]:
-    """The least negative FP atom, and the next least negative one at least three bonds away."""
-    anchor, *others = reversed(by_fp)
-    partner = next((atom for atom in others if separation[anchor, atom] >= 3), None)
+def bulk_pair(separation: np.ndarray) -> tuple[int, int]:
+    """The last atom (least negative FP), and the latest one before it at least three bonds away."""
+    anchor = len(separation) - 1
+    partner = next((atom for atom in reversed(range(anchor)) if separation[anchor, atom] >= 3), None)
     if partner is None:
         raise ValueError("no heavy atom is three or more bonds from the least negative FP atom: no bulk partner")
     return anchor, partner
 
 
-def anti_bulk_pair(by_fp: Sequence[int], fp_rounded: np.ndarray, separation: np.ndarray) -> tuple[int, int]:
-    """The most negative FP atom, and a partner not bonded to it (see :func:`anti_bulk_partner`)."""
-    anchor, *others = by_fp
-    if np.count_nonzero(fp_rounded == fp_rounded[anchor]) > 2:
+def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.ndarray) -> tuple[int, int]:
+    """Atom 0 (most negative FP), and its partner among the atoms not bonded to it.
+
+    ``fp_rounded`` are the rounded FPs as integers (-0.3 is -3 for one decimal), so that
+    comparing them is exact; values less than ``same_fp_within`` apart count as the same FP.
+    The partner starts as the first atom not bonded to atom 0. Walking on through atoms with
+    the same FP as the partner, it moves to any atom farther from atom 0; the walk ends at the
+    first atom with a different FP or exactly as far as the partner.
+    """
+    if np.count_nonzero(fp_rounded == fp_rounded[0]) > 2:
         raise ValueError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")
-    not_bonded = [atom for atom in others if separation[anchor, atom] > 1]
+    not_bonded = [atom for atom in range(1, len(separation)) if separation[0, atom] > 1]
     if not not_bonded:
         raise ValueError("every other heavy atom is bonded to the most negative FP atom: no anti-bulk partner")
-    return anchor, anti_bulk_partner(not_bonded, fp_rounded, separation[anchor])
-
-
-def anti_bulk_partner(candidates: Sequence[int], fp_rounded: np.ndarray, bonds_to_anchor: np.ndarray) -> int:
-    """The upstream notebook's partner rule, applied to the candidates in FP order.
-
-    The partner starts as the first candidate. A later candidate with the same rounded FP as the
-    current partner (within SAME_FP_WITHIN) replaces it when it is farther from the anchor; one
-    exactly as far ends the search. Candidates with a different FP are passed over.
-    """
-    partner, *later = candidates
+    partner, *later = not_bonded
     for atom in later:
-        if abs(fp_rounded[atom] - fp_rounded[partner]) >= SAME_FP_WITHIN:
-            continue
-        if bonds_to_anchor[atom] > bonds_to_anchor[partner]:
-            partner = atom
-        elif bonds_to_anchor[atom] == bonds_to_anchor[partner]:
+        if abs(fp_rounded[atom] - fp_rounded[partner]) >= same_fp_within:
             break
-    return partner
+        if separation[0, atom] == separation[0, partner]:
+            break
+        if separation[0, atom] > separation[0, partner]:
+            partner = atom
+    return 0, partner
 
 
 def write_waterfp_files(waterfp: WaterFP, outdir: Path) -> None:

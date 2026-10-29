@@ -1,4 +1,13 @@
-"""The clean G1/G2 selection must agree with the vendored WaterFP notebook code on random ligands."""
+"""The clean G1/G2 selection must agree with the vendored WaterFP notebook code on random ligands.
+
+One known difference is removed before comparing: the notebook tests ``abs(fp_a - fp_b) < 0.2``
+on rounded FPs in floating point, so values exactly 0.2 apart sometimes count as the same FP
+(-0.1 - -0.3 = 0.19999999999999998) and sometimes not. Our selection compares them exactly.
+The notebook reads each rounded FP through ``float()``; the test replaces that ``float`` with
+one that maps every 0.1 step to 0.125, a binary-exact unit, so the notebook's comparison is
+exact too ("less than 0.2 apart" = at most one 0.1 step).
+"""
+import builtins
 import re
 from types import SimpleNamespace
 
@@ -46,6 +55,7 @@ def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> Selectio
     monkeypatch.setattr(official, "MDAnalysis", SimpleNamespace(Universe=lambda path: u))
     ranking = pd.DataFrame({"name": MOL, "atom": np.arange(1, len(fp) + 1), "fp": fp, "fp_round": np.round(fp, 1)})
     monkeypatch.setattr(official, "c", ranking, raising=False)
+    monkeypatch.setattr(official, "float", lambda x: round(builtins.float(x) * 10) * 0.125, raising=False)
     try:
         anti_bulk = official.select_next_atom(MOL, verbose=False)
         bulk = official.select_bulk_atom(MOL, verbose=False)

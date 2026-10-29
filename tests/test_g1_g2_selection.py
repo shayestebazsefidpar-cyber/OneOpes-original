@@ -42,6 +42,41 @@ def test_write_g1_g2_yaml_creates_parent_directory(tmp_path):
     assert yaml.safe_load(out_path.read_text()) == RAW
 
 
+def chain(n_atoms: int) -> mda.AtomGroup:
+    """Atoms C0-C1-...-C(n-1) bonded in a line, so atoms i and j are |i - j| bonds apart."""
+    u = mda.Universe.empty(n_atoms)
+    u.add_TopologyAttr("names", [f"C{i}" for i in range(n_atoms)])
+    u.add_TopologyAttr("bonds", [(i, i + 1) for i in range(n_atoms - 1)])
+    return u.atoms
+
+
+def test_rounded_fps_exactly_0_2_apart_are_different_fps():
+    """In FP order C0, C1, C2, C5, C3, C4; C1 is bonded to C0, so G1's partner starts as C2.
+
+    C5 (-0.1) is farther from C0 than C2 (-0.3), but 0.2 apart is not the same FP, so C2 stays.
+    (The notebook's floating-point comparison counts -0.1 - -0.3 = 0.19999999999999998 as the same FP.)
+    """
+    atoms = chain(6)
+    fp = np.array([-1.0, -0.5, -0.3, -0.04, 0.0, -0.1])
+    selection = select_g1_g2(atoms, fp)
+    assert [a.name for a in selection.G1] == ["C0", "C2"]
+    assert [a.name for a in selection.G2] == ["C4", "C1"]
+
+
+def test_farther_partner_with_the_same_fp_wins():
+    """C2 and C5 share the rounded FP -0.3; C5 is farther from C0, so it becomes the partner."""
+    fp = np.array([-1.0, -0.5, -0.31, -0.04, 0.0, -0.29])
+    assert [a.name for a in select_g1_g2(chain(6), fp).G1] == ["C0", "C5"]
+
+
+def test_atoms_not_bonded_into_one_molecule_are_rejected():
+    u = mda.Universe.empty(3)
+    u.add_TopologyAttr("names", ["C0", "C1", "C2"])
+    u.add_TopologyAttr("bonds", [(0, 1)])
+    with pytest.raises(ValueError, match="not connected by bonds"):
+        select_g1_g2(u.atoms, np.array([-1.0, -0.5, 0.0]))
+
+
 def ligand_in_water(tmp_path, n_frames: int = 3) -> tuple[str, str]:
     """A 6-atom chain ligand in a 5 nm box of randomly placed water oxygens."""
     rng = np.random.default_rng(1)
