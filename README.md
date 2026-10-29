@@ -348,6 +348,7 @@ names (water/hydrogen naming may differ between formats).
 
 | File | Content |
 |---|---|
+| `blocks.nc` | the whole block run as one xarray Dataset (NetCDF): per block and atom FP, g(r), density, bulk and the occupancies, each block's comparison with the one before, and the settings and time ranges as attributes; load it with `oneopes.block_run.load_run` |
 | `candidate_atom_mapping.csv` | the candidate pool |
 | `fp_values_per_block.csv`, `rdf_profiles_per_block.csv` | FP (with the block times) and g(r) per block and atom |
 | `contact_occupancy_per_block.csv` | Contact / Bridge per block and atom |

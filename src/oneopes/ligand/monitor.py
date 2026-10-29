@@ -18,16 +18,11 @@ from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 from MDAnalysis.core.groups import AtomGroup
 
-from oneopes.convergence import (
-    DEFAULT_TOLERANCES,
-    Tolerances,
-    compare_blocks,
-    converged_block,
-    summarize,
-)
+from oneopes.block_run import block_run, run_summary
+from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
-from oneopes.reports import write_block_tables, write_hydration_files, write_summary
+from oneopes.reports import write_hydration_files, write_run
 from oneopes.system import select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
@@ -36,7 +31,6 @@ from oneopes.trajectory_blocks import (
     frame_time_ns,
     frames_per_block,
     label_block,
-    stack_blocks,
 )
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
 
@@ -89,7 +83,7 @@ def stop_mdrun(pid: int | None) -> None:
 
 
 def log_progress(blocks: xr.Dataset) -> None:
-    """One log line for the latest of the blocks compared by :func:`compare_blocks` (none for block 0)."""
+    """One log line for the latest block of a :func:`block_run` (none for block 0)."""
     if blocks.sizes["block"] < 2:
         return
     latest = blocks.isel(block=-1)
@@ -211,18 +205,19 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames, grid,
                                       norm_tail_bins)
         measured.append(label_block(hydration, block))
-        blocks = compare_blocks(stack_blocks(measured), tol)
-        write_block_tables(outdir, blocks)
+        blocks = block_run(measured, tol, block_ns, ligand_selection=sel.ligand_selection,
+                           ligand_heavy_atoms=atom_names)
+        write_run(outdir, blocks)
         log_progress(blocks)
         if converged_block(blocks, tol.n_stable) is not None:
             break
     if blocks is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
-    summary = summarize(blocks, block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
-    write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
-                  ligand_selection=sel.ligand_selection, ligand_heavy_atoms=atom_names)
+    blocks = blocks.assign_attrs(trajectory_end_ns=trajectory_end_ns)
+    write_run(outdir, blocks)
+    summary = run_summary(blocks)
     plot_blocks(blocks, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",

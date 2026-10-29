@@ -13,7 +13,8 @@ converged enough to stop early or to trust for the next stage.
 - **Inputs**: a `.tpr` + `.xtc` (can be a still-growing trajectory from a
   live `mdrun`, or a finished one for a one-shot report)
 - **Outputs** (written to `--outdir`, default `outputs/convergence` -
-  git-ignored): per-block FP/RDF CSVs, a convergence-metrics CSV, plots,
+  git-ignored): `blocks.nc` (the whole block run, rewritten after every
+  block), per-block FP/RDF CSVs, a convergence-metrics CSV, plots,
   `convergence_summary.json`, and on convergence the G1/G2
   selection in `selection/`
 

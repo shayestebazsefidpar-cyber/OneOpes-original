@@ -1,7 +1,7 @@
 """Tables and files reporting hydration and convergence results.
 
-``blocks`` is the stacked block measurements of :func:`oneopes.trajectory_blocks.stack_blocks`;
-``hydration`` is one :func:`oneopes.waterfp.hydration` Dataset.
+``blocks`` is a block run (:func:`oneopes.block_run.block_run`); ``hydration`` is one
+:func:`oneopes.waterfp.hydration` Dataset.
 """
 
 import json
@@ -11,7 +11,8 @@ from pathlib import Path
 import pandas as pd
 import xarray as xr
 
-from oneopes.convergence import TRANSITION_VARIABLES, ConvergenceSummary
+from oneopes.block_run import run_facts, run_summary, save_run
+from oneopes.convergence import TRANSITION_VARIABLES
 
 
 def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
@@ -25,9 +26,8 @@ def fp_by_block(blocks: xr.Dataset) -> pd.DataFrame:
 
 
 def write_block_tables(outdir: Path, blocks: xr.Dataset) -> None:
-    """Write the block-wise CSVs of blocks compared by :func:`~oneopes.convergence.compare_blocks` to
-    ``outdir``: FP and g(r) per block, FP and FP rank per atom and block, and the transitions between
-    blocks (convergence_metrics.csv, from block 1).
+    """Write the block-wise CSVs to ``outdir``: FP and g(r) per block, FP and FP rank per atom and block,
+    and the transitions between blocks (convergence_metrics.csv, from block 1).
 
     g(r) leaves out the block times, which would repeat on every radius.
     """
@@ -40,9 +40,16 @@ def write_block_tables(outdir: Path, blocks: xr.Dataset) -> None:
     transitions.to_dataframe().to_csv(outdir / "convergence_metrics.csv")
 
 
-def write_summary(path: Path, summary: ConvergenceSummary, **facts) -> None:
-    """Write ``summary`` and any other ``facts`` about the run as one indented JSON object."""
-    path.write_text(json.dumps({**asdict(summary), **facts}, indent=2))
+def write_summary(path: Path, blocks: xr.Dataset) -> None:
+    """Write the run's convergence summary and its facts as one indented JSON object."""
+    path.write_text(json.dumps(asdict(run_summary(blocks)) | run_facts(blocks), indent=2))
+
+
+def write_run(outdir: Path, blocks: xr.Dataset) -> None:
+    """Write a block run to ``outdir``: blocks.nc, the block-wise CSVs and convergence_summary.json."""
+    save_run(blocks, outdir / "blocks.nc")
+    write_block_tables(outdir, blocks)
+    write_summary(outdir / "convergence_summary.json", blocks)
 
 
 def write_hydration_files(hydration: xr.Dataset, outdir: Path) -> None:

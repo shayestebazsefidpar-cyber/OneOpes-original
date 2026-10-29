@@ -197,7 +197,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     out = tmp_path / "result"
     main(["protein", "--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
           "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS)])
-    for name in ("candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
+    for name in ("blocks.nc", "candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
                  "convergence_summary.json", "final_per_atom_table.csv",
                  "final_per_atom_table.md",

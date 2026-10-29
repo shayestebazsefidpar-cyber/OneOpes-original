@@ -4,7 +4,7 @@ import json
 
 import pandas as pd
 
-from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, compare_blocks, stable_in_a_row, summarize
+from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, compare_blocks, stable_in_a_row
 from oneopes.reports import (
     fp_ranks,
     write_block_tables,
@@ -50,12 +50,15 @@ def test_a_single_block_has_no_transitions_but_keeps_the_header(tmp_path):
     assert pd.read_csv(tmp_path / "convergence_metrics.csv").empty
 
 
-def test_write_summary_adds_facts_to_the_summary(tmp_path):
-    summary = summarize(compare_blocks(_measured_blocks(4), ALWAYS_STABLE), 1.0, TOL)
-    write_summary(tmp_path / "summary.json", summary, ligand_heavy_atoms=["C1", "O1"])
+def test_write_summary_adds_the_run_facts_to_the_summary(tmp_path):
+    blocks = _measured_blocks(4)
+    run = compare_blocks(blocks, ALWAYS_STABLE).assign_attrs(block_ns=1.0, **dataclasses.asdict(ALWAYS_STABLE),
+                                                             ligand_heavy_atoms=["C1", "O1"])
+    write_summary(tmp_path / "summary.json", run)
     written = json.loads((tmp_path / "summary.json").read_text())
-    assert written["tolerances"] == dataclasses.asdict(TOL)
+    assert written["tolerances"] == dataclasses.asdict(ALWAYS_STABLE)
     assert written["converged_block"] == 3 and written["ligand_heavy_atoms"] == ["C1", "O1"]
+    assert "block_ns" in written and "n_stable" not in written
 
 
 def test_fp_rank_one_is_the_most_negative_fp():

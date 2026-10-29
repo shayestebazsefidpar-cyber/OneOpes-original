@@ -19,27 +19,16 @@ from cyclopts.validators import Number
 from MDAnalysis import AtomGroup, Universe
 
 from oneopes import __version__
-from oneopes.convergence import (
-    DEFAULT_TOLERANCES,
-    ConvergenceSummary,
-    Tolerances,
-    compare_blocks,
-    summarize,
-)
+from oneopes.block_run import block_run, run_summary
+from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances
 from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
-from oneopes.reports import write_block_tables, write_summary
-from oneopes.trajectory_blocks import (
-    BLOCK_NS_DEFAULT,
-    FrameLayout,
-    frame_layout,
-    label_block,
-    stack_blocks,
-)
+from oneopes.reports import write_run
+from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, FrameLayout, frame_layout, label_block
 from oneopes.waterfp import measure_hydration
 
 logger = logging.getLogger(__name__)
@@ -83,11 +72,10 @@ class ProteinAnalysis:
     """The candidate pool (see :func:`select_candidates`), in the order of every per-atom result."""
     layout: FrameLayout
     blocks: xr.Dataset
-    """The :func:`measure_frames` of each block, each compared with the one before (:func:`compare_blocks`)."""
+    """The :func:`block_run` of the :func:`measure_frames` of each block, with the frame layout's times."""
     full: xr.Dataset
     """The :func:`measure_frames` of the whole analysed range."""
     sasa: np.ndarray
-    summary: ConvergenceSummary
 
 
 def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnalysis:
@@ -109,12 +97,13 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     labels = list(candidates["Atom"])
     measured = [label_block(measure_frames(system, candidate_atoms, labels, block.frames), block)
                 for block in layout.blocks]
-    blocks = compare_blocks(stack_blocks(measured), options.tolerances)
+    blocks = block_run(measured, options.tolerances, options.block_ns,
+                       trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
+                       analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
     full = measure_frames(system, candidate_atoms, labels, layout.analysed)
-    summary = summarize(blocks, options.block_ns, options.tolerances)
-    logger.info("first sustained convergence: %s ns", summary.converged_ns)
+    logger.info("first sustained convergence: %s ns", run_summary(blocks).converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           full=full, sasa=static_sasa(system, candidate_index), summary=summary)
+                           full=full, sasa=static_sasa(system, candidate_index))
 
 
 OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
@@ -128,16 +117,14 @@ def final_values(full: xr.Dataset) -> pd.DataFrame:
 
 
 def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
-    """Write the candidate pool, the block-wise tables, the convergence summary and the final per-atom table."""
-    candidates, layout = analysis.candidates, analysis.layout
+    """Write the candidate pool, the block run (blocks.nc, block-wise tables, convergence summary) with
+    the contacts per block, and the final per-atom table."""
+    candidates = analysis.candidates
     outdir.mkdir(parents=True, exist_ok=True)
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_block_tables(outdir, analysis.blocks)
+    write_run(outdir, analysis.blocks)
     contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
-    write_summary(outdir / "convergence_summary.json", analysis.summary,
-                  trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
-                  analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
     table = build_final_table(candidates, final_values(analysis.full), analysis.sasa)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))

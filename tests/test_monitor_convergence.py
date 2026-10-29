@@ -1,11 +1,13 @@
 """The ligand convergence monitor: its plots, and `oneopes monitor` end to end on a synthetic ligand in water."""
 import json
+from dataclasses import asdict
 
 import MDAnalysis as mda
 import pandas as pd
 import xarray as xr
 
 from ligand_systems import ligand_in_water
+from oneopes.block_run import load_run, run_facts, run_summary
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
 from oneopes.ligand.monitor import plot_atom
@@ -50,6 +52,9 @@ def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     assert (summary["converged"], summary["converged_block"], summary["n_blocks"]) == (False, None, 5)
     assert summary["trajectory_end_ns"] == (N_FRAMES - 1) / 1000
     assert len(pd.read_csv(outdir / "convergence_metrics.csv")) == 4
+    run = load_run(outdir / "blocks.nc")
+    assert run.sizes["block"] == 5 and run_facts(run)["trajectory_end_ns"] == summary["trajectory_end_ns"]
+    assert asdict(run_summary(run)) == {name: summary[name] for name in asdict(run_summary(run))}
     assert not (outdir / "selection").exists()
 
 
