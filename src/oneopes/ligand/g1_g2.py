@@ -1,29 +1,19 @@
-"""
-Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
-
-    oneopes select --tpr prod.tpr --xtc prod.xtc --outdir outputs/selection \\
-        [--start-frame N] [--end-frame M] [--ligand-selection "resname MOL"]
-
-The monitor already does this for its converged block; use this command for any other frame
-window. Writes, for review:
-    rdf.csv           (atom,r_nm,n_r)  water-O number density, waters/nm^3
-    fingerprints.csv  (atom,fp)        WaterFP per ligand heavy atom
-    g1_g2.yaml        G1 and G2 atom names and 1-based serials (MDAnalysis index + 1)
-"""
-from argparse import ArgumentParser, Namespace
+"""G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP (``oneopes select``)."""
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import MDAnalysis as mda
 import networkx as nx
 import numpy as np
 import yaml
+from cyclopts import Parameter
+from cyclopts.types import ExistingFile
 from MDAnalysis.core.groups import AtomGroup
 
-from oneopes.arguments import add_grid_arguments, add_system_arguments, existing_file, radial_grid
 from oneopes.system import SystemDefinitionError, select_system
-from oneopes.waterfp import WaterFP
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 
@@ -152,33 +142,49 @@ def bond_distances(atoms: AtomGroup) -> Callable[[int, int], int]:
     return distance
 
 
-def add_arguments(p: ArgumentParser) -> None:
-    p.add_argument("--tpr", type=existing_file, required=True, help="topology with bonds")
-    p.add_argument("--xtc", type=existing_file, required=True)
-    p.add_argument("--outdir", type=Path, required=True)
-    add_system_arguments(p)
-    p.add_argument("--start-frame", type=int, default=0)
-    p.add_argument("--end-frame", type=int, default=None)
-    add_grid_arguments(p)
-    p.add_argument("--fp-round-decimals", type=int, default=1, help="decimals FP is rounded to when comparing atoms")
+def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
+           ligand_selection: str | None = None, water_selection: str | None = None,
+           start_frame: int = 0, end_frame: int | None = None,
+           grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
+           norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, fp_round_decimals: int = 1) -> None:
+    """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
+    The monitor already does this for its converged block; use this command for any other
+    frame window. Writes, for review, to --outdir:
+    rdf.csv (atom, r_nm, n_r: water-O number density, waters/nm^3),
+    fingerprints.csv (atom, fp: WaterFP per ligand heavy atom) and
+    g1_g2.yaml (G1 and G2 atom names and 1-based serials, MDAnalysis index + 1).
 
-def run(args: Namespace) -> None:
-    u = mda.Universe(str(args.tpr), str(args.xtc))
+    Parameters
+    ----------
+    tpr
+        Topology with bonds.
+    ligand_selection
+        MDAnalysis selection of the ligand (default: auto-detect).
+    water_selection
+        MDAnalysis selection of the water (default: known water residue names).
+    end_frame
+        Exclusive end frame (default: end of the trajectory).
+    norm_tail_bins
+        Bins at the end of the profile whose mean is the bulk density.
+    fp_round_decimals
+        Decimals FP is rounded to when comparing atoms.
+    """
+    u = mda.Universe(str(tpr), str(xtc))
     try:
-        sel = select_system(u, args.ligand_selection, args.water_selection)
+        sel = select_system(u, ligand_selection, water_selection)
     except SystemDefinitionError as e:
         raise SystemExit(f"[select] {e}")
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
-    waterfp = WaterFP(ligand, water, grid=radial_grid(args), norm_tail_bins=args.norm_tail_bins)
-    waterfp.run(start=args.start_frame, stop=args.end_frame)
+    waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=norm_tail_bins)
+    waterfp.run(start=start_frame, stop=end_frame)
     print(f"[select] {len(ligand)} ligand heavy atoms, frames {waterfp.frames[0]}-{waterfp.frames[-1]}")
     print(waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
 
     try:
-        selection = write_selection(waterfp, args.outdir, args.fp_round_decimals)
+        selection = write_selection(waterfp, outdir, fp_round_decimals)
     except ValueError as e:
         raise SystemExit(f"[select] no G1/G2 selection: {e}")
     print(f"[select] {selection}")
-    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {args.outdir}")
+    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {outdir}")

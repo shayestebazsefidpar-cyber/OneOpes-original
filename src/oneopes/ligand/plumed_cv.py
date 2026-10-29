@@ -1,27 +1,9 @@
-"""
-Write a starting-point PLUMED fragment with GROUP and COORDINATION CVs for G1 and G2.
-
-The G1/G2 atoms come from the g1_g2.yaml written by `oneopes.ligand.g1_g2`.
-This produces a STARTING-POINT fragment, not a complete, ready-to-run
-plumed.dat: it defines G1/G2 as atom GROUPs and a COORDINATION CV for each
-against a water-oxygen group, using placeholder switching-function
-parameters (R_0, NN, MM) that must be reviewed/tuned against your own
-system's conventions (e.g. matching whatever P#/COORDINATION CVs are
-already used elsewhere in your project's plumed.dat files) before use in
-production. Nothing here is fit to, or copied from, any specific system's
-real plumed.dat.
-
-Usage:
-    oneopes build-cv --g1-g2 outputs/selection/g1_g2.yaml \\
-        --water-group-def "GROUPA=<water oxygen atom indices>" \\
-        --out outputs/ligand_cv/plumed_fragment.dat
-"""
-from argparse import ArgumentParser, Namespace
+"""Starting-point PLUMED fragment for the G1/G2 CVs (``oneopes build-cv``)."""
 from pathlib import Path
 
 import yaml
+from cyclopts.types import ExistingFile
 
-from oneopes.arguments import existing_file
 from oneopes.ligand.g1_g2 import SelectionResult
 
 FRAGMENT_TEMPLATE = """\
@@ -48,24 +30,30 @@ PRINT ARG=g1_coord,g2_coord STRIDE=500 FILE=LIGAND_WATERFP_CV.dat
 """
 
 
-def add_arguments(p: ArgumentParser) -> None:
-    p.add_argument("--g1-g2", type=existing_file, required=True, help="YAML written by `oneopes.ligand.g1_g2`")
-    p.add_argument("--water-group-def", default=None,
-                   help="A full PLUMED GROUP line body for the water-oxygen reference group, e.g. "
-                        "'GROUPA=1305-14858' (atom indices, force-field/system dependent). "
-                        "If omitted, the fragment references a WATER_O group you must define yourself.")
-    p.add_argument("--out", type=Path, required=True)
+def build_cv(*, g1_g2: ExistingFile, out: Path, water_group_def: str | None = None) -> None:
+    """Write a starting-point PLUMED fragment with GROUP and COORDINATION CVs for G1 and G2.
 
+    Not a ready-to-run plumed.dat: the switching-function parameters (R_0, NN, MM) are
+    placeholders to review against your own system's conventions before production.
+    Nothing here is fit to, or copied from, any specific system's plumed.dat.
 
-def run(args: Namespace) -> None:
-    out_path = args.out
-    selection = SelectionResult.from_dict(yaml.safe_load(args.g1_g2.read_text()))
+    Parameters
+    ----------
+    g1_g2
+        g1_g2.yaml written by `oneopes select` or `oneopes monitor`.
+    out
+        The PLUMED fragment to write.
+    water_group_def
+        PLUMED GROUP body of the water-oxygen reference group, e.g. 'GROUPA=1305-14858';
+        without it, the fragment refers to a WATER_O group you define yourself.
+    """
+    selection = SelectionResult.from_dict(yaml.safe_load(g1_g2.read_text()))
 
     g1_serials = ",".join(str(a.serial) for a in selection.G1)
     g2_serials = ",".join(str(a.serial) for a in selection.G2)
 
-    if args.water_group_def:
-        water_group_line = f"WATER_O: GROUP {args.water_group_def}"
+    if water_group_def:
+        water_group_line = f"WATER_O: GROUP {water_group_def}"
         water_group_ref = "WATER_O"
     else:
         water_group_line = ("# TODO: define your own water-oxygen reference group, e.g.:\n"
@@ -79,10 +67,10 @@ def run(args: Namespace) -> None:
         water_group_ref=water_group_ref,
     )
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w") as f:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w") as f:
         f.write(fragment)
 
     print(f"[build_ligand_cv] G1 atoms (serials): {g1_serials}")
     print(f"[build_ligand_cv] G2 atoms (serials): {g2_serials}")
-    print(f"[build_ligand_cv] wrote {out_path.resolve()}")
+    print(f"[build_ligand_cv] wrote {out.resolve()}")

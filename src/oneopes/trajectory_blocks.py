@@ -2,6 +2,8 @@
 import numpy as np
 from MDAnalysis import Universe
 
+BLOCK_NS_DEFAULT = 5.0
+
 
 def frame_step_ps(u: Universe) -> float:
     """Time between frames (ps); raises ValueError unless the frames are evenly spaced."""

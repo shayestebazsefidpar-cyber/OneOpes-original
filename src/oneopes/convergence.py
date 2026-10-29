@@ -17,13 +17,17 @@ from oneopes.waterfp import WaterFP
 @dataclass(frozen=True)
 class Tolerances:
     """Thresholds for a stable transition, and how many in a row mean converged."""
-    fp_rel_tol: float
-    rdf_nrmsd_tol: float
-    spearman_tol: float
-    n_stable: int
+    fp_rel_tol: float = 0.10
+    """Largest relative FP change between consecutive blocks."""
+    rdf_nrmsd_tol: float = 0.15
+    """Largest normalised RMSD between consecutive g(r)."""
+    spearman_tol: float = 0.90
+    """Smallest Spearman correlation between consecutive FP rankings."""
+    n_stable: int = 3
+    """Stable transitions in a row that mean converged."""
 
 
-DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
+DEFAULT_TOLERANCES = Tolerances()
 
 
 @dataclass(frozen=True)

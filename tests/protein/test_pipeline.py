@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from oneopes.cli import main, parse_args
+from cyclopts import ValidationError
+
+from oneopes.cli import app, main
 from oneopes.protein.analysis import AnalysisOptions, run_analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
@@ -61,11 +63,11 @@ def test_no_zone_funnel_or_plumed_anywhere_in_a_run(analysis):
 
 def test_cli_has_no_funnel_zone_or_plumed_options(tmp_path):
     base = protein_args(tmp_path)
-    parse_args(base)
+    app.parse_args(base)
     for extra in (["--plumed", "p.dat"], ["--funnel-structure", "a.top"], ["--deep-end", "p0"],
                   ["--deep-middle-tol-nm", "0.0"]):
         with pytest.raises(SystemExit):
-            parse_args(base + extra)
+            app.parse_args(base + extra, print_error=False)
 
 
 def test_final_table_has_every_candidate_once(analysis):
@@ -251,9 +253,8 @@ def test_cli_explicit_10_A_cutoff_end_to_end(tmp_path):
     assert pd.read_csv(out / "final_per_atom_table.csv")["Min_distance_to_ligand_A"].max() <= 10.0
 
 
-def test_missing_input_fails_early(tmp_path, capsys):
-    with pytest.raises(SystemExit):
-        main(["protein", "--complex", str(tmp_path / "nope.pdb"), "--topology", "x", "--trajectory", "y",
-              "--output-dir", str(tmp_path / "o")])
-    assert "file not found" in capsys.readouterr().err
+def test_missing_input_fails_early(tmp_path):
+    with pytest.raises(ValidationError, match="does not exist"):
+        app(["protein", "--complex", str(tmp_path / "nope.pdb"), "--topology", "x", "--trajectory", "y",
+             "--output-dir", str(tmp_path / "o")], exit_on_error=False, print_error=False)
     assert not (tmp_path / "o").exists()

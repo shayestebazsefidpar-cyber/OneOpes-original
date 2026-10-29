@@ -1,39 +1,17 @@
-"""
-Analyse the protein atoms around a bound ligand: WaterFP, contacts and SASA, block by block.
-
-All inputs are explicit (nothing is discovered from the directory layout)::
-
-    oneopes protein --complex complex.pdb --topology prod.tpr --trajectory prod.xtc \\
-        --output-dir outputs/
-
-Retrospective post-processing of an existing, completed unbiased MD
-trajectory (its length is read from the input; nothing is stopped early).
-Pipeline: candidate pool (protein heavy atoms within --candidate-cutoff-A of
-the ligand, on --complex) -> consecutive --block-ns blocks over the whole
-trajectory -> per block: WaterFP/RDF (ligand-side code), Contact, Bridge ->
-convergence metrics for every transition (ligand-side criteria) and the first
-sustained convergence -> full-trajectory FP/Contact/Bridge + static SASA ->
-final_per_atom_table.csv (+ a readable final_per_atom_table.md).
-"""
-
-from __future__ import annotations
+"""Protein-side WaterFP, contacts and SASA around a bound ligand (``oneopes protein``)."""
 
 import hashlib
 import json
 import platform
-from argparse import ArgumentParser, Namespace
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import pandas as pd
-from oneopes.arguments import (
-    BLOCK_NS_DEFAULT,
-    add_convergence_arguments,
-    add_system_arguments,
-    existing_file,
-    tolerances,
-)
+from cyclopts import Parameter
+from cyclopts.types import ExistingFile
+
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     Tolerances,
@@ -43,7 +21,14 @@ from oneopes.convergence import (
     write_summary,
 )
 from oneopes.system import select_system
-from oneopes.trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
+from oneopes.trajectory_blocks import (
+    BLOCK_NS_DEFAULT,
+    complete_blocks,
+    frame_step_ps,
+    frame_time_ns,
+    frames_per_block,
+    time_span_ns,
+)
 from oneopes.waterfp import WaterFP
 
 from oneopes import __version__
@@ -194,40 +179,58 @@ def _versions() -> dict:
     return out
 
 
-def add_arguments(p: ArgumentParser) -> None:
-    p.add_argument("--complex", type=existing_file, required=True,
-                   help="protein-ligand structure used for candidate selection and SASA")
-    p.add_argument("--topology", type=existing_file, required=True, help="topology with masses (e.g. GROMACS .tpr)")
-    p.add_argument("--trajectory", type=existing_file, required=True, help="production trajectory")
-    p.add_argument("--output-dir", type=Path, required=True)
-    p.add_argument("--candidate-cutoff-A", type=float, default=CANDIDATE_CUTOFF_A_DEFAULT)
-    p.add_argument("--first-frame", type=int, default=0)
-    p.add_argument("--last-frame", type=int, default=None, help="exclusive end frame (default: end of trajectory)")
-    add_system_arguments(p)
-    add_convergence_arguments(p)
+def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: ExistingFile, output_dir: Path,
+            candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A")] = CANDIDATE_CUTOFF_A_DEFAULT,
+            first_frame: int = 0, last_frame: int | None = None,
+            ligand_selection: str | None = None, water_selection: str | None = None,
+            block_ns: float = BLOCK_NS_DEFAULT,
+            tol: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES) -> None:
+    """Analyse the protein atoms around a bound ligand: WaterFP, contacts and SASA, block by block.
 
+    Retrospective post-processing of a completed unbiased trajectory (nothing is stopped
+    early): candidate pool (protein heavy atoms within --candidate-cutoff-A of the ligand in
+    --complex) -> consecutive blocks over the whole trajectory -> per block WaterFP, Contact
+    and Bridge -> convergence of every transition -> full-trajectory FP, Contact and Bridge
+    plus static SASA -> final_per_atom_table.csv (and a readable .md).
 
-def run(args: Namespace) -> None:
+    Parameters
+    ----------
+    complex
+        Protein-ligand structure used for the candidate pool and SASA.
+    topology
+        Topology with masses (e.g. a GROMACS .tpr).
+    trajectory
+        Production trajectory.
+    candidate_cutoff_A
+        Largest distance (A) from the ligand of a candidate protein atom.
+    last_frame
+        Exclusive end frame (default: end of the trajectory).
+    ligand_selection
+        MDAnalysis selection of the ligand (default: auto-detect).
+    water_selection
+        MDAnalysis selection of the water (default: known water residue names).
+    block_ns
+        Trajectory block size (ns).
+    """
     import MDAnalysis as mda
 
     try:
-        u_traj = mda.Universe(str(args.topology), str(args.trajectory))
+        u_traj = mda.Universe(str(topology), str(trajectory))
     except Exception as err:
         raise SystemExit(f"[protein-waterfp] topology and trajectory are incompatible: {err}") from err
     try:
-        u_complex = mda.Universe(str(args.topology), str(args.complex))
-        raw_complex = mda.Universe(str(args.complex))
+        u_complex = mda.Universe(str(topology), str(complex))
+        raw_complex = mda.Universe(str(complex))
     except Exception as err:
         raise SystemExit(f"[protein-waterfp] topology and complex are incompatible: {err}") from err
 
     options = AnalysisOptions(
-        candidate_cutoff_A=args.candidate_cutoff_A, block_ns=args.block_ns, first_frame=args.first_frame,
-        last_frame=args.last_frame, ligand_selection=args.ligand_selection, water_selection=args.water_selection,
-        tolerances=tolerances(args),
+        candidate_cutoff_A=candidate_cutoff_A, block_ns=block_ns, first_frame=first_frame, last_frame=last_frame,
+        ligand_selection=ligand_selection, water_selection=water_selection, tolerances=tol,
     )
-    outdir = args.output_dir
+    outdir = output_dir
     meta = run_analysis(u_complex, u_traj, options, outdir, complex_structure=raw_complex)
-    inputs = {"complex": args.complex, "topology": args.topology, "trajectory": args.trajectory}
+    inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
     meta["inputs"] = {name: {"file": path.name, "sha256": _sha256(path), "bytes": path.stat().st_size}
                       for name, path in inputs.items()}
     meta["options"] = asdict(options)

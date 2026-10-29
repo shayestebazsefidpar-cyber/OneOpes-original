@@ -5,7 +5,7 @@ import inspect
 import numpy as np
 import pytest
 
-from oneopes.cli import parse_args
+from oneopes.cli import app
 from oneopes.protein import analysis
 from oneopes.protein.candidates import (
     CANDIDATE_CUTOFF_A_DEFAULT,
@@ -30,17 +30,17 @@ def protein_args(tmp_path) -> list[str]:
             "--trajectory", str(tmp_path / "x.xtc"), "--output-dir", str(tmp_path / "o")]
 
 
-def test_default_cutoff_is_exactly_7_A(tmp_path):
+def test_default_cutoff_is_exactly_7_A():
     assert CANDIDATE_CUTOFF_A_DEFAULT == 7.0
     assert analysis.AnalysisOptions().candidate_cutoff_A == 7.0
-    assert parse_args(protein_args(tmp_path)).candidate_cutoff_A == 7.0
+    assert inspect.signature(analysis.protein).parameters["candidate_cutoff_A"].default == 7.0
     assert inspect.signature(select_candidates).parameters["cutoff_A"].default == 7.0
 
 
 @pytest.mark.parametrize("value", [7.0, 10.0])
 def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
-    args = parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", str(value)])
-    assert args.candidate_cutoff_A == value
+    _command, bound, _ = app.parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", str(value)])
+    assert bound.arguments["candidate_cutoff_A"] == value
 
 
 def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):

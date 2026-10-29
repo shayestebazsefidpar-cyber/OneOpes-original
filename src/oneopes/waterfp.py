@@ -23,7 +23,9 @@ class RadialGrid:
     """Uniform radial bins from 0 to rmax_nm (the WaterFP reference: 2.001 nm in 0.001 nm bins)."""
 
     rmax_nm: float = 2.001
+    """Largest water-O distance counted (nm)."""
     binwidth_nm: float = 0.001
+    """Width of one radial bin (nm)."""
 
     @property
     def n_bins(self) -> int:

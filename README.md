@@ -58,12 +58,15 @@ a quick visual check.
     ├── render/                  <- 5. optional: render selected atoms
     ├── protein/                 <- protein-side analysis (`oneopes protein`)
     ├── funnel/                  <- BioSimSpace funnel CV
-    ├── cli.py                   <- the `oneopes` command, one subcommand per stage
-    └── arguments.py             <- arguments shared by several subcommands
+    └── cli.py                   <- the `oneopes` command, one subcommand per stage
 ```
 
-Each stage has its notes in `docs/`. Each stage's module provides
-`add_arguments()` and `run()`, and `cli.py` turns it into a subcommand.
+Each stage has its notes in `docs/`. Each subcommand is a typed function in
+its stage's module (e.g. `oneopes.ligand.monitor.monitor`); `cli.py`
+registers it with [cyclopts](https://cyclopts.readthedocs.io), which builds
+the flags from its parameters and the help from its docstring. Shared
+settings such as `Tolerances` and `RadialGrid` are dataclasses whose fields
+become flags.
 
 ## 3. Install
 

@@ -1,40 +1,22 @@
-"""
-Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
-
-Analyses the trajectory block by block as mdrun writes it (oneopes.waterfp.WaterFP),
-compares each block with the previous one (oneopes.convergence), and stops
-once --n-stable transitions in a row are stable, sending SIGTERM to the given
-mdrun PID. Tables, plots and a summary are written to --outdir; on convergence,
-the G1/G2 selection of the converged block goes to --outdir/selection.
-docs/METHOD_RATIONALE.md explains the criteria.
-
-Usage:
-    oneopes monitor                       # no auto-stop, just monitor/report
-    oneopes monitor 12345                 # SIGTERM pid 12345 on convergence
-    oneopes monitor --tpr prod.tpr --xtc prod.xtc --ligand-selection "resname MOL"
-"""
+"""Convergence monitor of an unbiased ligand-in-water run (``oneopes monitor``)."""
 import os
 import time
 import signal
-from argparse import ArgumentParser, Namespace
 from collections.abc import Callable, Iterator
 from itertools import count
 from pathlib import Path
+from typing import Annotated
 
 import MDAnalysis as mda
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from cyclopts import Parameter
+from cyclopts.types import ExistingFile
 
-from oneopes.arguments import (
-    add_convergence_arguments,
-    add_grid_arguments,
-    add_system_arguments,
-    existing_file,
-    radial_grid,
-    tolerances,
-)
 from oneopes.convergence import (
+    DEFAULT_TOLERANCES,
+    Tolerances,
     compare_blocks,
     first_convergence,
     fp_per_block,
@@ -46,23 +28,14 @@ from oneopes.convergence import (
 )
 from oneopes.ligand.g1_g2 import write_selection
 from oneopes.system import SystemDefinitionError, select_system
-from oneopes.trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
-from oneopes.waterfp import WaterFP
-
-
-def add_arguments(p: ArgumentParser) -> None:
-    p.add_argument("mdrun_pid", type=int, nargs="?", default=None,
-                   help="PID of a running gmx mdrun to SIGTERM on convergence (optional)")
-    p.add_argument("--tpr", type=existing_file, default="prod.tpr")
-    p.add_argument("--xtc", type=existing_file, default="prod.xtc")
-    p.add_argument("--outdir", type=Path, default="outputs/convergence")
-    add_system_arguments(p)
-    add_grid_arguments(p)
-    add_convergence_arguments(p)
-    p.add_argument("--poll-seconds", type=int, default=30,
-                   help="Wait time between polls when waiting for more trajectory frames (default: 30)")
-    p.add_argument("--fp-round-decimals", type=int, default=1,
-                   help="Decimals FP is rounded to when the G1/G2 selection compares atoms (default: 1)")
+from oneopes.trajectory_blocks import (
+    BLOCK_NS_DEFAULT,
+    frame_step_ps,
+    frame_time_ns,
+    frames_per_block,
+    time_span_ns,
+)
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 
 def process_alive(pid):
@@ -141,39 +114,67 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     return fp_plot_path, rdf_plot_path
 
 
-def run(args: Namespace) -> None:
-    tol = tolerances(args)
-    outdir = args.outdir
+def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),
+            xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
+            ligand_selection: str | None = None, water_selection: str | None = None,
+            grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
+            norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, block_ns: float = BLOCK_NS_DEFAULT,
+            tol: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES,
+            poll_seconds: int = 30, fp_round_decimals: int = 1) -> None:
+    """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
+
+    Analyses the trajectory block by block as mdrun writes it, compares each block with the
+    previous one, and once --n-stable transitions in a row are stable sends SIGTERM to the
+    mdrun PID. Tables, plots and convergence_summary.json go to --outdir; on convergence, the
+    G1/G2 selection of the converged block goes to --outdir/selection.
+    docs/METHOD_RATIONALE.md explains the criteria.
+
+    Parameters
+    ----------
+    mdrun_pid
+        PID of a running gmx mdrun to SIGTERM on convergence; without it, only report.
+    ligand_selection
+        MDAnalysis selection of the ligand (default: auto-detect).
+    water_selection
+        MDAnalysis selection of the water (default: known water residue names).
+    norm_tail_bins
+        Bins at the end of the profile whose mean is the bulk density.
+    block_ns
+        Trajectory block size (ns).
+    poll_seconds
+        Wait between polls for more trajectory frames.
+    fp_round_decimals
+        Decimals FP is rounded to when the G1/G2 selection compares atoms.
+    """
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
 
     def get_universe():
-        return mda.Universe(str(args.tpr), str(args.xtc))
+        return mda.Universe(str(tpr), str(xtc))
 
     u = get_universe()
     try:
-        sel = select_system(u, args.ligand_selection, args.water_selection)
+        sel = select_system(u, ligand_selection, water_selection)
     except SystemDefinitionError as e:
         raise SystemExit(f"[monitor] {e}")
     heavy_names = list(u.atoms[sel.ligand_heavy].names)
     print(f"[monitor] {len(heavy_names)} ligand heavy atoms ({sel.ligand_description}): {heavy_names}")
     print(f"[monitor] {len(sel.water_oxygens)} water oxygens ({sel.water_description})")
-    grid = radial_grid(args)
     print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
-          f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
+          f"norm=mean of last {norm_tail_bins} bins (WaterFP fp.py convention)")
 
-    u = wait_for_frames(get_universe, 2, args.mdrun_pid, args.poll_seconds)
+    u = wait_for_frames(get_universe, 2, mdrun_pid, poll_seconds)
     try:
         dt_ps = frame_step_ps(u)
-        block_length = frames_per_block(args.block_ns, dt_ps)
+        block_length = frames_per_block(block_ns, dt_ps)
     except ValueError as e:
         raise SystemExit(f"[monitor] {e}")
-    print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({args.block_ns} ns)")
+    print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({block_ns} ns)")
 
     blocks, block_times, stabilities = [], [], []
-    for u, frames in completed_blocks(get_universe, block_length, args.mdrun_pid, args.poll_seconds):
+    for u, frames in completed_blocks(get_universe, block_length, mdrun_pid, poll_seconds):
         blocks.append(WaterFP(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], grid=grid,
-                              norm_tail_bins=args.norm_tail_bins).run(start=frames.start, stop=frames.stop))
+                              norm_tail_bins=norm_tail_bins).run(start=frames.start, stop=frames.stop))
         block_times.append(time_span_ns(u, frames, dt_ps))
         write_block_tables(outdir, blocks, block_times, tol)
         stabilities = compare_blocks([block.results for block in blocks], tol)
@@ -187,7 +188,7 @@ def run(args: Namespace) -> None:
 
     if not blocks:
         raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
-    summary = summarize(stabilities, block_times, args.block_ns, tol)
+    summary = summarize(stabilities, block_times, block_ns, tol)
     trajectory_end_ns = frame_time_ns(get_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
                   ligand_selection=sel.ligand_description, ligand_heavy_atoms=heavy_names)
@@ -203,15 +204,15 @@ def run(args: Namespace) -> None:
         return
     print(f"[monitor] DONE, converged at block {summary.converged_block} ({summary.converged_ns} ns)")
 
-    if process_alive(args.mdrun_pid):
-        print(f"[monitor] sending SIGTERM to mdrun pid {args.mdrun_pid}")
+    if process_alive(mdrun_pid):
+        print(f"[monitor] sending SIGTERM to mdrun pid {mdrun_pid}")
         try:
-            os.kill(args.mdrun_pid, signal.SIGTERM)
+            os.kill(mdrun_pid, signal.SIGTERM)
         except OSError as e:
-            print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
+            print(f"[monitor] failed to signal mdrun pid {mdrun_pid}: {e}")
 
     try:
-        selection = write_selection(blocks[-1], outdir / "selection", args.fp_round_decimals)
+        selection = write_selection(blocks[-1], outdir / "selection", fp_round_decimals)
         print(f"[monitor] {selection}, written to {outdir / 'selection'}")
     except ValueError as e:
         print(f"[monitor] no G1/G2 selection for block {summary.converged_block}: {e}")

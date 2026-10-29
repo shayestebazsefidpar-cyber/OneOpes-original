@@ -1,35 +1,21 @@
-"""``oneopes``: one command with a subcommand per stage; ``oneopes <subcommand> --help`` describes each."""
+"""The ``oneopes`` command: one subcommand per stage, each a typed function whose docstring is its help."""
 
-from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
 from collections.abc import Sequence
 
-from oneopes.ligand import g1_g2, monitor, plumed_cv, setup
-from oneopes.protein import analysis
-from oneopes.render import add_legend
+from cyclopts import App
 
-SUBCOMMANDS = {
-    "prepare-system": setup,
-    "monitor": monitor,
-    "select": g1_g2,
-    "build-cv": plumed_cv,
-    "protein": analysis,
-    "add-legend": add_legend,
-}
-"""Each module provides ``add_arguments(parser)`` and ``run(args)``; its docstring is the subcommand's help."""
+from oneopes.ligand.g1_g2 import select
+from oneopes.ligand.monitor import monitor
+from oneopes.ligand.plumed_cv import build_cv
+from oneopes.ligand.setup import prepare_system
+from oneopes.protein.analysis import protein
+from oneopes.render.add_legend import add_legend
 
-
-def parse_args(argv: Sequence[str] | None = None) -> Namespace:
-    parser = ArgumentParser(prog="oneopes", description=__doc__)
-    subcommands = parser.add_subparsers(dest="subcommand", required=True)
-    for name, module in SUBCOMMANDS.items():
-        summary = module.__doc__.strip().splitlines()[0]
-        p = subcommands.add_parser(name, help=summary, description=module.__doc__,
-                                   formatter_class=RawDescriptionHelpFormatter)
-        module.add_arguments(p)
-        p.set_defaults(run=module.run)
-    return parser.parse_args(argv)
+app = App(name="oneopes", help="Hydration and funnel collective variables for OneOPES, from unbiased MD.",
+          result_action="return_value")
+for command in (prepare_system, monitor, select, build_cv, protein, add_legend):
+    app.command(command)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args = parse_args(argv)
-    args.run(args)
+    app(argv)
