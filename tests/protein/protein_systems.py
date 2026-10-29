@@ -73,3 +73,11 @@ def simple_protein(n_res=12, origin=(10.0, 10.0, 10.0), spacing=3.5, direction=(
         ]
     return out
 
+
+def protein_args(directory) -> list[str]:
+    """`oneopes protein` with its required inputs as (empty) files in ``directory``."""
+    for name in ("c.pdb", "t.tpr", "x.xtc"):
+        (directory / name).touch()
+    return ["protein", "--complex", str(directory / "c.pdb"), "--topology", str(directory / "t.tpr"),
+            "--trajectory", str(directory / "x.xtc"), "--output-dir", str(directory / "o")]
+

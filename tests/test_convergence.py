@@ -23,7 +23,7 @@ from oneopes.convergence import (
     write_block_tables,
     write_summary,
 )
-from test_waterfp import random_universe
+from water_systems import random_universe
 from oneopes.waterfp import WaterFP
 
 TOL = DEFAULT_TOLERANCES

@@ -13,8 +13,7 @@ from oneopes.protein.analysis import AnalysisOptions, run_analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
 from oneopes.system import select_system
-from protein_systems import build_universe, simple_protein
-from test_selection import protein_args
+from protein_systems import build_universe, protein_args, simple_protein
 
 LIGAND = [("C1", "C", (30.0, 16.0, 10.0)), ("N1", "N", (31.3, 16.0, 10.0)),
           ("O1", "O", (32.0, 17.1, 10.0)), ("H1", "H", (29.5, 16.8, 10.0))]

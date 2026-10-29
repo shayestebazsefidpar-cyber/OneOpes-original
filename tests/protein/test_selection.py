@@ -14,20 +14,12 @@ from oneopes.protein.candidates import (
     validate_same_atoms,
 )
 from oneopes.system import SystemDefinitionError, select_system
-from protein_systems import build_universe, simple_protein
+from protein_systems import build_universe, protein_args, simple_protein
 
 
 def _min_dist(u, sel, idx):
     lig = u.atoms[sel.ligand_heavy].positions
     return np.min(np.linalg.norm(lig - u.atoms[idx].position, axis=1))
-
-
-def protein_args(tmp_path) -> list[str]:
-    """`oneopes protein` with its required inputs as (empty) files in ``tmp_path``."""
-    for name in ("c.pdb", "t.tpr", "x.xtc"):
-        (tmp_path / name).touch()
-    return ["protein", "--complex", str(tmp_path / "c.pdb"), "--topology", str(tmp_path / "t.tpr"),
-            "--trajectory", str(tmp_path / "x.xtc"), "--output-dir", str(tmp_path / "o")]
 
 
 def test_default_cutoff_is_exactly_7_A():
