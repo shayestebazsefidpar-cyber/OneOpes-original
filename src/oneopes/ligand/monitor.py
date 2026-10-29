@@ -195,8 +195,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     sel = select_system(u, ligand_selection, water_selection)
     ligand = u.atoms[sel.ligand_heavy]
     atom_names = list(ligand.names)
-    logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_description, atom_names)
-    logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_description)
+    logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_selection, atom_names)
+    logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
                 grid.rmax_nm, grid.n_bins, norm_tail_bins)
 
@@ -224,7 +224,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     summary = summarize(compare_blocks(blocks, tol), len(measured), block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
-                  ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
+                  ligand_selection=sel.ligand_selection, ligand_heavy_atoms=atom_names)
     plot_blocks(blocks, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",

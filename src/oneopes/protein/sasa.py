@@ -10,7 +10,7 @@ by index - no file is written or reused.
 import numpy as np
 
 from oneopes.protein.inputs import ProteinSystem
-from oneopes.system import heavy_mask
+from oneopes.system import heavy_atoms
 
 
 def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndarray:
@@ -19,8 +19,7 @@ def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndar
 
     freesasa.setVerbosity(freesasa.silent)
     selection = system.selection
-    atoms = system.complex.atoms[np.union1d(selection.protein_all, selection.ligand_all)]
-    atoms = atoms[heavy_mask(atoms)]
+    atoms = heavy_atoms(system.complex.atoms[np.union1d(selection.protein_all, selection.ligand_all)])
     structure = freesasa.Structure()
     for atom in atoms:
         x, y, z = (float(c) for c in atom.position)

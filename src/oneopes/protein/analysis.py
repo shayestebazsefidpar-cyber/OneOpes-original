@@ -99,8 +99,8 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     cover the whole analysed range.
     """
     sel = system.selection
-    logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_description,
-                len(sel.ligand_heavy), sel.water_description, len(sel.water_oxygens))
+    logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_selection,
+                len(sel.ligand_heavy), sel.water_selection, len(sel.water_oxygens))
     candidates = select_candidates(system, options.candidate_cutoff_A)
     candidate_index = candidates["Atom_index"].to_numpy()
     logger.info("%d candidate protein heavy atoms within %s A", len(candidates), options.candidate_cutoff_A)
@@ -154,8 +154,8 @@ def run_metadata(analysis: ProteinAnalysis) -> dict:
         "contact_cutoff_A": CONTACT_CUTOFF_A,
         "bridge_water_cutoff_A": BRIDGE_WATER_CUTOFF_A,
         "n_candidate_atoms": len(analysis.candidates),
-        "ligand_selection": sel.ligand_description,
-        "water_selection": sel.water_description,
+        "ligand_selection": sel.ligand_selection,
+        "water_selection": sel.water_selection,
         "frames": asdict(analysis.layout),
         "options": asdict(analysis.options),
         "versions": {"python": platform.python_version(), "oneopes": __version__}

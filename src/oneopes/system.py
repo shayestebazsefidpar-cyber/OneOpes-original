@@ -2,15 +2,15 @@
 Ligand, water oxygens and (when present) protein of a system, by the same rules everywhere.
 
 * Protein: MDAnalysis ``protein`` selection (standard residue names); may be empty.
-* Heavy atom: topology mass >= 1.5 and not element H (excludes hydrogens and
-  massless virtual sites).
-* Water: residues with a known water residue name (or an explicit
-  selection); water oxygens are the atoms of those residues whose name starts with O.
-* Ligand: an explicit selection, or the single residue name that is not
-  protein, water or a known ion and has more than one atom. Several such
-  residue names is an error (no guessing).
+* Heavy atom: mass >= 1.5 and not element H (excludes hydrogens, also mass-repartitioned
+  ones, and massless virtual sites). Elements missing from the topology are guessed from atom names.
+* Water: residues with a known water residue name (or an explicit selection); its oxygens are
+  the water atoms of element O.
+* Ligand: an explicit selection, or the single residue name, other than protein and water,
+  of residues with more than one atom. Several such residue names is an error (no guessing).
 """
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -18,13 +18,13 @@ from MDAnalysis import AtomGroup, Universe
 
 from oneopes.errors import InputError
 
-HEAVY_ATOM_MIN_MASS = 1.5
+logger = logging.getLogger(__name__)
+
+HEAVY_ATOMS = "prop mass >= 1.5 and not element H"
+"""MDAnalysis selection of heavy atoms."""
 
 KNOWN_WATER_RESNAMES = (
     "WAT", "SOL", "HOH", "TIP3", "TIP3P", "TIP4", "TIP4P", "TIP5", "TIP5P", "T3P", "T4P", "SPC", "SPCE",
-)
-KNOWN_ION_RESNAMES = (
-    "NA", "CL", "NA+", "CL-", "SOD", "CLA", "K", "K+", "POT", "MG", "MG2+", "ZN", "ZN2+", "CA", "CA2+", "CAL",
 )
 
 
@@ -34,44 +34,52 @@ class SystemDefinitionError(InputError):
 
 @dataclass(frozen=True)
 class SystemSelection:
-    """0-based atom indices of each part of the system; the protein arrays are empty without a protein."""
-    protein_heavy: np.ndarray
-    ligand_heavy: np.ndarray
-    ligand_all: np.ndarray
+    """0-based atom indices of each part of the system, and the selections that found the ligand and water.
+
+    Indices rather than AtomGroups, so that they apply to any universe of the same topology (the
+    monitor reloads its trajectory; the protein side moves them to the complex structure).
+    The protein arrays are empty without a protein.
+    """
     protein_all: np.ndarray
+    protein_heavy: np.ndarray
+    ligand_all: np.ndarray
+    ligand_heavy: np.ndarray
     water_oxygens: np.ndarray
-    ligand_description: str
-    water_description: str
+    ligand_selection: str
+    water_selection: str
 
 
-def heavy_mask(atoms: AtomGroup) -> np.ndarray:
-    """True for heavy atoms: mass >= 1.5 and not element H (when elements are known)."""
-    mask = atoms.masses >= HEAVY_ATOM_MIN_MASS
-    if hasattr(atoms, "elements"):
-        mask &= np.array([str(e).strip().upper() != "H" for e in atoms.elements], dtype=bool)
-    return mask
+def ensure_elements(u: Universe) -> None:
+    """Guess the elements from the atom names (MDAnalysis guesser) when the topology has none."""
+    if not hasattr(u.atoms, "elements"):
+        logger.warning("The topology has no elements: guessing them from the atom names.")
+        u.guess_TopologyAttrs(to_guess=["elements"])
 
 
-def _water_atoms(u: Universe, water_selection: str | None) -> tuple[AtomGroup, str]:
+def heavy_atoms(atoms: AtomGroup) -> AtomGroup:
+    """The heavy atoms of ``atoms`` (see :data:`HEAVY_ATOMS`)."""
+    ensure_elements(atoms.universe)
+    return atoms.select_atoms(HEAVY_ATOMS)
+
+
+def find_water(u: Universe, water_selection: str | None) -> tuple[AtomGroup, str]:
+    """The water atoms (of ``water_selection``, or of the known water residue names) and the selection used."""
     if water_selection:
         water = u.select_atoms(water_selection)
-        description = water_selection
     else:
-        names = [r for r in KNOWN_WATER_RESNAMES if len(u.select_atoms(f"resname {r}"))]
-        water = u.select_atoms("resname " + " ".join(names)) if names else u.atoms[[]]
-        description = "resname " + " ".join(names)
+        water = u.select_atoms("resname " + " ".join(KNOWN_WATER_RESNAMES))
+        water_selection = "resname " + " ".join(sorted(set(water.resnames)))
     if len(water) == 0:
         raise SystemDefinitionError("No water found; pass an explicit water selection.")
-    return water, description
+    return water, water_selection
 
 
-def _ligand_atoms(u: Universe, ligand_selection: str | None, protein: AtomGroup,
-                  water: AtomGroup) -> tuple[AtomGroup, str]:
+def find_ligand(u: Universe, ligand_selection: str | None, protein: AtomGroup,
+                water: AtomGroup) -> tuple[AtomGroup, str]:
+    """The ligand atoms (of ``ligand_selection``, or detected) and the selection used."""
     if not ligand_selection:
-        excluded = {r.upper() for r in KNOWN_WATER_RESNAMES + KNOWN_ION_RESNAMES}
-        other_res = set(protein.residues.ix) | set(water.residues.ix)
-        names = sorted({r.resname for r in u.residues
-                        if r.ix not in other_res and r.resname.upper() not in excluded and len(r.atoms) > 1})
+        others = u.atoms - protein - water
+        names = sorted({residue.resname for residue in others.residues if residue.atoms.n_atoms > 1})
         if len(names) != 1:
             raise SystemDefinitionError(
                 f"Cannot identify the ligand automatically (candidate residue names: {names}); "
@@ -81,31 +89,31 @@ def _ligand_atoms(u: Universe, ligand_selection: str | None, protein: AtomGroup,
     ligand = u.select_atoms(ligand_selection)
     if len(ligand) == 0:
         raise SystemDefinitionError(f"Ligand selection {ligand_selection!r} is empty.")
-    if np.intersect1d(ligand.indices, protein.indices).size:
+    if ligand & protein:
         raise SystemDefinitionError("Ligand selection overlaps the protein.")
     return ligand, ligand_selection
 
 
 def select_system(u: Universe, ligand_selection: str | None = None,
                   water_selection: str | None = None) -> SystemSelection:
-    """Identify the protein, ligand and water oxygens in ``u``."""
+    """Identify the protein, ligand and water oxygens in ``u`` (guessing its elements if it has none)."""
+    ensure_elements(u)
     protein = u.select_atoms("protein")
-    water, water_description = _water_atoms(u, water_selection)
-    ligand, ligand_description = _ligand_atoms(u, ligand_selection, protein, water)
-    ligand_heavy = ligand[heavy_mask(ligand)]
+    water, water_selection = find_water(u, water_selection)
+    ligand, ligand_selection = find_ligand(u, ligand_selection, protein, water)
+    ligand_heavy = heavy_atoms(ligand)
     if len(ligand_heavy) == 0:
-        raise SystemDefinitionError(f"Ligand selection {ligand_description!r} has no heavy atoms.")
-
-    water_o = water[np.array([str(n).upper().startswith("O") for n in water.names])]
-    if len(water_o) == 0:
-        raise SystemDefinitionError("Water selection contains no oxygen atoms (names starting with 'O').")
+        raise SystemDefinitionError(f"Ligand selection {ligand_selection!r} has no heavy atoms.")
+    water_oxygens = water.select_atoms("element O")
+    if len(water_oxygens) == 0:
+        raise SystemDefinitionError(f"Water selection {water_selection!r} contains no oxygen atoms.")
 
     return SystemSelection(
-        protein_heavy=protein[heavy_mask(protein)].indices,
-        ligand_heavy=ligand_heavy.indices,
-        ligand_all=ligand.indices,
         protein_all=protein.indices,
-        water_oxygens=water_o.indices,
-        ligand_description=ligand_description,
-        water_description=water_description,
+        protein_heavy=heavy_atoms(protein).indices,
+        ligand_all=ligand.indices,
+        ligand_heavy=ligand_heavy.indices,
+        water_oxygens=water_oxygens.indices,
+        ligand_selection=ligand_selection,
+        water_selection=water_selection,
     )

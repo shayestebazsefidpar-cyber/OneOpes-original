@@ -30,7 +30,7 @@ def test_ligand_in_water_without_protein():
     u = ligand_in_water(LIGAND)
     sel = select_system(u)
     assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
-    assert sel.protein_heavy.size == 0 and sel.ligand_description == "resname MOL"
+    assert sel.protein_heavy.size == 0 and sel.ligand_selection == "resname MOL"
     assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
 
 
@@ -41,6 +41,15 @@ def test_heavy_atoms_are_the_ones_a_name_rule_would_pick_for_an_ordinary_ligand(
 
 def test_virtual_sites_are_not_heavy_atoms():
     u = ligand_in_water(LIGAND + [("LP1", "X")], water_names=("OW", "HW1", "HW2", "MW"))
+    sel = select_system(u)
+    assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
+    assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
+
+
+def test_without_elements_mass_repartitioned_hydrogens_are_still_not_heavy():
+    u = ligand_in_water(LIGAND)
+    u.del_TopologyAttr("elements")
+    u.atoms.masses = np.where(u.atoms.masses == MASSES["H"], 3.024, u.atoms.masses)
     sel = select_system(u)
     assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
     assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
