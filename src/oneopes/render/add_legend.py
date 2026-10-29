@@ -3,17 +3,14 @@ import logging
 from pathlib import Path
 
 from cyclopts.types import ExistingFile
-from PIL import Image, ImageDraw, ImageFont
+from matplotlib.figure import Figure
+from matplotlib.image import imread
+from matplotlib.lines import Line2D
 
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import G1G2Selection, read_g1_g2_yaml
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_FONT_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-]
 
 Rgb = tuple[int, int, int]
 G1_RGB: Rgb = (220, 20, 20)
@@ -37,19 +34,8 @@ def selection_entries(selection: G1G2Selection) -> list[tuple[str, Rgb]]:
     return [(f"Anti-bulk (G1):  {selection.g1_names}", G1_RGB), (f"Bulk (G2):  {selection.g2_names}", G2_RGB)]
 
 
-def load_fonts(title_size: int, body_size: int) -> tuple[ImageFont.ImageFont | ImageFont.FreeTypeFont, ...]:
-    """DejaVu Sans at the two sizes, or PIL's default font when it is not installed."""
-    for path in DEFAULT_FONT_PATHS:
-        try:
-            return ImageFont.truetype(path, title_size), ImageFont.truetype(path, body_size)
-        except OSError:
-            continue
-    return ImageFont.load_default(), ImageFont.load_default()
-
-
 def add_legend(*, src: ExistingFile, dst: Path, g1_g2: ExistingFile | None = None, entry: list[str] | None = None,
-               title: str = "Selected atoms", caption: str = "", title_font_size: int = 34,
-               body_font_size: int = 30) -> None:
+               title: str = "Selected atoms", caption: str = "", font_size: float = 8, dpi: int = 300) -> None:
     """Add a legend to a raw render of the selected atoms and save the annotated figure.
 
     The raw render comes from render_selected_atoms.py (PyMOL) or render_selected_atoms_chimera.py.
@@ -60,50 +46,37 @@ def add_legend(*, src: ExistingFile, dst: Path, g1_g2: ExistingFile | None = Non
     src
         The raw render.
     dst
-        The annotated figure to write.
+        The annotated figure to write, with the size in pixels of the render.
     g1_g2
         g1_g2.yaml whose G1 (red) and G2 (blue) atoms become the first legend entries.
     entry
-        One more legend swatch as 'label:detail:r,g,b'; repeat for each swatch.
+        One more legend entry as 'label:detail:r,g,b'; repeat for each entry.
     title
-        Title of the legend box.
+        Title of the legend.
     caption
         Text along the bottom of the figure (default: none).
-    title_font_size
-        Font size of the legend title.
-    body_font_size
-        Font size of the legend entries and the caption.
+    font_size
+        Font size (pt) of the legend and the caption.
+    dpi
+        Resolution of the figure, which sets how large a point is in pixels.
     """
     entries = selection_entries(read_g1_g2_yaml(g1_g2)) if g1_g2 else []
     entries += [parse_entry(spec) for spec in entry or []]
     if not entries:
         raise InputError("The legend needs --g1-g2 or at least one --entry.")
 
-    img = Image.open(src).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    width, height = img.size
-
-    font_title, font_body = load_fonts(title_font_size, body_font_size)
-
-    pad = 24
-    swatch = 28
-    box_w = 560
-    box_h = pad * 2 + 40 + len(entries) * 50 + 10
-    x0, y0 = width - box_w - 40, 40
-    x1, y1 = x0 + box_w, y0 + box_h
-
-    draw.rectangle([x0, y0, x1, y1], fill=(255, 255, 255), outline=(60, 60, 60), width=2)
-    draw.text((x0 + pad, y0 + pad), title, font=font_title, fill=(0, 0, 0))
-
-    ty = y0 + pad + 50
-    for label, rgb in entries:
-        draw.ellipse([x0 + pad, ty, x0 + pad + swatch, ty + swatch], fill=rgb)
-        draw.text((x0 + pad + swatch + 14, ty - 2), label, font=font_body, fill=(0, 0, 0))
-        ty += 50
-
+    image = imread(src)
+    height, width = image.shape[:2]
+    fig = Figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.imshow(image)
+    ax.set_axis_off()
+    handles = [Line2D([], [], marker="o", linestyle="", color=(r / 255, g / 255, b / 255), label=label)
+               for label, (r, g, b) in entries]
+    ax.legend(handles=handles, title=title, loc="upper right", fontsize=font_size, title_fontsize=font_size)
     if caption:
-        draw.text((40, height - 60), caption, font=font_body, fill=(60, 60, 60))
+        fig.text(0.02, 0.02, caption, fontsize=font_size)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
-    img.save(dst, dpi=(300, 300))
+    fig.savefig(dst, dpi=dpi)
     logger.info("wrote %s", dst)

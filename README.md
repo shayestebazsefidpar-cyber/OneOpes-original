@@ -50,9 +50,7 @@ then `marimo edit notebooks/<name>.py`):
   and g(r) per block.
 - `funnel_check.py`: rebuild a system's funnel axis with BioSimSpace (needs BioSimSpace).
 
-## Code layout
+## Code
 
-`src/oneopes/`: shared core (`system`, `waterfp`, `trajectory_blocks`, `convergence`,
-`block_run`, `reports`, `provenance`), `ligand/` (stages 1-4), `protein/`, `render/`,
-`funnel/`, and `cli.py`, which turns each command function into a subcommand with
+Each command is a plain function; `cli.py` turns it into a subcommand with
 [cyclopts](https://cyclopts.readthedocs.io): flags come from its parameters, help from its docstring.

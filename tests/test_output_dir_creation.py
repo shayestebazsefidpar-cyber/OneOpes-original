@@ -1,6 +1,7 @@
 """Commands that write a file (--out, --dst) create its missing parent directories."""
+import numpy as np
 import yaml
-from PIL import Image
+from matplotlib.image import imsave
 
 from oneopes.cli import main
 
@@ -24,7 +25,7 @@ def test_build_ligand_cv_creates_nested_output_dir(tmp_path):
 
 def test_add_legend_creates_nested_output_dir(tmp_path):
     src_path = tmp_path / "raw.png"
-    Image.new("RGB", (200, 150), color=(255, 255, 255)).save(src_path)
+    imsave(src_path, np.ones((150, 200, 3)))
     dst_path = tmp_path / "does" / "not" / "exist" / "legend.png"
     assert not dst_path.parent.exists()
 
