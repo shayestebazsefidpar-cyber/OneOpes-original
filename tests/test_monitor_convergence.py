@@ -1,19 +1,24 @@
 """The ligand convergence monitor: its plots, and `oneopes monitor` end to end on a synthetic ligand in water."""
 import json
 import os
+import signal
+import subprocess
+import sys
+import time
 from dataclasses import asdict
 from itertools import islice
 from pathlib import Path
 
 import MDAnalysis as mda
 import pandas as pd
+import psutil
 import xarray as xr
 
 from ligand_systems import ligand_in_water
 from oneopes.block_run import load_run, run_facts, run_metadata, run_summary
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
-from oneopes.ligand.monitor import completed_blocks, plot_atom
+from oneopes.ligand.monitor import completed_blocks, plot_atom, process_alive, stop_mdrun
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -119,6 +124,35 @@ def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it():
     blocks = completed_blocks(u, Path("prod.xtc"), 2, os.getpid(), poll_seconds=0)
     assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
         (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
+
+
+SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
+
+
+def test_an_ended_process_is_not_running_even_before_it_is_reaped():
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        for _ in range(200):
+            if psutil.Process(child.pid).status() == psutil.STATUS_ZOMBIE:
+                break
+            time.sleep(0.05)
+        assert not process_alive(child.pid)
+    finally:
+        child.wait()
+
+
+def test_only_an_mdrun_process_is_stopped():
+    other = subprocess.Popen(SLEEPER)
+    mdrun = subprocess.Popen([*SLEEPER, "mdrun"])
+    try:
+        stop_mdrun(other.pid)
+        stop_mdrun(mdrun.pid)
+        assert mdrun.wait(timeout=10) == -signal.SIGTERM
+        assert other.poll() is None
+    finally:
+        other.kill()
+        mdrun.kill()
+        other.wait()
 
 
 def test_once_mdrun_has_stopped_every_frame_is_complete():

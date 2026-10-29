@@ -1,8 +1,6 @@
 """Convergence monitor of an unbiased ligand-in-water run (``oneopes monitor``)."""
 import logging
-import os
 import time
-import signal
 from collections.abc import Iterator
 from dataclasses import asdict
 from itertools import count
@@ -10,6 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 import MDAnalysis as mda
+import psutil
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -33,14 +32,13 @@ logger = logging.getLogger(__name__)
 
 
 def process_alive(pid: int | None) -> bool:
-    """Whether process ``pid`` is running (False without a pid)."""
+    """Whether process ``pid`` is running (False without a pid, or once it has ended, even if not yet reaped)."""
     if pid is None:
         return False
     try:
-        os.kill(pid, 0)
-    except OSError:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
         return False
-    return True
 
 
 def complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
@@ -78,13 +76,21 @@ def completed_blocks(u: mda.Universe, trajectory: Path, block_length: int, mdrun
 
 
 def stop_mdrun(pid: int | None) -> None:
-    """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md)."""
+    """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md).
+
+    The process must have ``mdrun`` on its command line: a PID can be reused once mdrun has ended,
+    and another program must not be stopped by mistake.
+    """
     if pid is None or not process_alive(pid):
         return
-    logger.info("sending SIGTERM to mdrun pid %d", pid)
     try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError as e:
+        process = psutil.Process(pid)
+        if "mdrun" not in process.cmdline():
+            logger.warning("pid %d is %s, not gmx mdrun: not stopping it", pid, process.name())
+            return
+        logger.info("sending SIGTERM to mdrun pid %d", pid)
+        process.terminate()
+    except psutil.Error as e:
         logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
 
