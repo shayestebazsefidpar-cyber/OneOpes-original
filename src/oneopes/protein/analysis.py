@@ -29,6 +29,7 @@ from oneopes.convergence import (
     write_block_tables,
     write_summary,
 )
+from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, Contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
@@ -46,7 +47,7 @@ class AnalysisOptions:
     candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
         CANDIDATE_CUTOFF_A_DEFAULT)
     """Largest distance (A) from the ligand of a candidate protein atom."""
-    block_ns: float = BLOCK_NS_DEFAULT
+    block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT
     """Trajectory block size (ns)."""
     first_frame: int = 0
     """First analysed frame."""
@@ -207,12 +208,12 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     try:
         u_traj = Universe(str(topology), str(trajectory))
     except Exception as err:
-        raise SystemExit(f"[protein-waterfp] topology and trajectory are incompatible: {err}") from err
+        raise InputError(f"topology and trajectory are incompatible: {err}") from err
     try:
         u_complex = Universe(str(topology), str(complex))
         complex_file = Universe(str(complex))
     except Exception as err:
-        raise SystemExit(f"[protein-waterfp] topology and complex are incompatible: {err}") from err
+        raise InputError(f"topology and complex are incompatible: {err}") from err
 
     system = protein_system(u_traj, u_complex, complex_file, options.ligand_selection, options.water_selection)
     analysis = run_analysis(system, options)

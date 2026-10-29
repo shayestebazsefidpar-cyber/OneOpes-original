@@ -16,6 +16,8 @@ from dataclasses import dataclass
 import numpy as np
 from MDAnalysis import AtomGroup, Universe
 
+from oneopes.errors import InputError
+
 HEAVY_ATOM_MIN_MASS = 1.5
 
 KNOWN_WATER_RESNAMES = (
@@ -26,7 +28,7 @@ KNOWN_ION_RESNAMES = (
 )
 
 
-class SystemDefinitionError(ValueError):
+class SystemDefinitionError(InputError):
     """The input system cannot be split unambiguously into protein / ligand / water."""
 
 

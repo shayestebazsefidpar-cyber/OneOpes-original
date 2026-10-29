@@ -8,11 +8,13 @@ import numpy as np
 import yaml
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
+from cyclopts.validators import Number
 from MDAnalysis.core.groups import Atom, AtomGroup
 from pydantic import BaseModel
 from scipy.sparse.csgraph import shortest_path
 
-from oneopes.system import SystemDefinitionError, select_system
+from oneopes.errors import InputError
+from oneopes.system import select_system
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 logger = logging.getLogger(__name__)
@@ -46,7 +48,7 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
 
     The rules of WaterFP's fp_driven_atom_selection.ipynb, checked against it in the tests.
     The atoms are put in FP order first (most negative first, ties keeping their order), so the
-    rules below refer to atoms by FP rank. Raises ValueError when a pair does not exist.
+    rules below refer to atoms by FP rank. Raises InputError when a pair does not exist.
     """
     by_fp = np.argsort(fp, kind="stable")
     atoms, fp = atoms[by_fp], fp[by_fp]
@@ -75,7 +77,7 @@ def bond_separation(atoms: AtomGroup) -> np.ndarray:
     separation = shortest_path(bonded, directed=False, unweighted=True)
     if np.isinf(separation).any():
         a, b = np.argwhere(np.isinf(separation))[0]
-        raise ValueError(f"heavy atoms {atoms[a].name} and {atoms[b].name} are not connected by bonds")
+        raise InputError(f"heavy atoms {atoms[a].name} and {atoms[b].name} are not connected by bonds")
     return separation.astype(int)
 
 
@@ -84,7 +86,7 @@ def bulk_pair(separation: np.ndarray) -> tuple[int, int]:
     anchor = len(separation) - 1
     partner = next((atom for atom in reversed(range(anchor)) if separation[anchor, atom] >= 3), None)
     if partner is None:
-        raise ValueError("no heavy atom is three or more bonds from the least negative FP atom: no bulk partner")
+        raise InputError("no heavy atom is three or more bonds from the least negative FP atom: no bulk partner")
     return anchor, partner
 
 
@@ -98,10 +100,10 @@ def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.n
     first atom with a different FP or exactly as far as the partner.
     """
     if np.count_nonzero(fp_rounded == fp_rounded[0]) > 2:
-        raise ValueError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")
+        raise InputError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")
     not_bonded = [atom for atom in range(1, len(separation)) if separation[0, atom] > 1]
     if not not_bonded:
-        raise ValueError("every other heavy atom is bonded to the most negative FP atom: no anti-bulk partner")
+        raise InputError("every other heavy atom is bonded to the most negative FP atom: no anti-bulk partner")
     partner, *later = not_bonded
     for atom in later:
         if abs(fp_rounded[atom] - fp_rounded[partner]) >= same_fp_within:
@@ -137,7 +139,8 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
            ligand_selection: str | None = None, water_selection: str | None = None,
            start_frame: int = 0, end_frame: int | None = None,
            grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
-           norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, fp_round_decimals: int = 1) -> None:
+           norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT,
+           fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
     The monitor already does this for its converged block; use this command for any other
@@ -162,10 +165,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
         Decimals FP is rounded to when comparing atoms.
     """
     u = mda.Universe(str(tpr), str(xtc))
-    try:
-        sel = select_system(u, ligand_selection, water_selection)
-    except SystemDefinitionError as e:
-        raise SystemExit(f"[select] {e}") from e
+    sel = select_system(u, ligand_selection, water_selection)
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
     waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=norm_tail_bins)
@@ -175,9 +175,6 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
                 waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
 
     write_waterfp_files(waterfp, outdir)
-    try:
-        selection = select_g1_g2(ligand, waterfp.results.fp, fp_round_decimals)
-    except ValueError as e:
-        raise SystemExit(f"[select] no G1/G2 selection: {e}") from e
+    selection = select_g1_g2(ligand, waterfp.results.fp, fp_round_decimals)
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
     logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)

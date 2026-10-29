@@ -5,6 +5,8 @@ from pathlib import Path
 from cyclopts.types import ExistingFile
 from PIL import Image, ImageDraw, ImageFont
 
+from oneopes.errors import InputError
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_FONT_PATHS = [
@@ -17,7 +19,7 @@ def parse_entry(spec):
     """'label:rgb_csv' e.g. 'Anti-bulk (G1):ATOM1, ATOM2:220,20,20' -> (label, (r,g,b))."""
     parts = spec.split(":")
     if len(parts) != 3:
-        raise SystemExit(f"--entry must be 'title:detail:r,g,b', got: {spec}")
+        raise InputError(f"--entry must be 'title:detail:r,g,b', got: {spec}")
     title, detail, rgb_csv = parts
     r, g, b = (int(x) for x in rgb_csv.split(","))
     return f"{title}:  {detail}", (r, g, b)

@@ -4,30 +4,30 @@ from dataclasses import dataclass
 import numpy as np
 from MDAnalysis import Universe
 
+from oneopes.errors import InputError
+
 BLOCK_NS_DEFAULT = 5.0
 
 
 def frame_step_ps(u: Universe) -> float:
-    """Time between frames (ps); raises ValueError unless the frames are evenly spaced."""
+    """Time between frames (ps); raises InputError unless the frames are evenly spaced."""
     n = len(u.trajectory)
     if n < 2:
-        raise ValueError("The trajectory needs at least two frames.")
+        raise InputError("The trajectory needs at least two frames.")
     t0 = u.trajectory[0].time
     dt = u.trajectory[1].time - t0
     if not np.isclose(u.trajectory[n - 1].time - t0, dt * (n - 1), rtol=1e-6, atol=1e-3):
-        raise ValueError("Trajectory frames are not evenly spaced in time.")
+        raise InputError("Trajectory frames are not evenly spaced in time.")
     if not (dt > 0 and np.isfinite(dt)):
-        raise ValueError(f"Trajectory time step must be > 0, got {dt}.")
+        raise InputError(f"Trajectory time step must be > 0, got {dt}.")
     return float(dt)
 
 
 def frames_per_block(block_ns: float, dt_ps: float) -> int:
-    """Frames in a ``block_ns`` block; raises ValueError unless that is a whole, positive number of frames."""
-    if not (block_ns > 0 and np.isfinite(block_ns)):
-        raise ValueError(f"block_ns must be > 0, got {block_ns}.")
+    """Frames in a ``block_ns`` block; raises InputError unless that is a whole, positive number of frames."""
     n = round(block_ns * 1000.0 / dt_ps)
     if n < 1 or not np.isclose(n * dt_ps, block_ns * 1000.0, rtol=0, atol=1e-6 * max(1.0, block_ns * 1000.0)):
-        raise ValueError(f"block_ns={block_ns} is not a whole number of {dt_ps} ps frames.")
+        raise InputError(f"block_ns={block_ns} is not a whole number of {dt_ps} ps frames.")
     return n
 
 
@@ -84,16 +84,16 @@ class FrameLayout:
 def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame: int | None = None) -> FrameLayout:
     """Split frames [first_frame, last_frame) of ``u`` (default: all) into complete ``block_ns`` blocks.
 
-    Raises ValueError for an invalid frame range, unevenly spaced frames, or fewer frames than one block.
+    Raises InputError for an invalid frame range, unevenly spaced frames, or fewer frames than one block.
     """
     n_frames = len(u.trajectory)
     analysed = range(first_frame, n_frames if last_frame is None else last_frame)
     if not 0 <= analysed.start < analysed.stop <= n_frames:
-        raise ValueError(f"Invalid frame range [{analysed.start}, {analysed.stop}) for a {n_frames}-frame trajectory.")
+        raise InputError(f"Invalid frame range [{analysed.start}, {analysed.stop}) for a {n_frames}-frame trajectory.")
     dt_ps = frame_step_ps(u)
     blocks = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
     if not blocks:
-        raise ValueError(f"Frames [{analysed.start}, {analysed.stop}) hold less than one {block_ns} ns block.")
+        raise InputError(f"Frames [{analysed.start}, {analysed.stop}) hold less than one {block_ns} ns block.")
     return FrameLayout(
         n_frames=n_frames,
         dt_ps=dt_ps,

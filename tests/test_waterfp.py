@@ -5,6 +5,7 @@ counting done by the WaterFP analysis, and the FP integral in fingerprint().
 import numpy as np
 import pytest
 
+from oneopes.errors import InputError
 from oneopes.waterfp import RadialGrid, WaterCounts, WaterFP, fingerprint
 from water_systems import random_universe, universe_from_coordinates
 
@@ -71,6 +72,19 @@ def test_no_water_in_the_bulk_tail_is_an_error():
     counts = water_counts(np.zeros((2, 2001), dtype=np.int64))
     with pytest.raises(ValueError, match=r"No water in the bulk tail .* solute atoms \[0, 1\]"):
         fingerprint(counts)
+
+
+@pytest.mark.parametrize("rmax_nm, binwidth_nm", [(2.0, 0.0), (2.0, -0.1), (0.5, 1.0), (0.0, 0.001)])
+def test_radial_grid_needs_a_positive_bin_within_rmax(rmax_nm, binwidth_nm):
+    with pytest.raises(InputError):
+        RadialGrid(rmax_nm=rmax_nm, binwidth_nm=binwidth_nm)
+
+
+@pytest.mark.parametrize("norm_tail_bins", [0, 2002])
+def test_bulk_tail_must_lie_within_the_grid(norm_tail_bins):
+    u = random_universe()
+    with pytest.raises(InputError, match="norm_tail_bins"):
+        WaterFP(u.atoms[:3], u.atoms[3:], norm_tail_bins=norm_tail_bins)
 
 
 def test_rmax_beyond_half_the_box_warns():

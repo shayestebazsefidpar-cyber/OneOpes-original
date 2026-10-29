@@ -8,6 +8,8 @@ from typing import Literal, get_args
 
 from cyclopts.types import ExistingFile
 
+from oneopes.errors import InputError
+
 logger = logging.getLogger(__name__)
 
 Step = Literal["box", "solvate", "ions_tpr", "genion", "em_tpr", "em_run", "nvt_tpr", "nvt_run", "npt_tpr", "npt_run"]
@@ -53,7 +55,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     """
     for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp"):
         if not (mdp_dir / name).is_file():
-            raise SystemExit(f"Required mdp file not found: {mdp_dir / name}")
+            raise InputError(f"Required mdp file not found: {mdp_dir / name}")
     outdir.mkdir(parents=True, exist_ok=True)
     if not (outdir / "system.top").exists():
         shutil.copy(ligand_top, outdir / "system.top")

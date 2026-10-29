@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
+from cyclopts.validators import Number
 
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
@@ -29,8 +30,9 @@ from oneopes.convergence import (
     write_block_tables,
     write_summary,
 )
+from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml, write_waterfp_files
-from oneopes.system import SystemDefinitionError, select_system
+from oneopes.system import select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
     frame_step_ps,
@@ -111,7 +113,7 @@ def select_g1_g2_on_block(block: WaterFP, selection_dir: Path, fp_round_decimals
     write_waterfp_files(block, selection_dir)
     try:
         selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
-    except ValueError as e:
+    except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)
         return
     write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
@@ -160,9 +162,11 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
             xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
             ligand_selection: str | None = None, water_selection: str | None = None,
             grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid(),
-            norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, block_ns: float = BLOCK_NS_DEFAULT,
+            norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT,
+            block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT,
             tol: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES,
-            poll_seconds: int = 30, fp_round_decimals: int = 1) -> None:
+            poll_seconds: Annotated[float, Parameter(validator=Number(gt=0))] = 30,
+            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
 
     Analyses the trajectory block by block as mdrun writes it, compares each block with the
@@ -192,21 +196,15 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         return mda.Universe(str(tpr), str(xtc))
 
     u = load_universe()
-    try:
-        sel = select_system(u, ligand_selection, water_selection)
-    except SystemDefinitionError as e:
-        raise SystemExit(f"[monitor] {e}") from e
+    sel = select_system(u, ligand_selection, water_selection)
     atom_names = list(u.atoms[sel.ligand_heavy].names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_description, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_description)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
                 grid.rmax_nm, grid.n_bins, norm_tail_bins)
 
-    try:
-        dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
-        block_length = frames_per_block(block_ns, dt_ps)
-    except ValueError as e:
-        raise SystemExit(f"[monitor] {e}") from e
+    dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
+    block_length = frames_per_block(block_ns, dt_ps)
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
@@ -222,7 +220,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         if first_convergence(stabilities, tol.n_stable) is not None:
             break
     if not blocks:
-        raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
+        raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
     summary = summarize(stabilities, block_times, block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)

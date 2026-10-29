@@ -8,6 +8,7 @@ from typing import Annotated
 from cyclopts import App, Parameter
 from cyclopts.config import Yaml
 
+from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select
 from oneopes.ligand.monitor import monitor
 from oneopes.ligand.plumed_cv import build_cv
@@ -37,7 +38,15 @@ def with_config(*tokens: Annotated[str, Parameter(show=False, allow_leading_hyph
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run ``oneopes``, logging its progress (and other libraries' warnings) to stderr."""
+    """Run ``oneopes``, logging its progress (and other libraries' warnings) to stderr.
+
+    An InputError ends the run with its message and exit code 1; any other exception keeps its traceback.
+    """
     logging.basicConfig(format="[%(module)s] %(message)s", level=logging.WARNING)
-    logging.getLogger("oneopes").setLevel(logging.INFO)
-    app.meta(argv)
+    logger = logging.getLogger("oneopes")
+    logger.setLevel(logging.INFO)
+    try:
+        app.meta(argv)
+    except InputError as e:
+        logger.error("error: %s", e)
+        raise SystemExit(1) from None

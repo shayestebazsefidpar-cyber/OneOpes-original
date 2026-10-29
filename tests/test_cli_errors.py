@@ -1,0 +1,38 @@
+"""How `oneopes` reports bad options and inputs: a one-line error and exit code 1, before any work."""
+import logging
+
+import pytest
+from cyclopts import ValidationError
+
+from ligand_systems import ligand_in_water
+from oneopes.cli import app, main
+
+
+def test_a_tolerance_that_means_nothing_stops_the_run_with_one_line(tmp_path, caplog):
+    """The InputError comes from building Tolerances while the command line is read."""
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["monitor", "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out"), "--n-stable", "0"])
+    assert exit_info.value.code == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == ["error: n_stable must be at least 1, got 0."]
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_input_problem_found_later_is_reported_the_same_way(tmp_path, caplog):
+    """A ligand selection that matches nothing is only found once the topology is read."""
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["select", "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out"),
+              "--ligand-selection", "resname NONE"])
+    assert exit_info.value.code == 1
+    assert any("is empty" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+@pytest.mark.parametrize("option, value", [("--block-ns", "0"), ("--poll-seconds", "-1"),
+                                           ("--fp-round-decimals", "-1"), ("--norm-tail-bins", "0")])
+def test_monitor_options_are_checked_when_the_command_line_is_read(tmp_path, option, value):
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(ValidationError):
+        app.parse_args(["monitor", "--tpr", top, "--xtc", traj, option, value],
+                       exit_on_error=False, print_error=False)

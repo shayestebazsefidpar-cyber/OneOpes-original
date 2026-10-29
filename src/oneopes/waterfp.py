@@ -14,6 +14,7 @@ from MDAnalysis.core.groups import AtomGroup
 from MDAnalysis.lib.distances import capped_distance
 from scipy.special import xlogy
 
+from oneopes.errors import InputError
 
 NORM_TAIL_BINS_DEFAULT = 500
 
@@ -26,6 +27,11 @@ class RadialGrid:
     """Largest water-O distance counted (nm)."""
     binwidth_nm: float = 0.001
     """Width of one radial bin (nm)."""
+
+    def __post_init__(self) -> None:
+        if not 0 < self.binwidth_nm <= self.rmax_nm:
+            raise InputError(f"The radial grid needs 0 < binwidth <= rmax, got binwidth {self.binwidth_nm} nm "
+                             f"and rmax {self.rmax_nm} nm.")
 
     @property
     def n_bins(self) -> int:
@@ -113,6 +119,9 @@ class WaterFP(AnalysisBase):
 
     def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *, grid: RadialGrid = RadialGrid(),
                  norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, **kwargs) -> None:
+        if not 1 <= norm_tail_bins <= grid.n_bins:
+            raise InputError(
+                f"norm_tail_bins must be between 1 and the {grid.n_bins} radial bins, got {norm_tail_bins}.")
         super().__init__(solute.universe.trajectory, **kwargs)
         self.solute = solute
         self.water_oxygens = water_oxygens

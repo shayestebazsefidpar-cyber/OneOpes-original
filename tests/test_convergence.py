@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from MDAnalysis.analysis.results import Results
 
+from oneopes.errors import InputError
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     ConvergenceSummary,
@@ -53,6 +54,13 @@ def _stabilities(passed):
 
 def test_default_tolerances():
     assert (TOL.fp_rel_tol, TOL.rdf_nrmsd_tol, TOL.spearman_tol, TOL.n_stable) == (0.10, 0.15, 0.90, 3)
+
+
+@pytest.mark.parametrize("bad", [{"fp_rel_tol": -0.1}, {"rdf_nrmsd_tol": -1.0}, {"spearman_tol": 1.5},
+                                 {"spearman_tol": -2.0}, {"n_stable": 0}])
+def test_tolerances_reject_values_that_mean_nothing(bad):
+    with pytest.raises(InputError):
+        Tolerances(**bad)
 
 
 def test_stable_transition_passes_all_three_criteria():

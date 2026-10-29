@@ -11,6 +11,7 @@ import pandas as pd
 from MDAnalysis.analysis.results import Results
 from scipy.stats import spearmanr
 
+from oneopes.errors import InputError
 from oneopes.waterfp import WaterFP
 
 
@@ -25,6 +26,14 @@ class Tolerances:
     """Smallest Spearman correlation between consecutive FP rankings."""
     n_stable: int = 3
     """Stable transitions in a row that mean converged."""
+
+    def __post_init__(self) -> None:
+        if not (self.fp_rel_tol >= 0 and self.rdf_nrmsd_tol >= 0):
+            raise InputError(f"FP and g(r) tolerances must be >= 0, got {self.fp_rel_tol} and {self.rdf_nrmsd_tol}.")
+        if not -1 <= self.spearman_tol <= 1:
+            raise InputError(f"The Spearman tolerance is a correlation, between -1 and 1; got {self.spearman_tol}.")
+        if self.n_stable < 1:
+            raise InputError(f"n_stable must be at least 1, got {self.n_stable}.")
 
 
 DEFAULT_TOLERANCES = Tolerances()
