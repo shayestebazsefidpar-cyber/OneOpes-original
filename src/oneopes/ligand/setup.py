@@ -50,10 +50,18 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
         Working directory for all intermediate and output files.
     mdp_dir
         Directory with ions.mdp, em.mdp, nvt.mdp, npt.mdp and prod.mdp.
+    box_distance_nm
+        Distance (nm) between the ligand and the box edge (`gmx editconf -d`).
+    box_type
+        Box shape (`gmx editconf -bt`).
     water_model
         Coordinate file for `gmx solvate -cs` (spc216 suits TIP3P-class water models).
     ion_conc
         Ion concentration (mol/L) for genion, on top of neutralization.
+    pname
+        Name of the positive ion (`gmx genion -pname`).
+    nname
+        Name of the negative ion (`gmx genion -nname`).
     gmx
         gmx executable.
     maxwarn

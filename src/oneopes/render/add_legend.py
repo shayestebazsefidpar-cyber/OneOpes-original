@@ -66,6 +66,14 @@ def add_legend(*, src: ExistingFile, dst: Path, g1_g2: ExistingFile | None = Non
         g1_g2.yaml whose G1 (red) and G2 (blue) atoms become the first legend entries.
     entry
         One more legend swatch as 'label:detail:r,g,b'; repeat for each swatch.
+    title
+        Title of the legend box.
+    caption
+        Text along the bottom of the figure (default: none).
+    title_font_size
+        Font size of the legend title.
+    body_font_size
+        Font size of the legend entries and the caption.
     """
     entries = selection_entries(read_g1_g2_yaml(g1_g2)) if g1_g2 else []
     entries += [parse_entry(spec) for spec in entry or []]

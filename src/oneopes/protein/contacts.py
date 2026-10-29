@@ -1,6 +1,7 @@
 """Contact and Bridge occupancy of protein atoms around a bound ligand."""
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import xarray as xr
@@ -33,7 +34,7 @@ class Contacts(AnalysisBase):
     then ``results.contact_occupancy`` and ``results.bridge_occupancy``, one value per candidate.
     """
 
-    def __init__(self, candidates: AtomGroup, ligand: AtomGroup, water_oxygens: AtomGroup, **kwargs) -> None:
+    def __init__(self, candidates: AtomGroup, ligand: AtomGroup, water_oxygens: AtomGroup, **kwargs: Any) -> None:
         super().__init__(candidates.universe.trajectory, **kwargs)
         self.candidates = candidates
         self.ligand = ligand

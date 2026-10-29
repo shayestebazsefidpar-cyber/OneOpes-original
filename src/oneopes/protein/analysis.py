@@ -4,7 +4,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import pandas as pd
 import xarray as xr
@@ -95,7 +95,7 @@ OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupa
 """The occupancies' column names in the per-block table."""
 
 
-def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping | None = None) -> None:
+def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str, Any] | None = None) -> None:
     """Write the candidate pool, the block run (blocks.nc, block-wise tables, convergence summary, and
     with ``metadata`` run_metadata.json) with the contacts per block, and the final per-atom table."""
     candidates = analysis.candidates
@@ -109,7 +109,7 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping | N
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
 
-def analysis_details(analysis: ProteinAnalysis) -> dict:
+def analysis_details(analysis: ProteinAnalysis) -> dict[str, Any]:
     """What the analysis used: cutoffs, selections, frame layout and options."""
     sel = analysis.system.selection
     return {
@@ -142,6 +142,8 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
         Topology with masses (e.g. a GROMACS .tpr).
     trajectory
         Production trajectory.
+    output_dir
+        Directory for blocks.nc, the tables, the final per-atom table and run_metadata.json.
     """
     system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex),
                             load_universe(complex), options.system)

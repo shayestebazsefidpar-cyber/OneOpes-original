@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 import numpy as np
 from MDAnalysis.units import convert
+from numpy.typing import ArrayLike
 
 from oneopes.errors import InputError
-from oneopes.funnel.bss import length_nm, nanometers
+from oneopes.funnel.bss import BssBound, BssFunnel, length_nm, nanometers
 from oneopes.funnel.p0_p1 import P0P1Result
 from oneopes.vectors import circles_around_axis
 
@@ -31,14 +32,14 @@ class FunnelParameters:
     upper_bound: Bound | None
 
 
-def bound(cv_bound) -> Bound | None:
+def bound(cv_bound: BssBound | None) -> Bound | None:
     """A BioSimSpace ``Bound`` as plain numbers; None for no bound."""
     if cv_bound is None:
         return None
     return Bound(position_nm=nanometers(cv_bound.getValue()), force_constant=float(cv_bound.getForceConstant()))
 
 
-def funnel_parameters(cv) -> FunnelParameters:
+def funnel_parameters(cv: BssFunnel) -> FunnelParameters:
     """The parameters of a BioSimSpace ``Funnel`` CV, read through its getters."""
     return FunnelParameters(
         width_nm=nanometers(cv.getWidth()),
@@ -50,12 +51,12 @@ def funnel_parameters(cv) -> FunnelParameters:
     )
 
 
-def funnel_extent(cv, projection_nm) -> np.ndarray:
+def funnel_extent(cv: BssFunnel, projection_nm: ArrayLike) -> np.ndarray:
     """Funnel radius (nm) at each projection (nm) along the axis, from ``cv.getExtent()``."""
     return np.array([nanometers(cv.getExtent(length_nm(p))) for p in np.atleast_1d(projection_nm)])
 
 
-def funnel_wall_points(p0p1: P0P1Result, cv, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
+def funnel_wall_points(p0p1: P0P1Result, cv: BssFunnel, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
     """Points on the funnel wall (A), ring by ring, shape (n_rings * n_angles, 3).
 
     A ring every ``step_A`` along the P0 -> P1 axis from the CV's lower bound up to its upper bound,

@@ -186,6 +186,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     ----------
     mdrun_pid
         PID of a running gmx mdrun to SIGTERM on convergence; without it, only report.
+    tpr
+        Topology of the run (with bonds, for the G1/G2 selection).
+    xtc
+        Trajectory mdrun is writing, or a finished one.
+    outdir
+        Directory for blocks.nc, the tables, plots and selection.
     poll_seconds
         Wait between polls for more trajectory frames.
     fp_round_decimals

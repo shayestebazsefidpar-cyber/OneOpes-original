@@ -5,8 +5,9 @@ from them (``p0_p1.py``), and the BioSimSpace ``Funnel`` CV built on them with i
 """
 
 from dataclasses import dataclass
+from typing import Any
 
-from oneopes.funnel.bss import require_biosimspace
+from oneopes.funnel.bss import BssFunnel, BssMolecule, BssSystem, PropertyMap, require_biosimspace
 from oneopes.funnel.geometry import FunnelParameters, funnel_parameters
 from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, P0P1Result, make_p0_p1
 
@@ -16,7 +17,7 @@ class FunnelResult:
     """A BioSimSpace funnel: the makeFunnel selections with P0/P1, and the ``Funnel`` CV."""
 
     p0p1: P0P1Result
-    cv: object
+    cv: BssFunnel
     """The BioSimSpace ``Funnel`` CV (e.g. ``cv.getCorrection()``)."""
 
     @property
@@ -26,12 +27,12 @@ class FunnelResult:
 
 
 def make_funnel(
-    system,
-    protein=None,
-    ligand=None,
+    system: BssSystem,
+    protein: int | BssMolecule | None = None,
+    ligand: int | BssMolecule | None = None,
     alpha_carbon_name: str = ALPHA_CARBON_NAME,
-    property_map: dict | None = None,
-    **funnel_kwargs,
+    property_map: PropertyMap | None = None,
+    **funnel_kwargs: Any,
 ) -> FunnelResult:
     """Build a BioSimSpace funnel for ``system``, a solvated protein-ligand BioSimSpace System.
 

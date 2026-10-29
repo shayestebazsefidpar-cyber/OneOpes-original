@@ -63,6 +63,10 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     ----------
     tpr
         Topology with bonds.
+    xtc
+        Trajectory the frame window is taken from.
+    outdir
+        Directory for rdf.csv, fingerprints.csv, g1_g2.yaml and run_metadata.json.
     fp_round_decimals
         Decimals FP is rounded to when comparing atoms.
     """
@@ -95,6 +99,8 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
         Topology with bonds, the one the run was made with.
     run
         blocks.nc written by `oneopes monitor`.
+    outdir
+        Directory for rdf.csv, fingerprints.csv, g1_g2.yaml and run_metadata.json.
     block
         Block to select on (default: the converged block).
     fp_round_decimals

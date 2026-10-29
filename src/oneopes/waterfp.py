@@ -10,7 +10,7 @@ the water around the atom differs from bulk.
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 import numpy as np
 import xarray as xr
@@ -137,7 +137,7 @@ class WaterFP(AnalysisBase):
 
     def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *,
                  options: HydrationOptions = HydrationOptions(), labels: Sequence[str] | None = None,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         if labels is not None and len(labels) != len(solute):
             raise ValueError(f"{len(labels)} labels for {len(solute)} solute atoms.")
         super().__init__(solute.universe.trajectory, **kwargs)

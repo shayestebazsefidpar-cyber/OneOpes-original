@@ -8,6 +8,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import xarray as xr
@@ -47,13 +48,13 @@ def write_summary(path: Path, blocks: xr.Dataset) -> None:
     path.write_text(json.dumps(asdict(run_summary(blocks)) | run_facts(blocks), indent=2))
 
 
-def write_run_metadata(outdir: Path, metadata: Mapping) -> None:
+def write_run_metadata(outdir: Path, metadata: Mapping[str, Any]) -> None:
     """Write run_metadata.json: what a command used (see :func:`oneopes.provenance.provenance`)."""
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "run_metadata.json").write_text(to_json(metadata))
 
 
-def write_run(outdir: Path, blocks: xr.Dataset, metadata: Mapping | None = None) -> None:
+def write_run(outdir: Path, blocks: xr.Dataset, metadata: Mapping[str, Any] | None = None) -> None:
     """Write a block run to ``outdir``: blocks.nc, the block-wise CSVs and convergence_summary.json.
 
     With ``metadata``, also run_metadata.json, and the same JSON as the run's ``metadata`` attribute.

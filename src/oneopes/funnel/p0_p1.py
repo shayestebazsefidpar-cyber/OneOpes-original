@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from oneopes.errors import InputError
-from oneopes.funnel.bss import atom_position_A, require_biosimspace
+from oneopes.funnel.bss import BssMolecule, BssSystem, PropertyMap, atom_position_A, require_biosimspace
 
 ALPHA_CARBON_NAME = "CA"
 MIN_AXIS_LENGTH_A = 1e-6
@@ -47,11 +47,11 @@ class P0P1Result:
 
 
 def make_p0_p1(
-    system,
-    protein=None,
-    ligand=None,
+    system: BssSystem,
+    protein: int | BssMolecule | None = None,
+    ligand: int | BssMolecule | None = None,
     alpha_carbon_name: str = ALPHA_CARBON_NAME,
-    property_map: dict | None = None,
+    property_map: PropertyMap | None = None,
 ) -> P0P1Result:
     """atoms0/atoms1 from BioSimSpace ``makeFunnel()``, and P0/P1 as their average positions.
 

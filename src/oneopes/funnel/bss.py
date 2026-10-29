@@ -2,14 +2,29 @@
 
 import tempfile
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import MDAnalysis as mda
 import numpy as np
 
 from oneopes.errors import InputError
 
+BssSystem = Any
+"""A BioSimSpace ``System``; BioSimSpace has no type information, so these aliases only name the type."""
+BssMolecule = Any
+"""A BioSimSpace ``Molecule``."""
+BssFunnel = Any
+"""A BioSimSpace ``Funnel`` collective variable."""
+BssBound = Any
+"""A BioSimSpace ``Bound`` (a wall on a CV)."""
+BssLength = Any
+"""A BioSimSpace ``Length``."""
+PropertyMap = dict[str, str]
+"""BioSimSpace's mapping of property names, e.g. ``{"coordinates": "coordinates1"}``."""
 
-def require_biosimspace():
+
+def require_biosimspace() -> ModuleType:
     """Import BioSimSpace or fail with an actionable message."""
     try:
         import BioSimSpace  # pyright: ignore[reportMissingImports]
@@ -34,7 +49,7 @@ def with_positions_of(coordinates: Path, structure: Path, out: Path) -> None:
     u.atoms.write(str(out))
 
 
-def read_system(topology: Path, coordinates: Path, structure: Path | None = None):
+def read_system(topology: Path, coordinates: Path, structure: Path | None = None) -> BssSystem:
     """A BioSimSpace System from a GROMACS topology and its coordinates (e.g. top.top and npt.gro).
 
     With ``structure``, e.g. a whole.pdb from ``gmx trjconv``, its positions are used instead: the
@@ -49,7 +64,7 @@ def read_system(topology: Path, coordinates: Path, structure: Path | None = None
         return bss.IO.readMolecules([str(topology), str(positioned)])
 
 
-def molecule_sizes(system) -> list[tuple[int, int]]:
+def molecule_sizes(system: BssSystem) -> list[tuple[int, int]]:
     """(atoms, molecule index) of each molecule of a BioSimSpace System, largest first.
 
     ``makeFunnel()`` takes the largest molecule as the protein and the second largest as the ligand.
@@ -58,12 +73,12 @@ def molecule_sizes(system) -> list[tuple[int, int]]:
                   reverse=True)
 
 
-def nanometers(length) -> float:
+def nanometers(length: BssLength) -> float:
     """A BioSimSpace ``Length`` in nm."""
     return length.nanometers().value()
 
 
-def length_nm(value_nm: float):
+def length_nm(value_nm: float) -> BssLength:
     """A BioSimSpace ``Length`` of ``value_nm`` nm."""
     require_biosimspace()
     from BioSimSpace.Types import Length  # pyright: ignore[reportMissingImports]
@@ -71,7 +86,7 @@ def length_nm(value_nm: float):
     return Length(float(value_nm), "nanometer")
 
 
-def atom_position_A(system, index: int, property_map: dict | None = None) -> np.ndarray:
+def atom_position_A(system: BssSystem, index: int, property_map: PropertyMap | None = None) -> np.ndarray:
     """Position (A) of system atom ``index``, via the public ``Atom.coordinates()``."""
     position = system.getAtom(int(index)).coordinates(property_map=property_map or {})
     return np.array([position.x().angstroms().value(), position.y().angstroms().value(),

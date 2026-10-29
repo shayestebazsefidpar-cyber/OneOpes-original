@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 from cyclopts.config import Yaml
@@ -24,7 +24,7 @@ for command in (prepare_system, monitor, select, select_block, build_cv, protein
 
 @app.meta.default
 def with_config(*tokens: Annotated[str, Parameter(show=False, allow_leading_hyphen=True)],
-                config: Path | None = None):
+                config: Path | None = None) -> Any:
     """Run a subcommand, taking its settings from ``config`` where the command line does not give them.
 
     Parameters

@@ -9,7 +9,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import numpy as np
 import xarray as xr
@@ -41,7 +41,7 @@ SETTINGS = list(settings(BlockOptions(), HydrationOptions()))
 
 
 def block_run(measured: Sequence[xr.Dataset], blocks: BlockOptions, hydration: HydrationOptions,
-              **facts) -> xr.Dataset:
+              **facts: str | float | list[str]) -> xr.Dataset:
     """The measured blocks, stacked and compared (:func:`compare_blocks`), with the options they were made
     with and ``facts`` (strings, numbers or lists of them) as attributes."""
     compared = compare_blocks(stack_blocks(measured), blocks.tolerances)
@@ -62,13 +62,13 @@ def run_summary(run: xr.Dataset) -> ConvergenceSummary:
     return summarize(run, options.block_ns, options.tolerances)
 
 
-def run_facts(run: xr.Dataset) -> dict:
+def run_facts(run: xr.Dataset) -> dict[str, Any]:
     """The attributes of a run other than its settings and metadata, as plain Python values."""
     return {name: np.asarray(value).tolist() for name, value in run.attrs.items()
             if name not in [*SETTINGS, "metadata"]}
 
 
-def run_metadata(run: xr.Dataset) -> dict:
+def run_metadata(run: xr.Dataset) -> dict[str, Any]:
     """The metadata stored with a run (see :func:`oneopes.reports.write_run`): versions, inputs and options."""
     return json.loads(run.attrs["metadata"])
 
