@@ -12,6 +12,7 @@ Ligand, water oxygens and (when present) protein of a system, by the same rules 
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from MDAnalysis import AtomGroup, Universe
@@ -56,6 +57,16 @@ class SystemSelection:
     water_oxygens: np.ndarray
     ligand_selection: str
     water_selection: str
+
+
+def load_universe(topology: Path, *coordinates: Path) -> Universe:
+    """``topology`` with ``coordinates`` (a structure or trajectories, if any); raises InputError when
+    MDAnalysis cannot read them, e.g. when a trajectory has another number of atoms than the topology."""
+    try:
+        return Universe(str(topology), *map(str, coordinates))
+    except Exception as err:  # MDAnalysis raises ValueError, OSError, TypeError, ... for files it cannot use
+        files = ", ".join(Path(path).name for path in (topology, *coordinates))
+        raise InputError(f"cannot read {files}: {err}") from err
 
 
 def ensure_elements(u: Universe) -> None:

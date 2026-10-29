@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import signal
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import asdict
 from itertools import count
 from pathlib import Path
@@ -25,7 +25,7 @@ from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import write_selection
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
-from oneopes.system import SystemOptions, select_system
+from oneopes.system import SystemOptions, load_universe, select_system
 from oneopes.trajectory_blocks import block_of, frame_step_ps, frame_time_ns, frames_per_block, label_block
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
@@ -50,28 +50,31 @@ def complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
     return n_frames - 1 if process_alive(mdrun_pid) else n_frames
 
 
-def wait_for_frames(load_universe: Callable[[], mda.Universe], n_frames: int, mdrun_pid: int | None,
-                    poll_seconds: float) -> mda.Universe:
-    """Reload the trajectory until it has ``n_frames`` complete frames or mdrun is no longer running."""
+def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid: int | None,
+                    poll_seconds: float) -> None:
+    """Reread ``trajectory`` into ``u`` until it has ``n_frames`` complete frames or mdrun is no longer running.
+
+    An open trajectory does not see frames written later, so it is read again on every poll.
+    """
     while True:
-        u = load_universe()
+        u.load_new(str(trajectory))
         if complete_frames(u, mdrun_pid) >= n_frames or not process_alive(mdrun_pid):
-            return u
+            return
         time.sleep(poll_seconds)
 
 
-def completed_blocks(load_universe: Callable[[], mda.Universe], block_length: int, mdrun_pid: int | None,
-                     poll_seconds: float) -> Iterator[tuple[mda.Universe, range]]:
-    """Each block of ``block_length`` frames, with a universe holding it, as soon as all its frames are complete.
+def completed_blocks(u: mda.Universe, trajectory: Path, block_length: int, mdrun_pid: int | None,
+                     poll_seconds: float) -> Iterator[range]:
+    """The frames of each block of ``block_length`` frames, as soon as all of them are complete in ``u``.
 
     Ends when mdrun is no longer running and the next block is incomplete.
     """
     for first in count(0, block_length):
         frames = range(first, first + block_length)
-        u = wait_for_frames(load_universe, frames.stop, mdrun_pid, poll_seconds)
+        wait_for_frames(u, trajectory, frames.stop, mdrun_pid, poll_seconds)
         if complete_frames(u, mdrun_pid) < frames.stop:
             return
-        yield u, frames
+        yield frames
 
 
 def stop_mdrun(pid: int | None) -> None:
@@ -159,30 +162,25 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     fp_round_decimals
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
     """
-    def load_universe() -> mda.Universe:
-        return mda.Universe(str(tpr), str(xtc))
-
-    u = load_universe()
+    u = load_universe(tpr, xtc)
     sel = select_system(u, system)
-    ligand = u.atoms[sel.ligand_heavy]
+    ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
     atom_names = list(ligand.names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_selection, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
                 hydration.grid.rmax_nm, hydration.grid.n_bins, hydration.norm_tail_bins)
 
-    first_frames = wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds)
-    dt_ps = frame_step_ps(first_frames, complete_frames(first_frames, mdrun_pid))
+    wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
+    dt_ps = frame_step_ps(u, complete_frames(u, mdrun_pid))
     block_length = frames_per_block(blocks.block_ns, dt_ps)
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
     measured, run = [], None
-    for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
+    for frames in completed_blocks(u, xtc, block_length, mdrun_pid, poll_seconds):
         block = block_of(u, frames, dt_ps)
-        measurement = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames,
-                                        hydration)
-        measured.append(label_block(measurement, block))
+        measured.append(label_block(measure_hydration(ligand, water, block.frames, hydration), block))
         run = block_run(measured, blocks, hydration, ligand_selection=sel.ligand_selection,
                         ligand_heavy_atoms=atom_names)
         write_run(outdir, run)
@@ -192,7 +190,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     if run is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
-    trajectory_end_ns = frame_time_ns(load_universe(), -1)
+    u.load_new(str(xtc))
+    trajectory_end_ns = frame_time_ns(u, -1)
     options = {"system": asdict(system), "hydration": asdict(hydration), "blocks": asdict(blocks),
                "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds, "fp_round_decimals": fp_round_decimals}
     metadata = provenance({"tpr": tpr, "xtc": xtc}) | {

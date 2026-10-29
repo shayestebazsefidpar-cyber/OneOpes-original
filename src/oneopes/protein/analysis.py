@@ -12,10 +12,9 @@ import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
-from MDAnalysis import AtomGroup, Universe
+from MDAnalysis import AtomGroup
 
 from oneopes.block_run import BlockOptions, block_run, run_summary
-from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
@@ -23,7 +22,7 @@ from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
-from oneopes.system import SystemOptions
+from oneopes.system import SystemOptions, load_universe
 from oneopes.trajectory_blocks import FrameLayout, FrameWindow, frame_layout, label_block
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
@@ -153,17 +152,8 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     trajectory
         Production trajectory.
     """
-    try:
-        u_traj = Universe(str(topology), str(trajectory))
-    except Exception as err:
-        raise InputError(f"topology and trajectory are incompatible: {err}") from err
-    try:
-        u_complex = Universe(str(topology), str(complex))
-        complex_file = Universe(str(complex))
-    except Exception as err:
-        raise InputError(f"topology and complex are incompatible: {err}") from err
-
-    system = protein_system(u_traj, u_complex, complex_file, options.system)
+    system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex),
+                            load_universe(complex), options.system)
     analysis = run_analysis(system, options)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
     write_outputs(output_dir, analysis, provenance(inputs) | analysis_details(analysis))

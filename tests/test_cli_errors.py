@@ -1,6 +1,7 @@
 """How `oneopes` reports bad options and inputs: a one-line error and exit code 1, before any work."""
 import logging
 
+import MDAnalysis as mda
 import pytest
 from cyclopts import ValidationError
 
@@ -27,6 +28,19 @@ def test_an_input_problem_found_later_is_reported_the_same_way(tmp_path, caplog)
               "--ligand-selection", "resname NONE"])
     assert exit_info.value.code == 1
     assert any("is empty" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+@pytest.mark.parametrize("command", ["monitor", "select"])
+def test_a_trajectory_of_another_system_is_a_one_line_error(tmp_path, caplog, command):
+    top, _ = ligand_in_water(tmp_path)
+    other = mda.Universe.empty(10, trajectory=True)
+    with mda.Writer(str(tmp_path / "other.xtc"), 10) as writer:
+        writer.write(other.atoms)
+    with pytest.raises(SystemExit) as exit_info:
+        main([command, "--tpr", top, "--xtc", str(tmp_path / "other.xtc"), "--outdir", str(tmp_path / "out")])
+    assert exit_info.value.code == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and errors[0].startswith("error: cannot read top.pdb, other.xtc:")
 
 
 @pytest.mark.parametrize("option, value", [("--block-ns", "0"), ("--poll-seconds", "-1"),

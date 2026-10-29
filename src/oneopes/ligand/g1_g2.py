@@ -19,7 +19,7 @@ from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
 from oneopes.provenance import provenance
 from oneopes.reports import write_hydration_files, write_run_metadata
-from oneopes.system import SystemOptions, select_system
+from oneopes.system import SystemOptions, load_universe, select_system
 from oneopes.trajectory_blocks import FrameWindow
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
@@ -176,7 +176,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     fp_round_decimals
         Decimals FP is rounded to when comparing atoms.
     """
-    u = mda.Universe(str(tpr), str(xtc))
+    u = load_universe(tpr, xtc)
     sel = select_system(u, system)
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
@@ -213,4 +213,4 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     hydration = run_block(load_run(run), block)
     write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
         "block": int(hydration.block), "fp_round_decimals": fp_round_decimals})
-    write_selection(ligand_atoms(mda.Universe(str(tpr)), hydration), hydration, outdir, fp_round_decimals)
+    write_selection(ligand_atoms(load_universe(tpr), hydration), hydration, outdir, fp_round_decimals)

@@ -3,7 +3,7 @@ import json
 import os
 from dataclasses import asdict
 from itertools import islice
-from types import SimpleNamespace
+from pathlib import Path
 
 import MDAnalysis as mda
 import pandas as pd
@@ -102,20 +102,25 @@ def test_plot_atom_writes_expected_files(tmp_path):
     assert (tmp_path / "rdf_plots" / "RDF_per_block_A.png").exists()
 
 
-def _trajectories(*n_frames):
-    """Loads of a growing trajectory: each call returns the next one, with that many frames."""
-    loads = iter([SimpleNamespace(trajectory=range(n)) for n in n_frames])
-    return lambda: next(loads)
+class GrowingTrajectory:
+    """A universe whose trajectory, read again with ``load_new``, has the next of ``n_frames`` frames."""
+
+    def __init__(self, *n_frames):
+        self.lengths = iter(n_frames)
+        self.trajectory = range(0)
+
+    def load_new(self, _path):
+        self.trajectory = range(next(self.lengths))
 
 
 def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it():
     """The last frame may be half-written, so a block is complete once a later frame exists."""
-    running = os.getpid()
-    blocks = completed_blocks(_trajectories(2, 3, 4, 5, 7), 2, running, poll_seconds=0)
-    assert [(len(u.trajectory), frames) for u, frames in islice(blocks, 3)] == [
-        (3, range(2)), (5, range(2, 4)), (7, range(4, 6))]
+    u = GrowingTrajectory(2, 3, 4, 5, 7)
+    blocks = completed_blocks(u, Path("prod.xtc"), 2, os.getpid(), poll_seconds=0)
+    assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
+        (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
 
 
 def test_once_mdrun_has_stopped_every_frame_is_complete():
-    blocks = completed_blocks(_trajectories(4, 4, 4), 2, None, poll_seconds=0)
-    assert [frames for _, frames in blocks] == [range(2), range(2, 4)]
+    u = GrowingTrajectory(4, 4, 4)
+    assert list(completed_blocks(u, Path("prod.xtc"), 2, None, poll_seconds=0)) == [range(2), range(2, 4)]
