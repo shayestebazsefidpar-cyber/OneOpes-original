@@ -278,11 +278,11 @@ trajectory (length detected from the input)
   change ≤ 0.10, RDF nRMSD ≤ 0.15, Spearman ≥ 0.90 — all three in a
   transition (FP change and nRMSD are the worst case over all candidates).
   Sustained convergence = 3 consecutive stable transitions; the end time of
-  the block completing the third one is `first_sustained_convergence_ns`.
+  the block completing the third one is `converged_ns`.
   This is only reported: every block up to the end of the trajectory is still
   analysed, so later loss of stability is visible in `convergence_metrics.csv`.
 * **Times**: block *k* spans `t(first frame of k)` to that + block size;
-  `trajectory_length_ns` = time of last frame − time of first frame. Frames
+  the trajectory runs from the time of its first frame to that of its last. Frames
   after the last complete block are not in any block but are included in the
   final values.
 
@@ -344,10 +344,10 @@ names (water/hydrogen naming may differ between formats).
 | `contact_occupancy_per_block.csv` | Contact / Bridge per block and atom |
 | `fp_values_by_block_wide.csv`, `fp_ranking_by_block_wide.csv` | FP and rank (1 = most negative) per block |
 | `convergence_metrics.csv` | one row per block transition: `block_start_ns`, `block_end_ns`, `FP_relative_change`, `FP_pass`, `RDF_nRMSD`, `RDF_pass`, `Spearman_rho`, `Spearman_pass`, `all_criteria_pass`, `stable_transition_count`, `convergence_reached` |
-| `convergence_summary.json/.txt` | trajectory length, blocks, transitions, thresholds, `first_sustained_convergence_ns`, behaviour after convergence, `final_analysis_time_ns` |
+| `convergence_summary.json` | block size, tolerances, number of blocks, `converged_block`/`converged_ns`, unstable transitions after convergence, trajectory and analysed time range |
 | `final_per_atom_table.csv` | one row per candidate, sorted by `FP_Rank` |
 | `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |
-| `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, convergence, versions |
+| `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, versions |
 
 Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial_pdb, Atom_name,
 Residue_name, Residue_number, Chain_ID, Min_distance_to_ligand_A, FP,

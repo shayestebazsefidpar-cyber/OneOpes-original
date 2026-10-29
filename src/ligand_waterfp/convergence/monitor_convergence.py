@@ -16,7 +16,6 @@ Usage:
 """
 import argparse
 import os
-import json
 import time
 import signal
 from collections.abc import Callable, Iterator
@@ -35,18 +34,13 @@ from convergence import (
     fp_per_block,
     rdf_per_block,
     stable_in_a_row,
+    summarize,
     write_block_tables,
+    write_summary,
 )
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
-from trajectory_blocks import frame_step_ps, frames_per_block, time_span_ns
+from trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
-
-FP_METHOD_TEXT = (
-    "WaterFP (github.com/valeriorizzi/WaterFP, Scripts/fp.py): "
-    "FP = trapz(-2*pi*norm*(g*ln(g)-g+1)*r^2, dx) over r in [0,rmax] nm, "
-    "g(r)=n(r)/norm, norm=mean of the last norm_tail_bins bins of the raw "
-    "water-O number-density profile n(r) around the ligand heavy atom."
-)
 
 
 def parse_args():
@@ -162,46 +156,6 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     return fp_plot_path, rdf_plot_path
 
 
-def write_reports(outdir, converged, stop_reason, stop_block, stop_time_ns,
-                   block_ns, tol: Tolerances, ligand_resname, heavy_names, n_blocks_completed):
-    """Write convergence_summary.json and convergence_summary.txt; return the summary."""
-    outdir = Path(outdir)
-    summary = {
-        "converged": converged,
-        "stop_reason": stop_reason,
-        "stop_block": stop_block,
-        "stop_time_ns": stop_time_ns,
-        "block_size_ns": block_ns,
-        "n_stable_transitions_required": tol.n_stable,
-        "thresholds": {
-            "FP_relative_change_tol": tol.fp_rel_tol,
-            "RDF_normalised_RMSD_tol": tol.rdf_nrmsd_tol,
-            "spearman_rank_corr_tol": tol.spearman_tol,
-        },
-        "FP_method": FP_METHOD_TEXT,
-        "ligand_resname": ligand_resname,
-        "ligand_heavy_atoms": heavy_names,
-        "n_blocks_completed": n_blocks_completed,
-    }
-    with open(outdir / "convergence_summary.json", "w") as f:
-        json.dump(summary, f, indent=2)
-    with open(outdir / "convergence_summary.txt", "w") as f:
-        f.write("WaterFP-style hydration RDF/FP block-wise convergence monitor summary\n")
-        f.write("=" * 70 + "\n")
-        f.write(f"Converged: {converged}\n")
-        f.write(f"Stop block: {stop_block}\n")
-        f.write(f"Stop simulation time: {stop_time_ns} ns\n")
-        f.write(f"Reason: {stop_reason}\n")
-        f.write(f"Block size: {block_ns} ns\n")
-        f.write(f"Consecutive stable transitions required: {tol.n_stable}\n")
-        f.write(f"Thresholds: FP rel. change <= {tol.fp_rel_tol}, RDF nRMSD <= {tol.rdf_nrmsd_tol}, "
-                f"Spearman rho >= {tol.spearman_tol}\n")
-        f.write(f"FP method: {summary['FP_method']}\n")
-        f.write(f"Ligand heavy atoms monitored ({len(heavy_names)}): {', '.join(heavy_names)}\n")
-
-    return summary
-
-
 def main():
     args = parse_args()
     tol = Tolerances(
@@ -283,53 +237,31 @@ def main():
 
     if not blocks:
         raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
-    converged_at = first_convergence(stabilities, tol.n_stable)
-    converged = converged_at is not None
-    if converged:
-        stop_block = converged_at + 1
-        stop_time_ns = block_times[stop_block][1]
-        stop_reason = (
-            f"RDF profile, FP values, and FP-based heavy-atom ranking were all stable "
-            f"(max FP relative change <= {tol.fp_rel_tol*100:.0f}%, max RDF normalised RMSD "
-            f"<= {tol.rdf_nrmsd_tol*100:.0f}%, Spearman rank correlation >= {tol.spearman_tol}) "
-            f"across {tol.n_stable} consecutive block-to-block transitions."
-        )
-    else:
-        stop_block = len(blocks)
-        u = get_universe()
-        stop_time_ns = u.trajectory[-1].time / 1000.0
-        stop_reason = (
-            f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
-            f"{stop_block} could complete ({len(u.trajectory)} frames available, "
-            f"{(stop_block + 1) * block_length} needed). "
-            "Simulation ended (finished its full length, crashed, or was stopped externally) "
-            "before convergence was detected by this monitor."
-        )
+    summary = summarize(stabilities, block_times, args.block_ns, tol)
+    trajectory_end_ns = frame_time_ns(get_universe(), -1)
+    write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
+                  ligand_resname=args.ligand_resname, ligand_heavy_atoms=heavy_names)
 
     fp_df = fp_per_block(blocks, block_times)
     rdf_df = rdf_per_block(blocks)
     for name in heavy_names:
         plot_atom(name, fp_df, rdf_df, outdir)
 
-    summary = write_reports(
-        outdir, converged, stop_reason, stop_block, stop_time_ns,
-        args.block_ns, tol, args.ligand_resname, heavy_names, len(blocks),
-    )
+    if not summary.converged:
+        print(f"[monitor] DONE, not converged: the trajectory ended at {trajectory_end_ns} ns, "
+              f"after {summary.n_blocks} complete block(s)")
+        return
+    print(f"[monitor] DONE, converged at block {summary.converged_block} ({summary.converged_ns} ns)")
 
-    print(f"[monitor] DONE. converged={summary['converged']} stop_block={summary['stop_block']} "
-          f"stop_time_ns={summary['stop_time_ns']}")
-    print(f"[monitor] reason: {summary['stop_reason']}")
-
-    if converged and process_alive(args.mdrun_pid):
-        print(f"[monitor] convergence reached - sending SIGTERM to mdrun pid {args.mdrun_pid}")
+    if process_alive(args.mdrun_pid):
+        print(f"[monitor] sending SIGTERM to mdrun pid {args.mdrun_pid}")
         try:
             os.kill(args.mdrun_pid, signal.SIGTERM)
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
 
-    if converged:
-        try:
-            selection = write_selection(blocks[-1], outdir / "selection", args.fp_round_decimals)
-            print(f"[monitor] {selection}, written to {outdir / 'selection'}")
-        except ValueError as e:
-            print(f"[monitor] no G1/G2 selection for block {stop_block}: {e}")
+    try:
+        selection = write_selection(blocks[-1], outdir / "selection", args.fp_round_decimals)
+        print(f"[monitor] {selection}, written to {outdir / 'selection'}")
+    except ValueError as e:
+        print(f"[monitor] no G1/G2 selection for block {summary.converged_block}: {e}")

@@ -27,15 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from convergence import (
-    DEFAULT_TOLERANCES,
-    StabilityResult,
-    compare_blocks,
-    first_convergence,
-    stable_in_a_row,
-    transitions_table,
-    write_block_tables,
-)
+from convergence import DEFAULT_TOLERANCES, compare_blocks, summarize, write_block_tables, write_summary
 from trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import WaterFP
 
@@ -64,20 +56,6 @@ class AnalysisOptions:
     water_selection: str | None = None
 
 
-def _after_convergence(stabilities: list[StabilityResult], converged_at: int | None) -> dict:
-    """How the transitions after the first convergence behaved."""
-    if converged_at is None:
-        return {"n_transitions_after_first_convergence": 0,
-                "n_unstable_transitions_after_first_convergence": 0,
-                "remained_stable_after_first_convergence": None}
-    later = stabilities[converged_at + 1:]
-    unstable = sum(not s.passed for s in later)
-    return {"n_transitions_after_first_convergence": len(later),
-            "n_unstable_transitions_after_first_convergence": unstable,
-            "remained_stable_after_first_convergence": unstable == 0}
-
-
-
 def _contacts_per_block(contacts: list[StructuralBlock], block_times: list[tuple[float, float]],
                         labels: list[str]) -> pd.DataFrame:
     """contact_occupancy_per_block.csv: one row per (block, candidate atom)."""
@@ -86,32 +64,6 @@ def _contacts_per_block(contacts: list[StructuralBlock], block_times: list[tuple
                             "n_frames": st.n_frames})
               for b, (st, (start, end)) in enumerate(zip(contacts, block_times))]
     return pd.concat(tables, ignore_index=True)
-
-
-def _write_summary_txt(path: Path, summary: dict, transitions: pd.DataFrame) -> None:
-    """The human-readable convergence summary: the JSON summary plus one line per transition."""
-    s = summary
-    with open(path, "w") as fh:
-        fh.write("Protein-side WaterFP retrospective block-wise convergence\n" + "=" * 57 + "\n")
-        fh.write(f"Trajectory: {s['trajectory_start_ns']:g}-{s['trajectory_end_ns']:g} ns "
-                 f"({s['trajectory_length_ns']:g} ns, {s['n_frames']} frames, dt {s['dt_ps']:g} ps)\n")
-        fh.write(f"Blocks: {s['number_of_blocks']} x {s['block_size_ns']} ns, {s['number_of_transitions']} transitions; "
-                 f"{s['frames_not_in_a_complete_block']} trailing frame(s) not in a complete block\n")
-        fh.write(f"Thresholds: FP rel. change <= {s['fp_threshold']}, RDF nRMSD <= {s['rdf_nrmsd_threshold']}, "
-                 f"Spearman >= {s['spearman_threshold']}; {s['stable_transitions_required']} consecutive stable "
-                 "transitions\n")
-        fh.write(f"Convergence reached: {s['convergence_reached']}\n")
-        fh.write(f"First sustained convergence: {s['first_sustained_convergence_ns']} ns "
-                 f"(transition {s['first_sustained_convergence_transition']})\n")
-        fh.write(f"After first convergence: {s['n_transitions_after_first_convergence']} transitions, "
-                 f"{s['n_unstable_transitions_after_first_convergence']} unstable\n")
-        fh.write(f"Final values over {s['final_analysis_start_ns']:g}-{s['final_analysis_end_ns']:g} ns "
-                 f"({s['final_analysis_time_ns']:g} ns)\n")
-        for row in transitions.to_dict("records"):
-            fh.write(f"  {row['transition']:>7} {row['block_start_ns']:g}-{row['block_end_ns']:g} ns  "
-                     f"dFP={row['FP_relative_change']:.3f} nRMSD={row['RDF_nRMSD']:.3f} "
-                     f"rho={row['Spearman_rho']:.4f} all_pass={row['all_criteria_pass']} "
-                     f"count={row['stable_transition_count']} reached={row['convergence_reached']}\n")
 
 
 def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print, complex_structure=None) -> dict:
@@ -179,52 +131,21 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     # Judge: convergence over the blocks.
     tol = DEFAULT_TOLERANCES
     stabilities = compare_blocks([block.results for block in blocks], tol)
-    converged_at = first_convergence(stabilities, tol.n_stable)  # transition index, or None
-    first_converged_ns = None if converged_at is None else block_times[converged_at + 1][1]
-    log(f"[protein-waterfp] first sustained convergence: {first_converged_ns} ns")
+    summary = summarize(stabilities, block_times, options.block_ns, tol)
+    log(f"[protein-waterfp] first sustained convergence: {summary.converged_ns} ns")
 
-    # Report: per-block tables, convergence metrics, the final per-atom table and the summary.
+    # Report: per-block tables, convergence summary and the final per-atom table.
     write_block_tables(outdir, blocks, block_times, tol, labels)
     _contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
-    transitions = transitions_table(stabilities, block_times, tol.n_stable)
+    write_summary(outdir / "convergence_summary.json", summary,
+                  trajectory_start_ns=traj_start_ns, trajectory_end_ns=traj_end_ns,
+                  analysis_start_ns=analysis_start_ns, analysis_end_ns=analysis_end_ns)
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
     table = build_final_table(candidates, fp_full, st_full.contact_occupancy, st_full.bridge_occupancy,
-                              sasa, final_analysis_time_ns, first_converged_ns)
+                              sasa, final_analysis_time_ns, summary.converged_ns)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
-
-    summary = {
-        "trajectory_length_ns": trajectory_length_ns,
-        "trajectory_start_ns": traj_start_ns,
-        "trajectory_end_ns": traj_end_ns,
-        "n_frames": n_frames,
-        "dt_ps": dt_ps,
-        "block_size_ns": options.block_ns,
-        "number_of_blocks": len(block_ranges),
-        "number_of_transitions": len(stabilities),
-        "frames_not_in_a_complete_block": unused_tail_frames,
-        "stable_transitions_required": tol.n_stable,
-        "fp_threshold": tol.fp_rel_tol,
-        "rdf_nrmsd_threshold": tol.rdf_nrmsd_tol,
-        "spearman_threshold": tol.spearman_tol,
-        "convergence_reached": converged_at is not None,
-        "convergence_status": "NOT_CONVERGED" if converged_at is None else "CONVERGED",
-        "first_sustained_convergence_ns": first_converged_ns,
-        "first_sustained_convergence_transition":
-            None if converged_at is None else f"{converged_at}->{converged_at + 1}",
-        **_after_convergence(stabilities, converged_at),
-        "stable_transitions_in_a_row_at_end": (stable_in_a_row(stabilities) or [0])[-1],
-        "final_analysis_start_ns": analysis_start_ns,
-        "final_analysis_end_ns": analysis_end_ns,
-        "final_analysis_time_ns": final_analysis_time_ns,
-        "criterion": "a transition is stable when FP relative change, RDF nRMSD and Spearman all pass; "
-                     "sustained convergence = stable_transitions_required consecutive stable transitions. "
-                     "Retrospective: all blocks are analysed regardless of convergence.",
-        "n_candidate_atoms": len(labels),
-    }
-    (outdir / "convergence_summary.json").write_text(json.dumps(summary, indent=2))
-    _write_summary_txt(outdir / "convergence_summary.txt", summary, transitions)
 
     return {
         "candidate_cutoff_A": options.candidate_cutoff_A,
@@ -240,7 +161,6 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         "final_values": {"FP": "full analysed frame range", "Contact_occupancy_5A": "full analysed frame range",
                          "Bridge_occupancy": "full analysed frame range",
                          "SASA_A2": "static, complex structure", "FP_Rank": "1 = most negative FP"},
-        "convergence": summary,
     }
 
 
@@ -309,11 +229,7 @@ def main(argv=None) -> int:
     meta["options"] = asdict(options)
     meta["versions"] = _versions()
     (outdir / "run_metadata.json").write_text(json.dumps(meta, indent=2, default=float))
-    conv = meta["convergence"]
-    print(f"[protein-waterfp] {meta['n_candidate_atoms']} candidates; trajectory {conv['trajectory_length_ns']:g} ns, "
-          f"{conv['final_analysis_time_ns']:g} ns analysed; "
-          f"first sustained convergence: {conv['first_sustained_convergence_ns']} ns "
-          f"-> {outdir / 'final_per_atom_table.csv'}")
+    print(f"[protein-waterfp] {meta['n_candidate_atoms']} candidates -> {outdir / 'final_per_atom_table.csv'}")
     return 0
 
 

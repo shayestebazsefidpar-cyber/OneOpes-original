@@ -1,25 +1,7 @@
-"""Tests for the ligand convergence monitor's reports and plots (synthetic data, no trajectory)."""
+"""Tests for the ligand convergence monitor's plots (synthetic data, no trajectory)."""
 import pandas as pd
 
-from convergence import DEFAULT_TOLERANCES as TOL
-from ligand_waterfp.convergence.monitor_convergence import plot_atom, write_reports
-
-
-def test_write_reports_preserves_schema_and_field_values(tmp_path):
-    summary = write_reports(
-        outdir=str(tmp_path), converged=True, stop_reason="test reason",
-        stop_block=1, stop_time_ns=10.0, block_ns=5.0, tol=TOL,
-        ligand_resname="MOL", heavy_names=["A", "B"], n_blocks_completed=2,
-    )
-
-    assert summary["converged"] is True
-    assert summary["stop_block"] == 1
-    assert summary["n_stable_transitions_required"] == TOL.n_stable
-    assert summary["thresholds"]["FP_relative_change_tol"] == TOL.fp_rel_tol
-    assert summary["ligand_heavy_atoms"] == ["A", "B"]
-
-    assert (tmp_path / "convergence_summary.json").exists()
-    assert "Converged: True" in (tmp_path / "convergence_summary.txt").read_text()
+from ligand_waterfp.convergence.monitor_convergence import plot_atom
 
 
 def test_plot_atom_writes_expected_files(tmp_path):

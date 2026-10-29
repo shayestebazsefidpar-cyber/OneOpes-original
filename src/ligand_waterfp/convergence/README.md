@@ -14,7 +14,7 @@ converged enough to stop early or to trust for the next stage.
   live `mdrun`, or a finished one for a one-shot report)
 - **Outputs** (written to `--outdir`, default `outputs/convergence` -
   git-ignored): per-block FP/RDF CSVs, a convergence-metrics CSV, plots,
-  `convergence_summary.json`/`.txt`, and on convergence the G1/G2
+  `convergence_summary.json`, and on convergence the G1/G2
   selection in `selection/`
 
 ## Usage
@@ -42,13 +42,13 @@ block and writes `rdf.csv`, `fingerprints.csv` and `g1_g2.yaml` to
 that `g1_g2.yaml` to `ligand-waterfp-build-cv`.
 
 To redo the selection by hand, run `ligand-waterfp-select` over the same
-block (`stop_block` and `block_size_ns` are in `convergence_summary.json`),
+block (`converged_block` and `block_ns` are in `convergence_summary.json`),
 not the whole trajectory:
 
 ```text
-frames_per_block = round(block_size_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line
-start_frame = stop_block * frames_per_block
-end_frame   = (stop_block + 1) * frames_per_block
+frames_per_block = round(block_ns * 1000 / dt_ps)   # dt_ps from monitor_convergence's own log line
+start_frame = converged_block * frames_per_block
+end_frame   = (converged_block + 1) * frames_per_block
 ```
 
 The block matters: the G1/G2 selection's 0.2 fp_round tie-break

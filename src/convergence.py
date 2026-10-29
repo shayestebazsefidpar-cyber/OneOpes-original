@@ -1,5 +1,6 @@
 """Block-wise convergence of WaterFP results: is the next block like the previous one?"""
 
+import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from itertools import accumulate, pairwise
@@ -80,6 +81,45 @@ def stable_in_a_row(stabilities: Sequence[StabilityResult]) -> list[int]:
 def first_convergence(stabilities: Sequence[StabilityResult], n_stable: int) -> int | None:
     """Index of the transition completing the first run of n_stable stable ones, or None."""
     return next((i for i, count in enumerate(stable_in_a_row(stabilities)) if count >= n_stable), None)
+
+
+@dataclass(frozen=True)
+class ConvergenceSummary:
+    """What comparing consecutive blocks concluded.
+
+    ``converged_block`` is the block completing the first run of ``tolerances.n_stable``
+    stable transitions and ``converged_ns`` its end time; both are None when there is none.
+    """
+    block_ns: float
+    tolerances: Tolerances
+    n_blocks: int
+    converged: bool
+    converged_block: int | None
+    converged_ns: float | None
+    unstable_after_convergence: int
+    stable_in_a_row_at_end: int
+
+
+def summarize(stabilities: Sequence[StabilityResult], block_times: Sequence[tuple[float, float]],
+              block_ns: float, tol: Tolerances) -> ConvergenceSummary:
+    """Summary of a run of blocks; ``block_times[i]`` is the (start_ns, end_ns) of block i."""
+    first = first_convergence(stabilities, tol.n_stable)
+    block = None if first is None else first + 1
+    return ConvergenceSummary(
+        block_ns=block_ns,
+        tolerances=tol,
+        n_blocks=len(block_times),
+        converged=block is not None,
+        converged_block=block,
+        converged_ns=None if block is None else block_times[block][1],
+        unstable_after_convergence=0 if block is None else sum(not s.passed for s in stabilities[block:]),
+        stable_in_a_row_at_end=(stable_in_a_row(stabilities) or [0])[-1],
+    )
+
+
+def write_summary(path: Path, summary: ConvergenceSummary, **facts) -> None:
+    """Write ``summary`` and any other ``facts`` about the run as one indented JSON object."""
+    path.write_text(json.dumps({**asdict(summary), **facts}, indent=2))
 
 
 def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:

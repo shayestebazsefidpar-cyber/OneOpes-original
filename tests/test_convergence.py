@@ -1,5 +1,6 @@
 """Tests for the shared `convergence` module: one transition's stability, and convergence over a run."""
 import dataclasses
+import json
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from MDAnalysis.analysis.results import Results
 
 from convergence import (
     DEFAULT_TOLERANCES,
+    ConvergenceSummary,
     StabilityResult,
     Tolerances,
     check_stability,
@@ -16,8 +18,10 @@ from convergence import (
     fp_ranks,
     nrmsd,
     stable_in_a_row,
+    summarize,
     transitions_table,
     write_block_tables,
+    write_summary,
 )
 from test_waterfp import random_universe
 from waterfp import WaterFP
@@ -140,6 +144,30 @@ def test_transitions_table_rows_and_times():
     assert list(table["block_end_ns"]) == [17.5, 20.0, 22.5, 25.0, 27.5]
     assert list(table["stable_transition_count"]) == [0, 1, 2, 3, 0]
     assert list(table["convergence_reached"]) == [False, False, False, True, True]
+
+
+def test_summarize_converged_run():
+    """Converged at transition 2->3 (block 3); of the two later transitions one failed."""
+    stabilities = _stabilities([True, True, True, False, True])
+    block_times = [(2.0 * b, 2.0 * (b + 1)) for b in range(6)]
+    summary = summarize(stabilities, block_times, 2.0, TOL)
+    assert summary == ConvergenceSummary(block_ns=2.0, tolerances=TOL, n_blocks=6, converged=True,
+                                         converged_block=3, converged_ns=8.0, unstable_after_convergence=1,
+                                         stable_in_a_row_at_end=1)
+
+
+def test_summarize_unconverged_and_single_block_runs():
+    summary = summarize(_stabilities([True, False]), [(0.0, 1.0)] * 3, 1.0, TOL)
+    assert (summary.converged, summary.converged_block, summary.converged_ns) == (False, None, None)
+    assert summarize([], [(0.0, 1.0)], 1.0, TOL).stable_in_a_row_at_end == 0
+
+
+def test_write_summary_adds_facts_to_the_summary(tmp_path):
+    summary = summarize(_stabilities([True] * 3), [(0.0, 1.0)] * 4, 1.0, TOL)
+    write_summary(tmp_path / "summary.json", summary, ligand_heavy_atoms=["C1", "O1"])
+    written = json.loads((tmp_path / "summary.json").read_text())
+    assert written["tolerances"] == dataclasses.asdict(TOL)
+    assert written["converged_block"] == 3 and written["ligand_heavy_atoms"] == ["C1", "O1"]
 
 
 def test_fp_rank_one_is_the_most_negative_fp():

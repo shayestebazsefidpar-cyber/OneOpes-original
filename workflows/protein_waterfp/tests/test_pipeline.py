@@ -76,7 +76,8 @@ def test_final_table_has_every_candidate_once(analysis):
     assert len(table) == len(expected) == meta["n_candidate_atoms"]
     assert set(table["Atom_index"]) == set(expected["Atom_index"])
     assert list(table["FP_Rank"]) == list(range(1, len(table) + 1)) and table["FP"].is_monotonic_increasing
-    assert set(table["Analysis_time_ns"]) == {meta["convergence"]["final_analysis_time_ns"]}
+    summary = json.loads((out / "convergence_summary.json").read_text())
+    assert set(table["Analysis_time_ns"]) == {summary["analysis_end_ns"] - summary["analysis_start_ns"]}
 
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
@@ -106,11 +107,11 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     fpb = int(round(BLOCK_NS * 1000 / dt_ps))
     n_blocks = n_frames // fpb
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
-    assert summary["trajectory_length_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
-    assert summary["final_analysis_time_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
     assert summary["trajectory_start_ns"] == pytest.approx(t0_ps / 1000.0)
-    assert summary["number_of_blocks"] == n_blocks and summary["number_of_transitions"] == n_blocks - 1
-    assert summary["frames_not_in_a_complete_block"] == n_frames - n_blocks * fpb
+    assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
+    assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
+    assert summary["n_blocks"] == n_blocks
+    assert meta["frames"]["frames_not_in_a_complete_block"] == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert len(metrics) == n_blocks - 1
     expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
@@ -126,12 +127,11 @@ def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert metrics["all_criteria_pass"].all()
-    assert summary["convergence_reached"] is True
-    assert summary["first_sustained_convergence_ns"] == pytest.approx(4 * BLOCK_NS)
-    assert summary["first_sustained_convergence_transition"] == "2->3"
-    assert summary["number_of_blocks"] == 10 and len(metrics) == 9  # nothing truncated
-    assert summary["n_transitions_after_first_convergence"] == 6
-    assert summary["remained_stable_after_first_convergence"] is True
+    assert summary["converged"] is True
+    assert summary["converged_ns"] == pytest.approx(4 * BLOCK_NS)
+    assert summary["converged_block"] == 3
+    assert summary["n_blocks"] == 10 and len(metrics) == 9  # nothing truncated
+    assert summary["unstable_after_convergence"] == 0
     assert pd.read_csv(tmp_path / "fp_values_per_block.csv")["block"].max() == 9
     assert list(metrics["convergence_reached"]) == [False, False] + [True] * 7
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
@@ -176,19 +176,15 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
     assert len(pd.read_csv(out / "contact_occupancy_per_block.csv")) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
-    assert meta["convergence"]["number_of_blocks"] == n_blocks
+    assert len(meta["frames"]["blocks"]) == n_blocks
     assert len(pd.read_csv(out / "rdf_profiles_per_block.csv")) == n_blocks * n * 2001
     ranks = pd.read_csv(out / "fp_ranking_by_block_wide.csv", index_col=0)
     values = pd.read_csv(out / "fp_values_by_block_wide.csv", index_col=0)
     last = values.columns[-1]
     assert ranks[last].idxmin() == values[last].idxmin()  # rank 1 = most negative in every file
     summary = json.loads((out / "convergence_summary.json").read_text())
-    for key in ("trajectory_length_ns", "block_size_ns", "number_of_blocks", "number_of_transitions",
-                "stable_transitions_required", "fp_threshold", "rdf_nrmsd_threshold", "spearman_threshold",
-                "first_sustained_convergence_ns", "final_analysis_time_ns", "convergence_reached"):
-        assert key in summary, key
-    assert (summary["fp_threshold"], summary["rdf_nrmsd_threshold"], summary["spearman_threshold"]) == (0.10, 0.15, 0.90)
-    assert summary["stable_transitions_required"] == 3
+    assert summary["n_blocks"] == n_blocks and summary["block_ns"] == BLOCK_NS
+    assert summary["tolerances"] == {"fp_rel_tol": 0.10, "rdf_nrmsd_tol": 0.15, "spearman_tol": 0.90, "n_stable": 3}
 
 
 def test_cli_end_to_end_from_files(tmp_path):
@@ -207,7 +203,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     assert rc == 0
     for name in ("candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
-                 "convergence_summary.json", "convergence_summary.txt", "final_per_atom_table.csv",
+                 "convergence_summary.json", "final_per_atom_table.csv",
                  "final_per_atom_table.md",
                  "run_metadata.json"):
         assert (out / name).exists(), name
