@@ -47,13 +47,26 @@ class SystemSelection:
     """0-based atom indices of each part of the system, and the selections that found the ligand and water.
 
     Indices rather than AtomGroups, so that they apply to any universe of the same topology (the
-    protein side uses them on the complex structure). ``protein_heavy`` is empty without a protein.
+    protein side uses them on the complex structure): ``ligand(u)`` gives the ligand's atoms in ``u``.
+    ``protein_heavy`` is empty without a protein.
     """
     protein_heavy: np.ndarray
     ligand_heavy: np.ndarray
     water_oxygens: np.ndarray
     ligand_selection: str
     water_selection: str
+
+    def protein(self, u: Universe) -> AtomGroup:
+        """The protein heavy atoms in ``u``."""
+        return u.atoms[self.protein_heavy]
+
+    def ligand(self, u: Universe) -> AtomGroup:
+        """The ligand heavy atoms in ``u``."""
+        return u.atoms[self.ligand_heavy]
+
+    def water(self, u: Universe) -> AtomGroup:
+        """The water oxygens in ``u``."""
+        return u.atoms[self.water_oxygens]
 
 
 def load_universe(topology: Path, *coordinates: Path) -> Universe:

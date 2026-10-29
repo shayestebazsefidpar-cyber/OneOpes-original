@@ -31,8 +31,7 @@ def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_
     structure has a box.
     """
     u = system.complex
-    protein = u.atoms[system.selection.protein_heavy]
-    ligand = u.atoms[system.selection.ligand_heavy]
+    protein, ligand = system.selection.protein(u), system.selection.ligand(u)
     min_distance = distance_array(protein.positions, ligand.positions, box=u.dimensions).min(axis=1)
     near = min_distance <= cutoff_A
     if not near.any():

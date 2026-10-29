@@ -164,7 +164,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     """
     u = load_universe(tpr, xtc)
     sel = select_system(u, system)
-    ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
+    ligand, water = sel.ligand(u), sel.water(u)
     atom_names = list(ligand.names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_selection, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)

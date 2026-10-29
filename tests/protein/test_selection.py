@@ -13,7 +13,7 @@ from protein_systems import build_universe, protein_args, simple_protein
 
 
 def _min_dist(u, sel, idx):
-    lig = u.atoms[sel.ligand_heavy].positions
+    lig = sel.ligand(u).positions
     return np.min(np.linalg.norm(lig - u.atoms[idx].position, axis=1))
 
 

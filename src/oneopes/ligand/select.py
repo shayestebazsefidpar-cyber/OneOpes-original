@@ -68,7 +68,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     """
     u = load_universe(tpr, xtc)
     sel = select_system(u, system)
-    ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
+    ligand, water = sel.ligand(u), sel.water(u)
 
     frames = window.frames(len(u.trajectory))
     measurement = measure_hydration(ligand, water, frames, hydration)

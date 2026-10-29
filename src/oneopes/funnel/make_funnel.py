@@ -13,12 +13,16 @@ from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, P0P1Result, make_p0_p1
 
 @dataclass(frozen=True)
 class FunnelResult:
-    """A BioSimSpace funnel: the makeFunnel selections with P0/P1, the ``Funnel`` CV and its parameters."""
+    """A BioSimSpace funnel: the makeFunnel selections with P0/P1, and the ``Funnel`` CV."""
 
     p0p1: P0P1Result
     cv: object
     """The BioSimSpace ``Funnel`` CV (e.g. ``cv.getCorrection()``)."""
-    parameters: FunnelParameters
+
+    @property
+    def parameters(self) -> FunnelParameters:
+        """The CV's parameters as plain numbers (see :func:`funnel_parameters`)."""
+        return funnel_parameters(self.cv)
 
 
 def make_funnel(
@@ -41,4 +45,4 @@ def make_funnel(
     p0p1 = make_p0_p1(system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name,
                       property_map=property_map)
     cv = Funnel(p0p1.atoms0, p0p1.atoms1, **funnel_kwargs)
-    return FunnelResult(p0p1=p0p1, cv=cv, parameters=funnel_parameters(cv))
+    return FunnelResult(p0p1=p0p1, cv=cv)

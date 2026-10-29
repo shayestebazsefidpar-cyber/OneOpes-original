@@ -43,9 +43,9 @@ def measure_frames(system: ProteinSystem, candidates: pd.DataFrame, frames: rang
                    hydration: HydrationOptions) -> xr.Dataset:
     """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
     ``frames``, along ``atom`` (named by their ``Atom`` label), with their details as coordinates."""
-    atoms = system.trajectory.atoms
-    candidate_atoms, labels = atoms[candidates["Atom_index"].to_numpy()], list(candidates["Atom"])
-    ligand, water = atoms[system.selection.ligand_heavy], atoms[system.selection.water_oxygens]
+    u = system.trajectory
+    candidate_atoms, labels = u.atoms[candidates["Atom_index"].to_numpy()], list(candidates["Atom"])
+    ligand, water = system.selection.ligand(u), system.selection.water(u)
     measured = xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
                          measure_contacts(candidate_atoms, ligand, water, frames, labels)])
     return measured.assign_coords(candidate_details(candidates).data_vars)

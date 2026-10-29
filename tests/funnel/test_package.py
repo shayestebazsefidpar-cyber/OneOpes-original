@@ -29,7 +29,7 @@ def test_b4_result_dataclasses_are_frozen():
     lower = Bound(position_nm=0.5, force_constant=2000.0)
     params = FunnelParameters(width_nm=0.6, buffer_nm=0.15, steepness_per_nm=1.5, inflection_nm=2.0,
                               lower_bound=lower, upper_bound=Bound(position_nm=4.0, force_constant=2000.0))
-    f = FunnelResult(p0p1=r, cv=None, parameters=params)
+    f = FunnelResult(p0p1=r, cv=None)
     for obj, field in [(r, "atoms0"), (lower, "position_nm"), (params, "width_nm"), (f, "cv")]:
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(obj, field, None)

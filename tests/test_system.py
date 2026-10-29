@@ -29,9 +29,9 @@ LIGAND = [("C1", "C"), ("H1", "H"), ("O1", "O"), ("H2", "H"), ("C2", "C")]
 def test_ligand_in_water_without_protein():
     u = ligand_in_water(LIGAND)
     sel = select_system(u)
-    assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
+    assert list(sel.ligand(u).names) == ["C1", "O1", "C2"]
     assert sel.protein_heavy.size == 0 and sel.ligand_selection == "resname MOL"
-    assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
+    assert list(sel.water(u).names) == ["OW"] * 3
 
 
 def test_heavy_atoms_are_the_ones_a_name_rule_would_pick_for_an_ordinary_ligand():
@@ -42,8 +42,8 @@ def test_heavy_atoms_are_the_ones_a_name_rule_would_pick_for_an_ordinary_ligand(
 def test_virtual_sites_are_not_heavy_atoms():
     u = ligand_in_water([*LIGAND, ("LP1", "X")], water_names=("OW", "HW1", "HW2", "MW"))
     sel = select_system(u)
-    assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
-    assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
+    assert list(sel.ligand(u).names) == ["C1", "O1", "C2"]
+    assert list(sel.water(u).names) == ["OW"] * 3
 
 
 def test_without_elements_mass_repartitioned_hydrogens_are_still_not_heavy():
@@ -51,8 +51,8 @@ def test_without_elements_mass_repartitioned_hydrogens_are_still_not_heavy():
     u.del_TopologyAttr("elements")
     u.atoms.masses = np.where(u.atoms.masses == MASSES["H"], 3.024, u.atoms.masses)
     sel = select_system(u)
-    assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "O1", "C2"]
-    assert list(u.atoms[sel.water_oxygens].names) == ["OW"] * 3
+    assert list(sel.ligand(u).names) == ["C1", "O1", "C2"]
+    assert list(sel.water(u).names) == ["OW"] * 3
 
 
 def test_explicit_selections_override_detection():
@@ -60,7 +60,7 @@ def test_explicit_selections_override_detection():
     with pytest.raises(SystemDefinitionError, match="water"):
         select_system(u)
     sel = select_system(u, SystemOptions(ligand_selection="resname MOL and name C*", water_selection="resname XWT"))
-    assert list(u.atoms[sel.ligand_heavy].names) == ["C1", "C2"]
+    assert list(sel.ligand(u).names) == ["C1", "C2"]
     assert len(sel.water_oxygens) == 3
 
 
