@@ -21,7 +21,7 @@ from oneopes.protein.sasa import static_sasa
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, load_universe
-from oneopes.trajectory_blocks import FrameLayout, FrameWindow, frame_layout, label_block
+from oneopes.trajectory_blocks import FrameLayout, FrameWindow, frame_layout
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     layout = frame_layout(system.trajectory, options.blocks.block_ns, options.window)
     logger.info("%s", layout.describe())
 
-    measured = [label_block(measure_frames(system, candidates, block.frames, options.hydration), block)
+    measured = [block.label(measure_frames(system, candidates, block.frames, options.hydration))
                 for block in layout.blocks]
     blocks = block_run(measured, options.blocks, options.hydration,
                        trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,

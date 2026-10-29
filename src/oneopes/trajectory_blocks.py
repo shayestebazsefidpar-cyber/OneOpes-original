@@ -44,6 +44,10 @@ def complete_blocks(start: int, stop: int, length: int) -> list[range]:
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]
 
 
+BLOCK_COORDS = ["t_start_ns", "t_end_ns", "n_frames"]
+"""The coordinates :meth:`Block.label` gives a block's measurement."""
+
+
 @dataclass(frozen=True)
 class Block:
     """One trajectory block: its frames and its start and end time (ns)."""
@@ -51,22 +55,20 @@ class Block:
     start_ns: float
     end_ns: float
 
+    @classmethod
+    def of(cls, u: Universe, frames: range, dt_ps: float) -> "Block":
+        """The block of ``frames``: it starts at the time of its first frame and lasts ``len(frames)`` frames."""
+        start_ns = frame_time_ns(u, frames.start)
+        return cls(frames=frames, start_ns=start_ns, end_ns=start_ns + len(frames) * dt_ps / 1000.0)
 
-def block_of(u: Universe, frames: range, dt_ps: float) -> Block:
-    """The block of ``frames``: it starts at the time of its first frame and lasts ``len(frames)`` frames."""
-    start_ns = frame_time_ns(u, frames.start)
-    return Block(frames=frames, start_ns=start_ns, end_ns=start_ns + len(frames) * dt_ps / 1000.0)
-
-
-def label_block(measurement: xr.Dataset, block: Block) -> xr.Dataset:
-    """A block's measurement, labelled with the block's start and end time (ns) and frame count."""
-    return measurement.assign_coords(t_start_ns=block.start_ns, t_end_ns=block.end_ns, n_frames=len(block.frames))
+    def label(self, measurement: xr.Dataset) -> xr.Dataset:
+        """``measurement`` of this block, labelled with its start and end time (ns) and frame count."""
+        return measurement.assign_coords(t_start_ns=self.start_ns, t_end_ns=self.end_ns, n_frames=len(self.frames))
 
 
 def stack_blocks(blocks: Sequence[xr.Dataset]) -> xr.Dataset:
     """Block measurements along a ``block`` dimension numbered from 0, with each block's mid time ``t_mid_ns``."""
-    stacked = xr.concat(blocks, dim="block", data_vars="all", coords=["t_start_ns", "t_end_ns", "n_frames"],
-                        join="exact")
+    stacked = xr.concat(blocks, dim="block", data_vars="all", coords=BLOCK_COORDS, join="exact")
     stacked = stacked.assign_coords(block=np.arange(len(blocks)))
     return stacked.assign_coords(t_mid_ns=(stacked.t_start_ns + stacked.t_end_ns) / 2)
 
@@ -134,7 +136,7 @@ def frame_layout(u: Universe, block_ns: float, window: FrameWindow = FrameWindow
         n_frames=n_frames,
         dt_ps=dt_ps,
         analysed=analysed,
-        blocks=[block_of(u, frames, dt_ps) for frames in block_frames],
+        blocks=[Block.of(u, frames, dt_ps) for frames in block_frames],
         trajectory_start_ns=frame_time_ns(u, 0),
         trajectory_end_ns=frame_time_ns(u, n_frames - 1),
         analysis_start_ns=frame_time_ns(u, analysed.start),

@@ -11,7 +11,7 @@ from oneopes.reports import (
     write_hydration_files,
     write_summary,
 )
-from oneopes.trajectory_blocks import Block, label_block, stack_blocks
+from oneopes.trajectory_blocks import Block, stack_blocks
 from oneopes.waterfp import measure_hydration
 from water_systems import random_universe
 
@@ -24,7 +24,7 @@ def _measured_blocks(n_blocks, labels=None, block_ns=1.0, start_ns=0.0):
     u = random_universe(n_frames=n_blocks)
     solute, water = u.atoms[:3], u.atoms[3:]
     blocks = [Block(range(b, b + 1), start_ns + b * block_ns, start_ns + (b + 1) * block_ns) for b in range(n_blocks)]
-    return stack_blocks([label_block(measure_hydration(solute, water, block.frames, labels=labels), block)
+    return stack_blocks([block.label(measure_hydration(solute, water, block.frames, labels=labels))
                          for block in blocks])
 
 

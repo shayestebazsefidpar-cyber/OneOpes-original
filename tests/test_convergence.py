@@ -17,7 +17,7 @@ from oneopes.convergence import (
     stable_in_a_row,
     summarize,
 )
-from oneopes.trajectory_blocks import Block, label_block, stack_blocks
+from oneopes.trajectory_blocks import Block, stack_blocks
 
 TOL = DEFAULT_TOLERANCES
 CRITERIA = ["fp_pass", "rdf_pass", "spearman_pass", "passed"]
@@ -36,7 +36,7 @@ def _block(fp, g):
 
 def _stack(blocks, block_ns=1.0):
     """The blocks as consecutive one-frame blocks of block_ns ns from 0."""
-    return stack_blocks([label_block(block, Block(range(b, b + 1), b * block_ns, (b + 1) * block_ns))
+    return stack_blocks([Block(range(b, b + 1), b * block_ns, (b + 1) * block_ns).label(block)
                          for b, block in enumerate(blocks)])
 
 

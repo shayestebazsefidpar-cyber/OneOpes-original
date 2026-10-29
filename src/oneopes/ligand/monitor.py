@@ -25,8 +25,8 @@ from oneopes.errors import InputError
 from oneopes.ligand.select import write_selection
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
-from oneopes.system import SystemOptions, load_universe, select_system
-from oneopes.trajectory_blocks import block_of, frame_step_ps, frame_time_ns, frames_per_block, label_block
+from oneopes.system import SystemOptions, SystemSelection, load_universe, select_system
+from oneopes.trajectory_blocks import Block, frame_step_ps, frame_time_ns, frames_per_block
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,35 @@ def save_figure(fig: Figure, path: Path) -> None:
     plt.close(fig)
 
 
+def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration: HydrationOptions,
+                           blocks: BlockOptions, outdir: Path, mdrun_pid: int | None,
+                           poll_seconds: float) -> xr.Dataset:
+    """Measure each block of the trajectory as soon as mdrun has written it, compare it with the blocks
+    before, and write the run to ``outdir``; until convergence, or until mdrun has stopped.
+
+    Returns the run; raises InputError when mdrun ends before the first block is complete.
+    """
+    ligand, water = sel.ligand(u), sel.water(u)
+    wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
+    dt_ps = frame_step_ps(u, complete_frames(u, mdrun_pid))
+    block_length = frames_per_block(blocks.block_ns, dt_ps)
+    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
+
+    measured, run = [], None
+    for frames in completed_blocks(u, xtc, block_length, mdrun_pid, poll_seconds):
+        block = Block.of(u, frames, dt_ps)
+        measured.append(block.label(measure_hydration(ligand, water, block.frames, hydration)))
+        run = block_run(measured, blocks, hydration, ligand_selection=sel.ligand_selection,
+                        ligand_heavy_atoms=list(ligand.names))
+        write_run(outdir, run)
+        log_progress(run)
+        if converged_block(run, blocks.tolerances.n_stable) is not None:
+            break
+    if run is None:
+        raise InputError("mdrun ended before the first block was complete; nothing to report.")
+    return run
+
+
 def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),
             xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
             system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
@@ -164,31 +193,14 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     """
     u = load_universe(tpr, xtc)
     sel = select_system(u, system)
-    ligand, water = sel.ligand(u), sel.water(u)
-    atom_names = list(ligand.names)
-    logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_selection, atom_names)
+    ligand = sel.ligand(u)
+    logger.info("%d ligand heavy atoms (%s): %s", len(ligand), sel.ligand_selection, list(ligand.names))
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
                 hydration.grid.rmax_nm, hydration.grid.n_bins, hydration.norm_tail_bins)
 
-    wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
-    dt_ps = frame_step_ps(u, complete_frames(u, mdrun_pid))
-    block_length = frames_per_block(blocks.block_ns, dt_ps)
-    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
-
     outdir.mkdir(parents=True, exist_ok=True)
-    measured, run = [], None
-    for frames in completed_blocks(u, xtc, block_length, mdrun_pid, poll_seconds):
-        block = block_of(u, frames, dt_ps)
-        measured.append(label_block(measure_hydration(ligand, water, block.frames, hydration), block))
-        run = block_run(measured, blocks, hydration, ligand_selection=sel.ligand_selection,
-                        ligand_heavy_atoms=atom_names)
-        write_run(outdir, run)
-        log_progress(run)
-        if converged_block(run, blocks.tolerances.n_stable) is not None:
-            break
-    if run is None:
-        raise InputError("mdrun ended before the first block was complete; nothing to report.")
+    run = follow_until_converged(u, xtc, sel, hydration, blocks, outdir, mdrun_pid, poll_seconds)
 
     u.load_new(str(xtc))
     trajectory_end_ns = frame_time_ns(u, -1)

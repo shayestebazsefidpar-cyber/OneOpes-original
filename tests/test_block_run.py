@@ -15,7 +15,7 @@ from oneopes.block_run import (
 )
 from oneopes.convergence import Tolerances
 from oneopes.errors import InputError
-from oneopes.trajectory_blocks import Block, label_block
+from oneopes.trajectory_blocks import Block
 from oneopes.waterfp import HydrationOptions
 
 TOL = Tolerances(fp_rel_tol=0.2, rdf_nrmsd_tol=0.15, spearman_tol=0.9, n_stable=2)
@@ -25,9 +25,9 @@ OPTIONS = BlockOptions(block_ns=2.0, tolerances=TOL)
 def _measured(*fps, block_ns=2.0):
     """One-frame blocks of block_ns ns with the given FP values and the same g(r) for every atom."""
     g = np.tile([0.0, 0.5, 1.0, 1.0], (len(fps[0]), 1))
-    return [label_block(xr.Dataset({"fp": ("atom", np.asarray(fp, dtype=float)), "g": (("atom", "r_nm"), g)},
-                                   coords={"atom": ["C1", "N1", "O1"][:len(fp)]}),
-                        Block(range(b, b + 1), b * block_ns, (b + 1) * block_ns))
+    return [Block(range(b, b + 1), b * block_ns, (b + 1) * block_ns).label(
+                xr.Dataset({"fp": ("atom", np.asarray(fp, dtype=float)), "g": (("atom", "r_nm"), g)},
+                           coords={"atom": ["C1", "N1", "O1"][:len(fp)]}))
             for b, fp in enumerate(fps)]
 
 
