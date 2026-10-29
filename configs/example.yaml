@@ -20,9 +20,17 @@ monitor:
   block-ns: 5.0
   n-stable: 3
 
+select-block:
+  tpr: build/prod.tpr
+  run: outputs/convergence/blocks.nc
+  outdir: outputs/selection
+
 build-cv:
   g1-g2: outputs/convergence/selection/g1_g2.yaml
   out: outputs/ligand_cv/plumed_fragment.dat
+
+add-legend:
+  g1-g2: outputs/convergence/selection/g1_g2.yaml
 
 protein:
   complex: complex.pdb

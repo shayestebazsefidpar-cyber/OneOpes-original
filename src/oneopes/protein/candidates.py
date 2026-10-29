@@ -7,6 +7,7 @@ has a box). The pool is computed once and never changes.
 """
 
 import pandas as pd
+from MDAnalysis.core.groups import Atom
 from MDAnalysis.lib.distances import distance_array
 
 from oneopes.protein.inputs import ProteinSystem
@@ -15,7 +16,8 @@ from oneopes.system import SystemDefinitionError
 CANDIDATE_CUTOFF_A_DEFAULT = 7.0
 
 
-def atom_label(atom) -> str:
+def atom_label(atom: Atom) -> str:
+    """The atom's name in the tables, e.g. ASP93_OD1_id1402 (residue, atom name, 1-based serial)."""
     return f"{atom.resname}{atom.resid}_{atom.name}_id{atom.index + 1}"
 
 

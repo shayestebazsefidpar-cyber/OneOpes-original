@@ -53,7 +53,7 @@ def structure_chain_ids(u_structure: Universe) -> np.ndarray | None:
     return np.array([str(c or "").strip() for c in u_structure.atoms.chainIDs], dtype=object)
 
 
-def validate_same_atoms(reference: Universe, other: Universe, what: str, indices=None) -> None:
+def validate_same_atoms(reference: Universe, other: Universe, what: str, indices: np.ndarray | None = None) -> None:
     """Fail unless ``other`` has the same atom count as ``reference`` and the same
     atom names at ``indices`` (all atoms if None)."""
     if len(other.atoms) != len(reference.atoms):
