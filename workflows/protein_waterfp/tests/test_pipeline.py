@@ -12,7 +12,7 @@ from protein_waterfp import cli
 from protein_waterfp.cli import AnalysisOptions, main, run_analysis
 from protein_waterfp.final_table import FINAL_COLUMNS
 from protein_waterfp.selection import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
-from system import select_system
+from oneopes.system import select_system
 
 LIGAND = [("C1", "C", (30.0, 16.0, 10.0)), ("N1", "N", (31.3, 16.0, 10.0)),
           ("O1", "O", (32.0, 17.1, 10.0)), ("H1", "H", (29.5, 16.8, 10.0))]
@@ -83,7 +83,7 @@ def test_final_table_has_every_candidate_once(analysis):
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     from protein_waterfp.trajectory import structural_block
-    from waterfp import WaterFP
+    from oneopes.waterfp import WaterFP
 
     n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
     u, meta = _run(tmp_path, n_frames=n_frames)
@@ -152,7 +152,7 @@ def test_convergence_metrics_are_a_separate_table(analysis):
 
 
 def test_worst_case_metrics_match_per_atom_block_data(analysis):
-    from convergence import nrmsd
+    from oneopes.convergence import nrmsd
 
     _u, _meta, out = analysis
     fp = pd.read_csv(out / "fp_values_per_block.csv")

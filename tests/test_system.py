@@ -3,7 +3,7 @@ import MDAnalysis as mda
 import numpy as np
 import pytest
 
-from system import SystemDefinitionError, select_system
+from oneopes.system import SystemDefinitionError, select_system
 
 MASSES = {"C": 12.011, "O": 15.999, "H": 1.008, "Na": 22.99, "X": 0.0}
 

@@ -11,7 +11,7 @@ import pandas as pd
 from MDAnalysis.analysis.results import Results
 from scipy.stats import spearmanr
 
-from waterfp import WaterFP
+from oneopes.waterfp import WaterFP
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from convergence import fp_ranks
+from oneopes.convergence import fp_ranks
 
 FINAL_COLUMNS = [
     "FP_Rank",

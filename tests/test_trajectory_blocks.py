@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from MDAnalysis.coordinates.memory import MemoryReader
 
-from trajectory_blocks import complete_blocks, frame_step_ps, frames_per_block
+from oneopes.trajectory_blocks import complete_blocks, frame_step_ps, frames_per_block
 
 
 def universe_with_times(n_frames: int, dt_ps: float) -> mda.Universe:

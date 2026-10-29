@@ -21,8 +21,8 @@ import numpy as np
 import yaml
 from MDAnalysis.core.groups import AtomGroup
 
-from system import SystemDefinitionError, select_system
-from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.system import SystemDefinitionError, select_system
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 

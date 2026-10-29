@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from MDAnalysis.analysis.results import Results
 
-from convergence import (
+from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     ConvergenceSummary,
     StabilityResult,
@@ -24,7 +24,7 @@ from convergence import (
     write_summary,
 )
 from test_waterfp import random_universe
-from waterfp import WaterFP
+from oneopes.waterfp import WaterFP
 
 TOL = DEFAULT_TOLERANCES
 

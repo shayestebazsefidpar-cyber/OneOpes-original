@@ -11,7 +11,7 @@ pytest
 
 ## What's covered here
 
-- `test_waterfp.py` - the shared `waterfp` module: radial grid geometry
+- `test_waterfp.py` - the shared `oneopes.waterfp` module: radial grid geometry
   (bin/edge counts, shell-volume monotonicity), water counting on small
   synthetic universes (a water lands in the bin of its distance, waters
   beyond rmax are ignored, frame ranges add up, parallel = serial), and the

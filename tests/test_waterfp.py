@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from MDAnalysis.coordinates.memory import MemoryReader
 
-from waterfp import RadialGrid, WaterCounts, WaterFP, fingerprint
+from oneopes.waterfp import RadialGrid, WaterCounts, WaterFP, fingerprint
 
 BOX_A = 50.0  # half box (25 A) > rmax (20.01 A): every bin is fully inside the minimum image
 BULK_DENSITY_NM3 = 33.4  # water-O number density of bulk water

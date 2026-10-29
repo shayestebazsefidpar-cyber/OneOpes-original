@@ -13,7 +13,7 @@ from protein_waterfp.selection import (
     structure_chain_ids,
     validate_same_atoms,
 )
-from system import SystemDefinitionError, select_system
+from oneopes.system import SystemDefinitionError, select_system
 
 
 def _min_dist(u, sel, idx):

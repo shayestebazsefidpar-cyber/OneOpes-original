@@ -27,10 +27,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from convergence import DEFAULT_TOLERANCES, compare_blocks, summarize, write_block_tables, write_summary
-from system import select_system
-from trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
-from waterfp import WaterFP
+from oneopes.convergence import DEFAULT_TOLERANCES, compare_blocks, summarize, write_block_tables, write_summary
+from oneopes.system import select_system
+from oneopes.trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
+from oneopes.waterfp import WaterFP
 
 from . import __version__
 from .final_table import build_final_table, final_table_markdown

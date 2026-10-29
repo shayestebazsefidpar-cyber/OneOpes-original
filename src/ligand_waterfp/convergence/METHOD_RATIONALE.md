@@ -42,14 +42,14 @@ nm (default 2.001), bin width `--binwidth-nm` (default 0.001, i.e. 2001
 bins) - matching WaterFP's `calc_rdf.sh` settings (`gmx rdf -bin 0.001
 -norm number_density -rmax 2.001`) exactly, but recomputed per trajectory
 block instead of once over a whole fixed trajectory (see the shared
-`waterfp.WaterFP` analysis).
+`oneopes.waterfp.WaterFP` analysis).
 
 Per block: `n(r)` = mean neighbour count per radial shell per frame,
 divided by the shell volume (waters/nm^3) - a raw, un-normalised
 number-density profile.
 
 **(b) FP (fingerprint)**: reimplemented exactly from WaterFP's `fp.py`
-(see `waterfp.fingerprint`):
+(see `oneopes.waterfp.fingerprint`):
 
 ```
 norm  = mean of the last --norm-tail-bins bins (default 500 of 2001)
@@ -171,9 +171,9 @@ looser convergence definition is wanted.
 ```
 for each new block of trajectory (--block-ns):
     for each ligand heavy atom:
-        trajectory -> raw water-O density profile n(r)     [waterfp.WaterFP]
+        trajectory -> raw water-O density profile n(r)     [oneopes.waterfp.WaterFP]
                    -> g(r) = n(r) / (block's own bulk-tail estimate)
-                   -> FP   = entropy-integral of g(r)       [waterfp.fingerprint]
+                   -> FP   = entropy-integral of g(r)       [oneopes.waterfp.fingerprint]
     rank all atoms by FP
 
     if a previous block exists:

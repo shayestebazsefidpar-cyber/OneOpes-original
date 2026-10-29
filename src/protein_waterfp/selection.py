@@ -4,7 +4,7 @@ The candidate pool, and checks that two inputs describe the same atoms.
 Candidates: protein heavy atoms whose minimum distance to any ligand heavy
 atom in the complex structure is <= the cutoff (minimum image when the
 structure has a box). The pool is computed once and never changes. The
-protein, ligand and water themselves come from :mod:`system`.
+protein, ligand and water themselves come from :mod:`oneopes.system`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from MDAnalysis.lib.distances import distance_array
 
-from system import SystemDefinitionError, SystemSelection
+from oneopes.system import SystemDefinitionError, SystemSelection
 
 CANDIDATE_CUTOFF_A_DEFAULT = 7.0
 

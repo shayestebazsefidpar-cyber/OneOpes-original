@@ -85,7 +85,7 @@ Additional, non-pip dependencies:
 - A ligand structure with a GROMACS-compatible topology (built however
   suits your project - CGenFF/CHARMM-GUI, GAFF/acpype, extraction from an
   existing complex's topology). The ligand and water are found
-  automatically (`system.py`); every analysis command accepts
+  automatically (`oneopes.system`); every analysis command accepts
   `--ligand-selection`/`--water-selection` to choose them explicitly.
 - A 3-point water model consistent with the rest of your project.
 - For stage 5 (optional): a bound-complex structure (protein + ligand) to
@@ -268,14 +268,14 @@ trajectory (length detected from the input)
 * **Candidates**: protein (MDAnalysis `protein`) heavy atoms (topology mass
   ≥ 1.5, not H) whose minimum distance to any ligand heavy atom in
   `--complex` is ≤ the cutoff. Computed once; never filtered afterwards.
-* **WaterFP / RDF**: the shared `waterfp.WaterFP` analysis: water-oxygen number
+* **WaterFP / RDF**: the shared `oneopes.waterfp.WaterFP` analysis: water-oxygen number
   density 0–2.001 nm in 0.001 nm bins, bulk norm from the last 500 bins.
 * **Contact**: fraction of frames with the candidate within 5 Å of any ligand
   heavy atom. **Bridge**: fraction of frames with ≥1 water oxygen within
   3.5 Å of both the candidate and a ligand heavy atom.
 * **SASA**: static, on the complex (protein + ligand heavy atoms, no
   water/ions), freesasa defaults.
-* **Convergence**: the shared `convergence.check_stability` with FP relative
+* **Convergence**: the shared `oneopes.convergence.check_stability` with FP relative
   change ≤ 0.10, RDF nRMSD ≤ 0.15, Spearman ≥ 0.90 — all three in a
   transition (FP change and nRMSD are the worst case over all candidates).
   Sustained convergence = 3 consecutive stable transitions; the end time of
@@ -305,7 +305,7 @@ trajectory (length detected from the input)
   all candidates. Atoms with FP close to zero (bulk-like, solvent-exposed) can
   produce very large relative changes and can dominate the verdict. This is
   inherited from the ligand-side criterion (now the shared
-  `convergence.check_stability`) and is intentionally unchanged here.
+  `oneopes.convergence.check_stability`) and is intentionally unchanged here.
 * **Reference structure.** Candidate selection and `SASA_A2` use only the
   supplied `--complex` structure. SASA is static (one structure), not
   trajectory-averaged.

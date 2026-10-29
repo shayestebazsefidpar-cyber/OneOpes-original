@@ -1,8 +1,8 @@
 """
 Convergence monitor for an unbiased ligand-in-water MD run.
 
-Analyses the trajectory block by block as mdrun writes it (waterfp.WaterFP),
-compares each block with the previous one (the convergence module), and stops
+Analyses the trajectory block by block as mdrun writes it (oneopes.waterfp.WaterFP),
+compares each block with the previous one (oneopes.convergence), and stops
 once --n-stable transitions in a row are stable, sending SIGTERM to the given
 mdrun PID. Tables, plots and a summary are written to --outdir; on convergence,
 the G1/G2 selection of the converged block goes to --outdir/selection.
@@ -26,7 +26,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from convergence import (
+from oneopes.convergence import (
     Tolerances,
     compare_blocks,
     first_convergence,
@@ -38,9 +38,9 @@ from convergence import (
     write_summary,
 )
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
-from system import SystemDefinitionError, select_system
-from trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
-from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.system import SystemDefinitionError, select_system
+from oneopes.trajectory_blocks import frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 
 def parse_args():
