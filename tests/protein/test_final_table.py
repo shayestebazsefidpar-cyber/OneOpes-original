@@ -6,7 +6,7 @@ import pandas as pd
 from oneopes.protein.final_table import FINAL_COLUMNS, build_final_table, final_table_markdown
 
 REQUIRED = [
-    "FP_Rank", "Atom", "Atom_index", "Atom_serial_pdb", "Atom_name", "Residue_name", "Residue_number",
+    "FP_Rank", "Atom", "Atom_index", "Atom_serial", "Atom_name", "Residue_name", "Residue_number",
     "Chain_ID", "Min_distance_to_ligand_A", "FP", "Contact_occupancy_5A", "Bridge_occupancy", "SASA_A2",
 ]
 
@@ -15,7 +15,7 @@ def _inputs():
     """Three candidates, their full-range values and their SASA, all in candidate row order."""
     cand = pd.DataFrame({
         "Atom": ["GLY3_CA_id8", "SER4_OG_id15", "TRP9_NE1_id60"],
-        "Atom_index": [7, 14, 59], "Atom_serial_pdb": [8, 15, 60],
+        "Atom_index": [7, 14, 59], "Atom_serial": [8, 15, 60],
         "Atom_name": ["CA", "OG", "NE1"], "Residue_name": ["GLY", "SER", "TRP"],
         "Residue_number": [3, 4, 9], "Chain_ID": ["", "", ""],
         "Min_distance_to_ligand_A": [6.1, 2.9, 8.8],

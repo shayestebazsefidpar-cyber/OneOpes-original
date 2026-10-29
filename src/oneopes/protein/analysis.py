@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
+from cyclopts.validators import Number
 from MDAnalysis import AtomGroup, Universe
 
 from oneopes import __version__
@@ -42,7 +43,8 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class AnalysisOptions:
     """Settings of one protein analysis; also the options of ``oneopes protein``."""
-    candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A")] = CANDIDATE_CUTOFF_A_DEFAULT
+    candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
+        CANDIDATE_CUTOFF_A_DEFAULT)
     """Largest distance (A) from the ligand of a candidate protein atom."""
     block_ns: float = BLOCK_NS_DEFAULT
     """Trajectory block size (ns)."""

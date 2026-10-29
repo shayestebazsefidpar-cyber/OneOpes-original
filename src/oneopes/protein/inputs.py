@@ -22,7 +22,7 @@ class ProteinSystem:
 
 def protein_system(trajectory: Universe, complex: Universe, complex_file: Universe | None = None,
                    ligand_selection: str | None = None, water_selection: str | None = None) -> ProteinSystem:
-    """Check that the inputs describe the same atoms, and find the protein, ligand and water.
+    """Check that the inputs describe the same atoms, and find the protein (required), ligand and water.
 
     ``complex_file`` is the complex file read on its own: its protein and ligand heavy-atom names must
     match the topology (water and hydrogen naming may differ between formats), and its chain IDs fill
@@ -30,6 +30,8 @@ def protein_system(trajectory: Universe, complex: Universe, complex_file: Univer
     """
     validate_same_atoms(trajectory, complex, "complex vs trajectory topology")
     selection = select_system(trajectory, ligand_selection, water_selection)
+    if len(selection.protein_heavy) == 0:
+        raise SystemDefinitionError("The system has no protein (the MDAnalysis 'protein' selection is empty).")
     chain_ids = None
     if complex_file is not None:
         validate_same_atoms(trajectory, complex_file, "complex structure",

@@ -15,7 +15,7 @@ FINAL_COLUMNS = [
     "FP_Rank",
     "Atom",
     "Atom_index",
-    "Atom_serial_pdb",
+    "Atom_serial",
     "Atom_name",
     "Residue_name",
     "Residue_number",

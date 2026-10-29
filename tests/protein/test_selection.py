@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from cyclopts import ValidationError
 
 from oneopes.cli import app
 from oneopes.protein import analysis
@@ -25,6 +26,19 @@ def test_default_cutoff_is_exactly_7_A():
 def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
     _command, bound, _ = app.parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", str(value)])
     assert bound.arguments["options"].candidate_cutoff_A == value
+
+
+@pytest.mark.parametrize("value", ["0", "-3"])
+def test_cli_rejects_a_cutoff_that_is_not_positive(tmp_path, value):
+    with pytest.raises(ValidationError):
+        app.parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", value], exit_on_error=False,
+                       print_error=False)
+
+
+def test_a_system_without_protein_is_rejected():
+    u = build_universe([], [("C1", "C", (12.0, 15.0, 10.0)), ("C2", "C", (13.0, 15.0, 10.0))], n_waters=5)
+    with pytest.raises(SystemDefinitionError, match="no protein"):
+        protein_system(u, u)
 
 
 def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):

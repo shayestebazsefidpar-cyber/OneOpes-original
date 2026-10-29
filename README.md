@@ -319,9 +319,9 @@ trajectory (length detected from the input)
 * **Numbering.** `Atom_name` and `Residue_number` come from the topology
   universe (`--topology`); `Chain_ID` comes from the raw `--complex` file when
   it has chain IDs. Residue numbering can therefore differ between a `.tpr`
-  and the PDB. `Atom_serial_pdb` is the 0-based atom index + 1 (not read from
-  the file); check the numbering convention before mapping atoms to external
-  PLUMED or literature annotations.
+  and the PDB. `Atom_serial` is the atom's 1-based number in the topology
+  (`Atom_index` + 1), as GROMACS and PLUMED count atoms; it is not the serial
+  column of the PDB file, which can differ (e.g. after TER records).
 * **Scope.** The workflow is retrospective post-processing of an existing
   trajectory. It does not run MD, OneOPES or PLUMED, and has no Zone or
   funnel logic.
@@ -356,7 +356,7 @@ names (water/hydrogen naming may differ between formats).
 | `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |
 | `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, versions |
 
-Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial_pdb, Atom_name,
+Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial, Atom_name,
 Residue_name, Residue_number, Chain_ID, Min_distance_to_ligand_A, FP,
 Contact_occupancy_5A, Bridge_occupancy, SASA_A2`. FP, Contact and Bridge are
 computed over the full analysed frame range with the same code as the blocks;
