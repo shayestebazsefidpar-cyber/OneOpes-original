@@ -22,7 +22,6 @@ from oneopes import __version__
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     ConvergenceSummary,
-    StabilityResult,
     Tolerances,
     compare_blocks,
     summarize,
@@ -37,8 +36,8 @@ from oneopes.reports import write_block_tables, write_summary
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
     FrameLayout,
-    block_measurement,
     frame_layout,
+    label_block,
     stack_blocks,
 )
 from oneopes.waterfp import measure_hydration
@@ -85,7 +84,8 @@ class ProteinAnalysis:
     layout: FrameLayout
     blocks: xr.Dataset
     """The :func:`measure_frames` of each block, stacked by :func:`stack_blocks`."""
-    stabilities: list[StabilityResult]
+    transitions: xr.Dataset
+    """Each block against the one before it (see :func:`compare_blocks`)."""
     full: xr.Dataset
     """The :func:`measure_frames` of the whole analysed range."""
     sasa: np.ndarray
@@ -109,25 +109,19 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
 
     candidate_atoms = system.trajectory.atoms[candidate_index]
     labels = list(candidates["Atom"])
-    blocks = stack_blocks([block_measurement(measure_frames(system, candidate_atoms, labels, frames), frames, times)
-                           for frames, times in zip(layout.blocks, layout.block_times_ns, strict=True)])
+    blocks = stack_blocks([label_block(measure_frames(system, candidate_atoms, labels, block.frames), block)
+                           for block in layout.blocks])
     full = measure_frames(system, candidate_atoms, labels, layout.analysed)
-    stabilities = compare_blocks(blocks, options.tolerances)
-    summary = summarize(stabilities, blocks, options.block_ns, options.tolerances)
+    transitions = compare_blocks(blocks, options.tolerances)
+    summary = summarize(transitions, blocks.sizes["block"], options.block_ns, options.tolerances)
     logger.info("first sustained convergence: %s ns", summary.converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           stabilities=stabilities, full=full, sasa=static_sasa(system, candidate_index),
+                           transitions=transitions, full=full, sasa=static_sasa(system, candidate_index),
                            summary=summary)
 
 
 OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
 """The occupancies' column names in the tables."""
-
-
-def contacts_per_block(blocks: xr.Dataset) -> pd.DataFrame:
-    """One row per (block, candidate atom): block, t_start_ns, t_end_ns, atom, the occupancies, n_frames."""
-    table = blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().reset_index().rename(columns=OCCUPANCY_COLUMNS)
-    return table[["block", "t_start_ns", "t_end_ns", "atom", *OCCUPANCY_COLUMNS.values(), "n_frames"]]
 
 
 def final_values(full: xr.Dataset) -> pd.DataFrame:
@@ -141,8 +135,9 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
     candidates, layout = analysis.candidates, analysis.layout
     outdir.mkdir(parents=True, exist_ok=True)
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_block_tables(outdir, analysis.blocks, analysis.stabilities)
-    contacts_per_block(analysis.blocks).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
+    write_block_tables(outdir, analysis.blocks, analysis.transitions)
+    contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
+    contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
     write_summary(outdir / "convergence_summary.json", analysis.summary,
                   trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
                   analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)

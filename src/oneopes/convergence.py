@@ -6,7 +6,7 @@ A transition from one block to the next is stable when all three criteria are wi
 * g(r) change: no atom's g(r) moved by more than ``rdf_nrmsd_tol`` (:func:`nrmsd`);
 * FP ranking: the atoms' FP values kept a Spearman correlation of at least ``spearman_tol``.
 
-The run has converged at the transition completing the first ``n_stable`` stable transitions in a row.
+The run has converged at the block completing the first ``n_stable`` stable transitions in a row.
 Blocks are the stacked block measurements of :func:`oneopes.trajectory_blocks.stack_blocks`.
 """
 
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from itertools import accumulate
 
 import xarray as xr
-from scipy.stats import spearmanr
+from scipy.stats import rankdata
 
 from oneopes.errors import InputError
 
@@ -44,18 +44,6 @@ class Tolerances:
 DEFAULT_TOLERANCES = Tolerances()
 
 
-@dataclass(frozen=True)
-class StabilityResult:
-    """The three metrics of one transition, whether each passed, and whether all did."""
-    fp_change: float
-    rdf_nrmsd: float
-    spearman_rho: float
-    fp_pass: bool
-    rdf_pass: bool
-    spearman_pass: bool
-    passed: bool
-
-
 def nrmsd(g: xr.DataArray, prev_g: xr.DataArray) -> xr.DataArray:
     """RMS change of each atom's g(r), relative to the higher peak of the two curves (floored at 1e-8)."""
     rmsd = xr.ufuncs.sqrt(((g - prev_g) ** 2).mean("r_nm"))
@@ -63,38 +51,49 @@ def nrmsd(g: xr.DataArray, prev_g: xr.DataArray) -> xr.DataArray:
     return rmsd / peak.clip(min=1e-8)
 
 
-def check_stability(current: xr.Dataset, previous: xr.Dataset, tol: Tolerances) -> StabilityResult:
-    """Compare two consecutive blocks' hydration (``fp`` and ``g`` of the same atoms) on the three criteria."""
-    fp_change = float((abs(current.fp - previous.fp) / abs(previous.fp).clip(min=1e-6)).max())
-    rdf_nrmsd = float(nrmsd(current.g, previous.g).max())
-    rho = float(spearmanr(current.fp, previous.fp).statistic)
-
-    fp_pass = fp_change <= tol.fp_rel_tol
-    rdf_pass = rdf_nrmsd <= tol.rdf_nrmsd_tol
-    spearman_pass = rho >= tol.spearman_tol
-    return StabilityResult(
-        fp_change=fp_change, rdf_nrmsd=rdf_nrmsd, spearman_rho=rho,
-        fp_pass=fp_pass, rdf_pass=rdf_pass, spearman_pass=spearman_pass,
-        passed=fp_pass and rdf_pass and spearman_pass,
-    )
+def atom_ranks(fp: xr.DataArray) -> xr.DataArray:
+    """Rank of each atom's FP among the atoms (1 = most negative; ties share their average rank)."""
+    return xr.apply_ufunc(rankdata, fp, input_core_dims=[["atom"]], output_core_dims=[["atom"]],
+                          kwargs={"axis": -1})
 
 
-def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> list[StabilityResult]:
-    """Stability of each block against the one before it; transition i is block i -> i + 1."""
-    return [check_stability(blocks.isel(block=b), blocks.isel(block=b - 1), tol)
-            for b in range(1, blocks.sizes["block"])]
-
-
-def stable_in_a_row(stabilities: Sequence[StabilityResult]) -> list[int]:
+def stable_in_a_row(passed: Sequence[bool]) -> list[int]:
     """For each transition, how many stable transitions in a row end there."""
-    passes = (s.passed for s in stabilities)
-    counts = accumulate(passes, lambda count, passed: count + 1 if passed else 0, initial=0)
+    counts = accumulate(passed, lambda count, stable: count + 1 if stable else 0, initial=0)
     return list(counts)[1:]
 
 
-def first_convergence(stabilities: Sequence[StabilityResult], n_stable: int) -> int | None:
-    """Index of the transition completing the first run of n_stable stable ones, or None."""
-    return next((i for i, count in enumerate(stable_in_a_row(stabilities)) if count >= n_stable), None)
+def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> xr.Dataset:
+    """Each block against the one before it, along ``block`` from block 1 (with the blocks' times).
+
+    Holds the three criteria (``fp_change``, ``rdf_nrmsd``, ``spearman_rho``), whether each passed,
+    whether all did (``passed``) and the stable transitions in a row ending at each block.
+    """
+    current = blocks[["fp", "g"]].isel(block=slice(1, None))
+    previous = blocks[["fp", "g"]].shift(block=1).isel(block=slice(1, None))
+    transitions = xr.Dataset({
+        "fp_change": (abs(current.fp - previous.fp) / abs(previous.fp).clip(min=1e-6)).max("atom"),
+        "rdf_nrmsd": nrmsd(current.g, previous.g).max("atom"),
+        "spearman_rho": xr.corr(atom_ranks(current.fp), atom_ranks(previous.fp), dim="atom"),
+    })
+    transitions = transitions.assign(
+        fp_pass=transitions.fp_change <= tol.fp_rel_tol,
+        rdf_pass=transitions.rdf_nrmsd <= tol.rdf_nrmsd_tol,
+        spearman_pass=transitions.spearman_rho >= tol.spearman_tol,
+    )
+    transitions = transitions.assign(passed=transitions.fp_pass & transitions.rdf_pass & transitions.spearman_pass)
+    return transitions.assign(stable_in_a_row=("block", stable_in_a_row(transitions.passed.values)))
+
+
+def converged_block(transitions: xr.Dataset, n_stable: int) -> int | None:
+    """The block completing the first run of ``n_stable`` stable transitions, or None."""
+    converged = transitions.block[transitions.stable_in_a_row >= n_stable]
+    return int(converged[0]) if converged.size else None
+
+
+def unstable_after(transitions: xr.Dataset, block: int) -> int:
+    """How many transitions into the blocks after ``block`` were unstable."""
+    return int((~transitions.passed).sel(block=slice(block + 1, None)).sum())
 
 
 @dataclass(frozen=True)
@@ -114,18 +113,16 @@ class ConvergenceSummary:
     stable_in_a_row_at_end: int
 
 
-def summarize(stabilities: Sequence[StabilityResult], blocks: xr.Dataset, block_ns: float,
-              tol: Tolerances) -> ConvergenceSummary:
-    """Summary of a run of blocks and of the transitions between them."""
-    first = first_convergence(stabilities, tol.n_stable)
-    block = None if first is None else first + 1
+def summarize(transitions: xr.Dataset, n_blocks: int, block_ns: float, tol: Tolerances) -> ConvergenceSummary:
+    """Summary of a run of ``n_blocks`` blocks from its :func:`compare_blocks` transitions."""
+    block = converged_block(transitions, tol.n_stable)
     return ConvergenceSummary(
         block_ns=block_ns,
         tolerances=tol,
-        n_blocks=blocks.sizes["block"],
+        n_blocks=n_blocks,
         converged=block is not None,
         converged_block=block,
-        converged_ns=None if block is None else float(blocks.t_end_ns[block]),
-        unstable_after_convergence=0 if block is None else sum(not s.passed for s in stabilities[block:]),
-        stable_in_a_row_at_end=(stable_in_a_row(stabilities) or [0])[-1],
+        converged_ns=None if block is None else float(transitions.t_end_ns.sel(block=block)),
+        unstable_after_convergence=0 if block is None else unstable_after(transitions, block),
+        stable_in_a_row_at_end=int(transitions.stable_in_a_row[-1]) if transitions.sizes["block"] else 0,
     )

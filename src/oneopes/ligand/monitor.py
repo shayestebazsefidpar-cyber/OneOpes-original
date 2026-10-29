@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import signal
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from itertools import count
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +12,6 @@ import MDAnalysis as mda
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
@@ -21,25 +20,23 @@ from MDAnalysis.core.groups import AtomGroup
 
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
-    StabilityResult,
     Tolerances,
     compare_blocks,
-    first_convergence,
-    stable_in_a_row,
+    converged_block,
     summarize,
 )
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
-from oneopes.reports import fp_per_block, rdf_per_block, write_block_tables, write_hydration_files, write_summary
+from oneopes.reports import write_block_tables, write_hydration_files, write_summary
 from oneopes.system import select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
-    block_measurement,
+    block_of,
     frame_step_ps,
     frame_time_ns,
     frames_per_block,
+    label_block,
     stack_blocks,
-    time_span_ns,
 )
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
 
@@ -91,22 +88,22 @@ def stop_mdrun(pid: int | None) -> None:
         logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
 
-def log_progress(block: int, end_ns: float, stabilities: Sequence[StabilityResult]) -> None:
-    """One log line for the transition into ``block``, the last of ``stabilities``."""
-    if not stabilities:
+def log_progress(transitions: xr.Dataset) -> None:
+    """One log line for the latest of the :func:`compare_blocks` transitions (none for the first block)."""
+    if not transitions.sizes["block"]:
         return
-    s = stabilities[-1]
+    latest = transitions.isel(block=-1)
     logger.info("block %d (t=%.1f ns): max|dFP/FP|=%.3f max_nRMSD_RDF=%.3f spearman=%.3f stable=%s streak=%d",
-                block, end_ns, s.fp_change, s.rdf_nrmsd, s.spearman_rho, s.passed, stable_in_a_row(stabilities)[-1])
+                latest.block, latest.t_end_ns, latest.fp_change, latest.rdf_nrmsd, latest.spearman_rho,
+                bool(latest.passed), latest.stable_in_a_row)
 
 
 def plot_blocks(blocks: xr.Dataset, outdir: Path) -> None:
     """For every ligand atom, FP against time (fp_plots/) and g(r) of each block (rdf_plots/)."""
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
-    fp_df, rdf_df = fp_per_block(blocks), rdf_per_block(blocks)
-    for atom_name in fp_df["atom"].unique():
-        plot_atom(atom_name, fp_df, rdf_df, outdir)
+    for atom_name in blocks.atom.values:
+        plot_atom(str(atom_name), blocks, outdir)
 
 
 def select_g1_g2_on_block(ligand: AtomGroup, block: xr.Dataset, selection_dir: Path, fp_round_decimals: int) -> None:
@@ -121,19 +118,19 @@ def select_g1_g2_on_block(ligand: AtomGroup, block: xr.Dataset, selection_dir: P
     logger.info("%s, written to %s", selection, selection_dir)
 
 
-def plot_atom(atom_name: str, fp_df: pd.DataFrame, rdf_df: pd.DataFrame, outdir: Path) -> tuple[Path, Path]:
+def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
     """Save one atom's FP against time and its g(r) of each block; return the two paths.
 
-    ``fp_df`` and ``rdf_df`` are the per-block tables of :func:`fp_per_block` and :func:`rdf_per_block`;
-    the plots go to fp_plots/ and rdf_plots/ in ``outdir``, which must exist.
+    ``blocks`` are the stacked block measurements; the plots go to fp_plots/ and rdf_plots/
+    in ``outdir``, which must exist.
     """
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
     rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
+    atom = blocks.sel(atom=atom_name)
 
-    sub = fp_df[fp_df["atom"] == atom_name].sort_values("t_mid_ns")
     fig, ax = plt.subplots(figsize=(5, 3.5))
-    ax.plot(sub["t_mid_ns"], sub["FP"], marker="o", color="tab:blue")
+    ax.plot(atom.t_mid_ns, atom.fp, marker="o", color="tab:blue")
     ax.set_xlabel("simulation time (ns)")
     ax.set_ylabel("FP (WaterFP excess-entropy integral)")
     ax.set_title(f"Hydration FP vs time - {atom_name}")
@@ -142,15 +139,13 @@ def plot_atom(atom_name: str, fp_df: pd.DataFrame, rdf_df: pd.DataFrame, outdir:
     plt.close(fig)
 
     fig2, ax2 = plt.subplots(figsize=(5, 3.5))
-    rsub = rdf_df[rdf_df["atom"] == atom_name]
-    for b in sorted(rsub["block"].unique()):
-        bb = rsub[rsub["block"] == b]
-        ax2.plot(bb["r_nm"], bb["g_r"], alpha=0.6, label=f"block {b}")
+    for block in atom.block.values:
+        ax2.plot(atom.r_nm, atom.g.sel(block=block), alpha=0.6, label=f"block {block}")
     ax2.set_xlabel("r (nm) to water O")
     ax2.set_ylabel("g(r)")
     ax2.set_xlim(0, 1.0)
     ax2.set_title(f"RDF per block - {atom_name}")
-    if rsub["block"].nunique() <= 8:
+    if atom.sizes["block"] <= 8:
         ax2.legend(fontsize=6)
     fig2.tight_layout()
     fig2.savefig(rdf_plot_path, dpi=150)
@@ -210,32 +205,33 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    measured, stabilities = [], []
+    measured = []
     for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
-        hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], frames, grid,
+        block = block_of(u, frames, dt_ps)
+        hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames, grid,
                                       norm_tail_bins)
-        measured.append(block_measurement(hydration, frames, time_span_ns(u, frames, dt_ps)))
+        measured.append(label_block(hydration, block))
         blocks = stack_blocks(measured)
-        stabilities = compare_blocks(blocks, tol)
-        write_block_tables(outdir, blocks, stabilities)
-        log_progress(len(measured) - 1, float(blocks.t_end_ns[-1]), stabilities)
-        if first_convergence(stabilities, tol.n_stable) is not None:
+        transitions = compare_blocks(blocks, tol)
+        write_block_tables(outdir, blocks, transitions)
+        log_progress(transitions)
+        if converged_block(transitions, tol.n_stable) is not None:
             break
     if not measured:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
     blocks = stack_blocks(measured)
-    summary = summarize(stabilities, blocks, block_ns, tol)
+    summary = summarize(compare_blocks(blocks, tol), len(measured), block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
                   ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
     plot_blocks(blocks, outdir)
-    converged_block = summary.converged_block
-    if converged_block is None:
+    if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
                     trajectory_end_ns, summary.n_blocks)
         return
 
-    logger.info("DONE, converged at block %d (%s ns)", converged_block, summary.converged_ns)
+    logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
-    select_g1_g2_on_block(ligand, blocks.isel(block=converged_block), outdir / "selection", fp_round_decimals)
+    select_g1_g2_on_block(ligand, blocks.sel(block=summary.converged_block), outdir / "selection",
+                          fp_round_decimals)

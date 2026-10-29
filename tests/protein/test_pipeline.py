@@ -109,7 +109,7 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
     assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
     assert summary["n_blocks"] == n_blocks
-    assert meta["frames"]["analysed"].stop - meta["frames"]["blocks"][-1].stop == n_frames - n_blocks * fpb
+    assert meta["frames"]["analysed"].stop - meta["frames"]["blocks"][-1]["frames"].stop == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert len(metrics) == n_blocks - 1
     expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
@@ -169,8 +169,8 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     fp = pd.read_csv(out / "fp_values_per_block.csv")
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
     contacts = pd.read_csv(out / "contact_occupancy_per_block.csv")
-    assert list(contacts.columns) == ["block", "t_start_ns", "t_end_ns", "atom", "Contact_occupancy_5A",
-                                      "Bridge_occupancy", "n_frames"]
+    assert list(contacts.columns) == ["block", "atom", "Contact_occupancy_5A", "Bridge_occupancy",
+                                      "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
     assert len(meta["frames"]["blocks"]) == n_blocks

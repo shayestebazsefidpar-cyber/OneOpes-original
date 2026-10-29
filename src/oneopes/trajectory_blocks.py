@@ -1,4 +1,4 @@
-"""Trajectory blocks: consecutive runs of the same number of frames, each a ``range`` of frame indices."""
+"""Trajectory blocks: consecutive runs of the same number of frames, each a :class:`Block` of frames and times."""
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -38,21 +38,28 @@ def frame_time_ns(u: Universe, frame: int) -> float:
     return float(u.trajectory[frame].time) / 1000.0
 
 
-def time_span_ns(u: Universe, frames: range, dt_ps: float) -> tuple[float, float]:
-    """Start and end (ns) of a block of frames: the time of its first frame, and that plus its length."""
-    start = frame_time_ns(u, frames.start)
-    return start, start + len(frames) * dt_ps / 1000.0
-
-
 def complete_blocks(start: int, stop: int, length: int) -> list[range]:
     """The complete blocks of ``length`` frames in frames [start, stop); leftover frames at the end are skipped."""
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]
 
 
-def block_measurement(measurement: xr.Dataset, frames: range, time_ns: tuple[float, float]) -> xr.Dataset:
-    """What was measured over one block, labelled with the block's start and end time (ns) and frame count."""
-    start_ns, end_ns = time_ns
-    return measurement.assign_coords(t_start_ns=start_ns, t_end_ns=end_ns, n_frames=len(frames))
+@dataclass(frozen=True)
+class Block:
+    """One trajectory block: its frames and its start and end time (ns)."""
+    frames: range
+    start_ns: float
+    end_ns: float
+
+
+def block_of(u: Universe, frames: range, dt_ps: float) -> Block:
+    """The block of ``frames``: it starts at the time of its first frame and lasts ``len(frames)`` frames."""
+    start_ns = frame_time_ns(u, frames.start)
+    return Block(frames=frames, start_ns=start_ns, end_ns=start_ns + len(frames) * dt_ps / 1000.0)
+
+
+def label_block(measurement: xr.Dataset, block: Block) -> xr.Dataset:
+    """A block's measurement, labelled with the block's start and end time (ns) and frame count."""
+    return measurement.assign_coords(t_start_ns=block.start_ns, t_end_ns=block.end_ns, n_frames=len(block.frames))
 
 
 def stack_blocks(blocks: Sequence[xr.Dataset]) -> xr.Dataset:
@@ -69,9 +76,7 @@ class FrameLayout:
     """Frames in the whole trajectory."""
     dt_ps: float
     analysed: range
-    blocks: list[range]
-    block_times_ns: list[tuple[float, float]]
-    """(start, end) of each block."""
+    blocks: list[Block]
     trajectory_start_ns: float
     trajectory_end_ns: float
     """Time of the trajectory's last frame."""
@@ -86,14 +91,14 @@ class FrameLayout:
     @property
     def tail_frames(self) -> int:
         """Analysed frames after the last complete block, in no block."""
-        return self.analysed.stop - self.blocks[-1].stop
+        return self.analysed.stop - self.blocks[-1].frames.stop
 
     def describe(self) -> str:
         """The layout in one line, for the log."""
         return (f"{self.n_frames} frames of {self.dt_ps} ps "
                 f"({self.trajectory_start_ns:g}-{self.trajectory_end_ns:g} ns); "
                 f"analysed frames {self.analysed.start}-{self.analysed.stop - 1} ({self.analysis_time_ns:g} ns) "
-                f"in {len(self.blocks)} blocks of {len(self.blocks[0])} frames, {self.tail_frames} left over")
+                f"in {len(self.blocks)} blocks of {len(self.blocks[0].frames)} frames, {self.tail_frames} left over")
 
 
 def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame: int | None = None) -> FrameLayout:
@@ -106,15 +111,14 @@ def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame:
     if not 0 <= analysed.start < analysed.stop <= n_frames:
         raise InputError(f"Invalid frame range [{analysed.start}, {analysed.stop}) for a {n_frames}-frame trajectory.")
     dt_ps = frame_step_ps(u)
-    blocks = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
-    if not blocks:
+    block_frames = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
+    if not block_frames:
         raise InputError(f"Frames [{analysed.start}, {analysed.stop}) hold less than one {block_ns} ns block.")
     return FrameLayout(
         n_frames=n_frames,
         dt_ps=dt_ps,
         analysed=analysed,
-        blocks=blocks,
-        block_times_ns=[time_span_ns(u, frames, dt_ps) for frames in blocks],
+        blocks=[block_of(u, frames, dt_ps) for frames in block_frames],
         trajectory_start_ns=frame_time_ns(u, 0),
         trajectory_end_ns=frame_time_ns(u, n_frames - 1),
         analysis_start_ns=frame_time_ns(u, analysed.start),
