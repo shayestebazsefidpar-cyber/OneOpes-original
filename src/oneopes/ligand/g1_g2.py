@@ -59,20 +59,18 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
     """
     by_fp = np.argsort(fp, kind="stable")
     atoms, fp = atoms[by_fp], fp[by_fp]
-    separation = bond_separation(atoms)
+    first, last = 0, len(atoms) - 1
+    bonds_from_first, bonds_from_last = bonds_from(atoms, [first, last])
     scale = 10 ** fp_round_decimals
-    g1 = anti_bulk_pair(np.rint(fp * scale).astype(int), round(SAME_FP_WITHIN * scale), separation)
-    g2 = bulk_pair(separation)
-    return SelectionResult(G1=atom_refs(atoms, g1), G2=atom_refs(atoms, g2))
+    g1 = anti_bulk_partner(np.rint(fp * scale).astype(int), round(SAME_FP_WITHIN * scale), bonds_from_first)
+    g2 = bulk_partner(bonds_from_last)
+    return SelectionResult(G1=(AtomRef.of(atoms[first]), AtomRef.of(atoms[g1])),
+                           G2=(AtomRef.of(atoms[last]), AtomRef.of(atoms[g2])))
 
 
-def atom_refs(atoms: AtomGroup, pair: tuple[int, int]) -> tuple[AtomRef, AtomRef]:
-    """The AtomRefs of a pair of positions in ``atoms``."""
-    return AtomRef.of(atoms[pair[0]]), AtomRef.of(atoms[pair[1]])
-
-
-def bond_separation(atoms: AtomGroup) -> np.ndarray:
-    """Number of bonds between each pair of ``atoms`` (n x n), along the bonds among them only.
+def bonds_from(atoms: AtomGroup, sources: list[int]) -> np.ndarray:
+    """Number of bonds from each atom at the positions ``sources`` to every atom of ``atoms``, along the
+    bonds among ``atoms`` only; one row per source.
 
     Raises InputError unless those bonds join the atoms into one molecule (e.g. when bonds are missing).
     """
@@ -85,20 +83,19 @@ def bond_separation(atoms: AtomGroup) -> np.ndarray:
     if n_pieces > 1:
         pieces = [", ".join(atoms[piece_of == piece].names) for piece in range(n_pieces)]
         raise InputError(f"the heavy atoms are not one bonded molecule but {n_pieces}: {' | '.join(pieces)}")
-    return shortest_path(bond_graph, directed=False, unweighted=True).astype(int)
+    return shortest_path(bond_graph, directed=False, unweighted=True, indices=sources).astype(int)
 
 
-def bulk_pair(separation: np.ndarray) -> tuple[int, int]:
-    """The last atom (least negative FP), and the latest one before it at least three bonds away."""
-    anchor = len(separation) - 1
-    partner = next((atom for atom in reversed(range(anchor)) if separation[anchor, atom] >= 3), None)
-    if partner is None:
+def bulk_partner(bonds_from_last: np.ndarray) -> int:
+    """The G2 partner of the last atom (least negative FP): the latest atom before it at least three bonds away."""
+    far = np.flatnonzero(bonds_from_last[:-1] >= 3)
+    if not far.size:
         raise InputError("no heavy atom is three or more bonds from the least negative FP atom: no bulk partner")
-    return anchor, partner
+    return int(far[-1])
 
 
-def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.ndarray) -> tuple[int, int]:
-    """Atom 0 (most negative FP), and its partner among the atoms not bonded to it.
+def anti_bulk_partner(fp_rounded: np.ndarray, same_fp_within: int, bonds_from_first: np.ndarray) -> int:
+    """The G1 partner of atom 0 (most negative FP), among the atoms not bonded to it.
 
     ``fp_rounded`` are the rounded FPs as integers (-0.3 is -3 for one decimal), so that
     comparing them is exact; values less than ``same_fp_within`` apart count as the same FP.
@@ -108,18 +105,18 @@ def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.n
     """
     if np.count_nonzero(fp_rounded == fp_rounded[0]) > 2:
         raise InputError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")
-    not_bonded = [atom for atom in range(1, len(separation)) if separation[0, atom] > 1]
-    if not not_bonded:
+    not_bonded = np.flatnonzero(bonds_from_first > 1)
+    if not not_bonded.size:
         raise InputError("every other heavy atom is bonded to the most negative FP atom: no anti-bulk partner")
     partner, *later = not_bonded
     for atom in later:
         if abs(fp_rounded[atom] - fp_rounded[partner]) >= same_fp_within:
             break
-        if separation[0, atom] == separation[0, partner]:
+        if bonds_from_first[atom] == bonds_from_first[partner]:
             break
-        if separation[0, atom] > separation[0, partner]:
+        if bonds_from_first[atom] > bonds_from_first[partner]:
             partner = atom
-    return 0, partner
+    return int(partner)
 
 
 def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
@@ -129,7 +126,7 @@ def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
     topology the hydration was measured with.
     """
     indices = hydration.atom_index.values
-    if indices.max() >= u.atoms.n_atoms or list(u.atoms[indices].names) != list(hydration.atom.values):
+    if indices.max() >= u.atoms.n_atoms or not np.array_equal(u.atoms[indices].names, hydration.atom.values):
         raise InputError("The topology's atoms do not match the measured ones: use the topology of the run.")
     return u.atoms[indices]
 
@@ -146,15 +143,13 @@ def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_r
 
 def write_g1_g2_yaml(selection: SelectionResult, path: Path) -> None:
     """Write the selection to YAML, creating the parent directory if needed."""
-    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
-        yaml.safe_dump(selection.model_dump(mode="json"), f, sort_keys=False)
+    path.write_text(yaml.safe_dump(selection.model_dump(mode="json"), sort_keys=False))
 
 
 def read_g1_g2_yaml(path: Path) -> SelectionResult:
     """The selection in a g1_g2.yaml; raises pydantic's ValidationError when the file is malformed."""
-    return SelectionResult.model_validate(yaml.safe_load(Path(path).read_text()))
+    return SelectionResult.model_validate(yaml.safe_load(path.read_text()))
 
 
 def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
