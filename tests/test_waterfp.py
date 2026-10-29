@@ -26,7 +26,7 @@ def test_default_grid_matches_the_waterfp_reference_settings():
     assert grid.edges_nm[0] == 0.0
     assert np.isclose(grid.edges_nm[-1], 2.001)
     assert np.allclose(grid.r_nm, grid.edges_nm[:-1] + 0.0005)
-    assert np.array_equal(grid.edges_a, 10.0 * grid.edges_nm)
+    assert np.array_equal(grid.edges_A, 10.0 * grid.edges_nm)
 
 
 def test_custom_grid_has_uniform_bins_and_growing_shells():

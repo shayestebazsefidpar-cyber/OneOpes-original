@@ -9,9 +9,9 @@ from typing import Annotated, Any
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
-from cyclopts.validators import Number
 
 from oneopes.block_run import BlockOptions, block_run, convergence_summary
+from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import TABLE_NAMES, build_final_table, final_table_markdown
@@ -29,13 +29,16 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class AnalysisOptions:
     """Settings of one protein analysis."""
-    candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
-        CANDIDATE_CUTOFF_A_DEFAULT)
+    candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A")] = CANDIDATE_CUTOFF_A_DEFAULT
     """Largest distance (A) from the ligand of a candidate protein atom."""
     system_options: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions()
     window: Annotated[FrameWindow, Parameter(name="*")] = FrameWindow()
     hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions()
     block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
+
+    def __post_init__(self) -> None:
+        if not self.candidate_cutoff_A > 0:
+            raise InputError(f"candidate_cutoff_A must be > 0, got {self.candidate_cutoff_A}.")
 
 
 def measure_frames(system: ProteinSystem, candidates: xr.Dataset, frames: range,
@@ -111,7 +114,8 @@ def analysis_details(analysis: ProteinAnalysis) -> dict[str, Any]:
     }
 
 
-def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: ExistingFile, output_dir: Path,
+def protein(*, complex_file: Annotated[ExistingFile, Parameter(name="--complex")], topology: ExistingFile,
+            trajectory: ExistingFile, output_dir: Path,
             options: Annotated[AnalysisOptions, Parameter(name="*")] = AnalysisOptions()) -> None:
     """Analyse the protein atoms around a bound ligand: WaterFP, contacts and SASA, block by block.
 
@@ -121,7 +125,7 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
 
     Parameters
     ----------
-    complex
+    complex_file
         Protein-ligand structure used for the candidate pool and SASA.
     topology
         Topology with masses (e.g. a GROMACS .tpr).
@@ -130,9 +134,9 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     output_dir
         Directory for blocks.nc, the tables, the final per-atom table and run_metadata.json.
     """
-    system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex),
-                            load_universe(complex), options.system_options)
+    system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex_file),
+                            load_universe(complex_file), options.system_options)
     analysis = run_analysis(system, options)
-    inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
+    inputs = {"complex": complex_file, "topology": topology, "trajectory": trajectory}
     write_outputs(output_dir, analysis, provenance(inputs) | analysis_details(analysis))
     logger.info("%d candidates -> %s", analysis.candidates.sizes["atom"], output_dir / "final_per_atom_table.csv")

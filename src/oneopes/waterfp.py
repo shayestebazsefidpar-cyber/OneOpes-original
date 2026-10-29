@@ -15,7 +15,6 @@ from typing import Annotated, Any
 import numpy as np
 import xarray as xr
 from cyclopts import Parameter
-from cyclopts.validators import Number
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
@@ -51,7 +50,7 @@ class RadialGrid:
         return np.linspace(0.0, self.rmax_nm, self.n_bins + 1)
 
     @property
-    def edges_a(self) -> np.ndarray:
+    def edges_A(self) -> np.ndarray:
         """The bin edges in Angstrom, the unit of MDAnalysis distances."""
         return convert(self.edges_nm, "nm", "A")
 
@@ -72,7 +71,7 @@ class RadialGrid:
 class HydrationOptions:
     """How the water around an atom is counted and normalised."""
     grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid()
-    norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT
+    norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT
     """Bins at the end of the profile whose mean is the bulk density."""
 
     def __post_init__(self) -> None:
@@ -84,10 +83,10 @@ class HydrationOptions:
 def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: RadialGrid,
                              box: np.ndarray | None) -> np.ndarray:
     """Water oxygens in each radial bin around each solute atom in one frame (positions in A)."""
-    edges_a = grid.edges_a
-    pairs, distances = capped_distance(solute, waters, max_cutoff=edges_a[-1], box=box)
+    edges_A = grid.edges_A
+    pairs, distances = capped_distance(solute, waters, max_cutoff=edges_A[-1], box=box)
     one_bin_per_atom = np.arange(len(solute) + 1)
-    histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(one_bin_per_atom, edges_a))
+    histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(one_bin_per_atom, edges_A))
     return histogram.astype(np.int64)
 
 
@@ -141,7 +140,7 @@ class WaterFP(AnalysisBase):
     def _single_frame(self) -> None:
         """Add this frame's counts; warn when the box is too small for rmax."""
         box, grid = self._ts.dimensions, self.options.grid
-        if box is not None and grid.edges_a[-1] > 0.5 * min(box[:3]):
+        if box is not None and grid.edges_A[-1] > 0.5 * min(box[:3]):
             warnings.warn(
                 f"rmax ({grid.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
                 "distances the outer shells are only partly sampled, so the bulk density and every FP "

@@ -81,8 +81,7 @@ def ensure_elements(u: Universe) -> None:
 
 
 def heavy_atoms(atoms: AtomGroup) -> AtomGroup:
-    """The heavy atoms of ``atoms``, guessing elements first if the topology has none."""
-    ensure_elements(atoms.universe)
+    """The heavy atoms of ``atoms``; the topology needs elements (see :func:`ensure_elements`)."""
     return atoms.select_atoms(HEAVY_ATOMS)
 
 

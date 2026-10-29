@@ -3,9 +3,8 @@
 import MDAnalysis as mda
 import numpy as np
 import pytest
-from cyclopts import ValidationError
-
 from oneopes.cli import app
+from oneopes.errors import InputError
 from oneopes.protein import analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.inputs import protein_system, structure_chain_ids, validate_same_atoms
@@ -31,7 +30,7 @@ def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
 
 @pytest.mark.parametrize("value", ["0", "-3"])
 def test_cli_rejects_a_cutoff_that_is_not_positive(tmp_path, value):
-    with pytest.raises(ValidationError):
+    with pytest.raises(InputError, match="candidate_cutoff_A must be > 0"):
         app.parse_args([*protein_args(tmp_path), "--candidate-cutoff-A", value], exit_on_error=False,
                        print_error=False)
 
@@ -131,8 +130,8 @@ def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
     small_system.atoms.chainIDs = ["K"] * len(small_system.atoms)
     small_system.atoms.write(tmp_path / "complex.pdb")
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
-    complex_file = mda.Universe(str(tmp_path / "complex.pdb"))
-    cand = select_candidates(protein_system(small_system, small_system, complex_file), 10.0)
+    complex_alone = mda.Universe(str(tmp_path / "complex.pdb"))
+    cand = select_candidates(protein_system(small_system, small_system, complex_alone), 10.0)
     assert set(cand.chain_id.values) == {"K"}
 
 

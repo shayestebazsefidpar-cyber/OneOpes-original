@@ -12,7 +12,6 @@ from typing import Annotated, Any
 import numpy as np
 import xarray as xr
 from cyclopts import Parameter
-from cyclopts.validators import Number
 
 from oneopes.convergence import DEFAULT_TOLERANCES, ConvergenceSummary, Tolerances, compare_blocks, summarize
 from oneopes.errors import InputError
@@ -23,9 +22,13 @@ from oneopes.waterfp import HydrationOptions
 @dataclass(frozen=True)
 class BlockOptions:
     """How long a block is, and when consecutive blocks count as converged."""
-    block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT
+    block_ns: float = BLOCK_NS_DEFAULT
     """Trajectory block size (ns)."""
     tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
+
+    def __post_init__(self) -> None:
+        if not self.block_ns > 0:
+            raise InputError(f"block_ns must be > 0, got {self.block_ns}.")
 
 
 def settings(block_options: BlockOptions, hydration_options: HydrationOptions) -> dict[str, float]:

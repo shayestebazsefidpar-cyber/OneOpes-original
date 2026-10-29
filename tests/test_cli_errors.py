@@ -7,6 +7,7 @@ from cyclopts import CycloptsError, ValidationError
 
 from ligand_systems import ligand_in_water
 from oneopes.cli import app, main
+from oneopes.errors import InputError
 
 
 def test_a_tolerance_that_means_nothing_stops_the_run_with_one_line(tmp_path, caplog):
@@ -65,11 +66,18 @@ def test_a_trajectory_of_another_system_is_a_one_line_error(tmp_path, caplog, co
     assert len(errors) == 1 and errors[0].startswith("error: cannot read top.pdb, other.xtc:")
 
 
-@pytest.mark.parametrize("option, value", [("--block-ns", "0"), ("--poll-seconds", "-1"),
-                                           ("--fp-round-decimals", "-1"), ("--norm-tail-bins", "0")])
-def test_monitor_options_are_checked_when_the_command_line_is_read(tmp_path, option, value):
+@pytest.mark.parametrize("option, value", [("--poll-seconds", "-1"), ("--fp-round-decimals", "-1")])
+def test_monitor_parameters_are_checked_when_the_command_line_is_read(tmp_path, option, value):
     top, traj = ligand_in_water(tmp_path)
     with pytest.raises(ValidationError):
+        app.parse_args(["monitor", "--tpr", top, "--xtc", traj, option, value],
+                       exit_on_error=False, print_error=False)
+
+
+@pytest.mark.parametrize("option, value", [("--block-ns", "0"), ("--norm-tail-bins", "0")])
+def test_monitor_options_are_checked_when_the_command_line_is_read(tmp_path, option, value):
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(InputError):
         app.parse_args(["monitor", "--tpr", top, "--xtc", traj, option, value],
                        exit_on_error=False, print_error=False)
 

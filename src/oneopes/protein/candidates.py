@@ -21,7 +21,7 @@ def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_
 
     ``chain_id`` comes only from the complex file: a GROMACS topology puts molecule-type names there.
     """
-    u = system.complex
+    u = system.complex_structure
     protein, ligand = system.selection.protein(u), system.selection.ligand(u)
     min_distance = distance_array(protein.positions, ligand.positions, box=u.dimensions).min(axis=1)
     near = min_distance <= cutoff_A

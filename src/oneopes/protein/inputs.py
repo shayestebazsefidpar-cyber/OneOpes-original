@@ -13,30 +13,31 @@ class ProteinSystem:
     """A protein-ligand system: its trajectory, its complex structure, and which atoms are which."""
     trajectory: Universe
     """Topology and production trajectory."""
-    complex: Universe
+    complex_structure: Universe
     """Topology and complex coordinates, for the candidate pool and SASA."""
     selection: SystemSelection
     chain_ids: np.ndarray | None
     """Chain IDs as written in the complex file, one per atom; None when unknown."""
 
 
-def protein_system(trajectory: Universe, complex: Universe, complex_file: Universe | None = None,
+def protein_system(trajectory: Universe, complex_structure: Universe, complex_alone: Universe | None = None,
                    options: SystemOptions = SystemOptions()) -> ProteinSystem:
     """Check that the inputs describe the same atoms, and find the protein (required), ligand and water.
 
-    ``complex_file``, the complex file read without the topology, gives the chain IDs; only its protein and
+    ``complex_alone``, the complex file read without the topology, gives the chain IDs; only its protein and
     ligand atom names are checked, since water and hydrogen naming differ between formats.
     """
-    validate_same_atoms(trajectory, complex, "complex vs trajectory topology")
+    validate_same_atoms(trajectory, complex_structure, "complex vs trajectory topology")
     selection = select_system(trajectory, options)
     if len(selection.protein_heavy) == 0:
         raise SystemDefinitionError("The system has no protein (the MDAnalysis 'protein' selection is empty).")
     chain_ids = None
-    if complex_file is not None:
-        validate_same_atoms(trajectory, complex_file, "complex structure",
+    if complex_alone is not None:
+        validate_same_atoms(trajectory, complex_alone, "complex structure",
                             indices=np.concatenate([selection.protein_heavy, selection.ligand_heavy]))
-        chain_ids = structure_chain_ids(complex_file)
-    return ProteinSystem(trajectory=trajectory, complex=complex, selection=selection, chain_ids=chain_ids)
+        chain_ids = structure_chain_ids(complex_alone)
+    return ProteinSystem(trajectory=trajectory, complex_structure=complex_structure, selection=selection,
+                         chain_ids=chain_ids)
 
 
 def structure_chain_ids(u_structure: Universe) -> np.ndarray | None:

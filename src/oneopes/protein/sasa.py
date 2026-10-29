@@ -16,7 +16,7 @@ def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndar
     import freesasa
 
     freesasa.setVerbosity(freesasa.silent)
-    atoms = system.selection.protein(system.complex) | system.selection.ligand(system.complex)
+    atoms = system.selection.protein(system.complex_structure) | system.selection.ligand(system.complex_structure)
     x, y, z = atoms.positions.astype(float).T.tolist()
     structure = freesasa.Structure()
     structure.addAtoms(atoms.names.tolist(), atoms.resnames.tolist(), atoms.resids.astype(str).tolist(),
