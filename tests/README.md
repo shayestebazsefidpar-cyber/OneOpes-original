@@ -19,14 +19,17 @@ pytest
   negative FP).
 - `test_system.py` - ligand, water oxygen and heavy-atom detection without
   a protein (hydrogens, virtual sites, explicit selections).
-- `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, and
-  `oneopes select` end to end on a synthetic ligand in water.
+- `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, the
+  selection rules on hand-made chains, and `oneopes select` end to end on a
+  synthetic ligand in water (`ligand_systems.py`).
 - `test_g1_g2_reference.py` - `select_g1_g2` picks the same atoms as the
   vendored WaterFP notebook code on hundreds of random ligands.
-- `test_build_ligand_cv_consumer.py` - `build_ligand_cv.py`'s consumption
-  of `g1_g2.yaml` through `SelectionResult.from_dict()`: valid input still
-  produces the same serial strings, and a malformed file (missing G1/G2,
-  or an atom entry missing `serial`) is rejected clearly.
+- `test_monitor_convergence.py` - `oneopes monitor` end to end on the same
+  synthetic ligand: stopping at convergence and selecting G1/G2 on the
+  converged block, or reading every block without converging.
+- `test_build_ligand_cv_consumer.py` - `oneopes build-cv` reading
+  `g1_g2.yaml`: valid input gives the expected serials, and a malformed file
+  (missing G1/G2, or an atom entry missing `serial`) is rejected clearly.
 - `test_output_dir_creation.py` - **regression tests for a real bug**
   caught during manual end-to-end testing against a real ligand-in-water system:
   several scripts didn't create their output directory before writing,
@@ -37,20 +40,9 @@ pytest
 
 ## What's intentionally NOT covered by automated tests
 
-`monitor_convergence.py`'s main loop needs a real `.tpr`/`.xtc` with a
-real water box - not something worth fabricating as synthetic test
-fixtures, and real trajectory data doesn't belong in this repository (see
-the top-level README's "code only" policy).
-
-Before the selection was rewritten as `select_g1_g2`, the full pipeline
-(then stages 2 through 6) was validated by hand
-against a real, already-existing ligand-only trajectory,
-confirming an EXACT reproduction of the historical, previously-published
-result: same convergence numbers (stop block, FP/RDF/Spearman metrics to
-3 decimal places), same FP ranking table, same verbose selection trace,
-same final G1/G2 atom pair (both anchors and both partners). That
-validation is not committed here (it depends on data outside this repo)
-but is exactly what caught the `os.makedirs` bug this test suite now
-guards against, plus a documentation gap (Stage 3 must be run over the
-convergence-defining block's own frame range, not the whole trajectory -
-see `../docs/ligand_monitor.md`'s "Next stage" section).
+- Following a live mdrun: waiting for new frames and sending SIGTERM need a
+  running GROMACS process (the monitor tests read a finished trajectory).
+- `oneopes prepare-system`, which runs GROMACS.
+- The PyMOL and Chimera render scripts, which run inside those programs.
+- Results on real systems: real trajectories don't belong in this
+  repository (see the top-level README's "code only" policy).

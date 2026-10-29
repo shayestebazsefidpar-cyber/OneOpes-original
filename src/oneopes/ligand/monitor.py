@@ -2,7 +2,7 @@
 import os
 import time
 import signal
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from itertools import count
 from pathlib import Path
 from typing import Annotated
@@ -11,11 +11,13 @@ import MDAnalysis as mda
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pandas as pd
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
+    StabilityResult,
     Tolerances,
     compare_blocks,
     first_convergence,
@@ -71,16 +73,53 @@ def completed_blocks(load_universe: Callable[[], mda.Universe], block_length: in
         yield u, frames
 
 
-def plot_atom(atom_name, fp_df, rdf_df, outdir):
-    """Save the two per-atom diagnostic plots (FP vs. simulation time, and
-    RDF per block) for `atom_name`, exactly as main()'s plotting loop used
-    to build them - same data, same styling, same file paths. No
-    printing; returns the two paths written so callers (or tests) can
-    check them.
+def stop_mdrun(pid: int | None) -> None:
+    """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md)."""
+    if not process_alive(pid):
+        return
+    print(f"[monitor] sending SIGTERM to mdrun pid {pid}")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as e:
+        print(f"[monitor] failed to signal mdrun pid {pid}: {e}")
 
-    fp_df: all blocks' FP rows (columns include t_mid_ns, atom, FP).
-    rdf_df: all blocks' g(r) rows (columns include block, atom, r_nm,
-    g_r). outdir may be a str or a Path.
+
+def print_progress(block: int, end_ns: float, stabilities: Sequence[StabilityResult]) -> None:
+    """One log line for the transition into ``block``, the last of ``stabilities``."""
+    if not stabilities:
+        return
+    s = stabilities[-1]
+    print(f"[monitor] block {block} (t={end_ns:.1f} ns): "
+          f"max|dFP/FP|={s.fp_change:.3f} max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
+          f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
+
+
+def plot_blocks(blocks: Sequence[WaterFP], block_times: Sequence[tuple[float, float]], outdir: Path) -> None:
+    """For every ligand atom, FP against time (fp_plots/) and g(r) of each block (rdf_plots/)."""
+    (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
+    (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
+    fp_df, rdf_df = fp_per_block(blocks, block_times), rdf_per_block(blocks)
+    for atom_name in fp_df["atom"].unique():
+        plot_atom(atom_name, fp_df, rdf_df, outdir)
+
+
+def select_g1_g2_on_block(block: WaterFP, selection_dir: Path, fp_round_decimals: int) -> None:
+    """Write the block's rdf.csv and fingerprints.csv, then its G1/G2 selection as g1_g2.yaml (if there is one)."""
+    write_waterfp_files(block, selection_dir)
+    try:
+        selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
+    except ValueError as e:
+        print(f"[monitor] no G1/G2 selection: {e}")
+        return
+    write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
+    print(f"[monitor] {selection}, written to {selection_dir}")
+
+
+def plot_atom(atom_name: str, fp_df: pd.DataFrame, rdf_df: pd.DataFrame, outdir: Path) -> tuple[Path, Path]:
+    """Save one atom's FP against time and its g(r) of each block; return the two paths.
+
+    ``fp_df`` and ``rdf_df`` are the per-block tables of :func:`fp_per_block` and :func:`rdf_per_block`;
+    the plots go to fp_plots/ and rdf_plots/ in ``outdir``, which must exist.
     """
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
@@ -146,77 +185,52 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     fp_round_decimals
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
     """
-    (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
-    (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
-
-    def get_universe():
+    def load_universe() -> mda.Universe:
         return mda.Universe(str(tpr), str(xtc))
 
-    u = get_universe()
+    u = load_universe()
     try:
         sel = select_system(u, ligand_selection, water_selection)
     except SystemDefinitionError as e:
         raise SystemExit(f"[monitor] {e}")
-    heavy_names = list(u.atoms[sel.ligand_heavy].names)
-    print(f"[monitor] {len(heavy_names)} ligand heavy atoms ({sel.ligand_description}): {heavy_names}")
+    atom_names = list(u.atoms[sel.ligand_heavy].names)
+    print(f"[monitor] {len(atom_names)} ligand heavy atoms ({sel.ligand_description}): {atom_names}")
     print(f"[monitor] {len(sel.water_oxygens)} water oxygens ({sel.water_description})")
     print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {norm_tail_bins} bins (WaterFP fp.py convention)")
 
-    u = wait_for_frames(get_universe, 2, mdrun_pid, poll_seconds)
     try:
-        dt_ps = frame_step_ps(u)
+        dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
         block_length = frames_per_block(block_ns, dt_ps)
     except ValueError as e:
         raise SystemExit(f"[monitor] {e}")
     print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({block_ns} ns)")
 
+    outdir.mkdir(parents=True, exist_ok=True)
     blocks, block_times, stabilities = [], [], []
-    for u, frames in completed_blocks(get_universe, block_length, mdrun_pid, poll_seconds):
-        blocks.append(WaterFP(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], grid=grid,
-                              norm_tail_bins=norm_tail_bins).run(start=frames.start, stop=frames.stop))
+    for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
+        waterfp = WaterFP(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], grid=grid,
+                          norm_tail_bins=norm_tail_bins)
+        blocks.append(waterfp.run(start=frames.start, stop=frames.stop))
         block_times.append(time_span_ns(u, frames, dt_ps))
         write_block_tables(outdir, blocks, block_times, tol)
         stabilities = compare_blocks([block.results for block in blocks], tol)
-        if stabilities:
-            s = stabilities[-1]
-            print(f"[monitor] block {len(blocks) - 1} (t={block_times[-1][1]:.1f} ns): "
-                  f"max|dFP/FP|={s.fp_change:.3f} max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
-                  f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
+        print_progress(len(blocks) - 1, block_times[-1][1], stabilities)
         if first_convergence(stabilities, tol.n_stable) is not None:
             break
-
     if not blocks:
         raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
+
     summary = summarize(stabilities, block_times, block_ns, tol)
-    trajectory_end_ns = frame_time_ns(get_universe(), -1)
+    trajectory_end_ns = frame_time_ns(load_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
-                  ligand_selection=sel.ligand_description, ligand_heavy_atoms=heavy_names)
-
-    fp_df = fp_per_block(blocks, block_times)
-    rdf_df = rdf_per_block(blocks)
-    for name in heavy_names:
-        plot_atom(name, fp_df, rdf_df, outdir)
-
+                  ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
+    plot_blocks(blocks, block_times, outdir)
     if not summary.converged:
         print(f"[monitor] DONE, not converged: the trajectory ended at {trajectory_end_ns} ns, "
               f"after {summary.n_blocks} complete block(s)")
         return
+
     print(f"[monitor] DONE, converged at block {summary.converged_block} ({summary.converged_ns} ns)")
-
-    if process_alive(mdrun_pid):
-        print(f"[monitor] sending SIGTERM to mdrun pid {mdrun_pid}")
-        try:
-            os.kill(mdrun_pid, signal.SIGTERM)
-        except OSError as e:
-            print(f"[monitor] failed to signal mdrun pid {mdrun_pid}: {e}")
-
-    block, selection_dir = blocks[summary.converged_block], outdir / "selection"
-    write_waterfp_files(block, selection_dir)
-    try:
-        selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
-    except ValueError as e:
-        print(f"[monitor] no G1/G2 selection for block {summary.converged_block}: {e}")
-        return
-    write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
-    print(f"[monitor] {selection}, written to {selection_dir}")
+    stop_mdrun(mdrun_pid)
+    select_g1_g2_on_block(blocks[summary.converged_block], outdir / "selection", fp_round_decimals)
