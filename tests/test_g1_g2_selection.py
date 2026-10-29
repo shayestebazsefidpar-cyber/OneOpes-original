@@ -79,7 +79,7 @@ def test_atoms_not_bonded_into_one_molecule_are_rejected():
     u = mda.Universe.empty(3)
     u.add_TopologyAttr("names", ["C0", "C1", "C2"])
     u.add_TopologyAttr("bonds", [(0, 1)])
-    with pytest.raises(ValueError, match="not connected by bonds"):
+    with pytest.raises(InputError, match=r"not one bonded molecule but 2: C0, C1 \| C2"):
         select_g1_g2(u.atoms, np.array([-1.0, -0.5, 0.0]))
 
 

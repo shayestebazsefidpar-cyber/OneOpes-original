@@ -13,7 +13,8 @@ from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 from MDAnalysis.core.groups import Atom, AtomGroup
 from pydantic import BaseModel
-from scipy.sparse.csgraph import shortest_path
+from scipy.sparse import coo_array
+from scipy.sparse.csgraph import connected_components, shortest_path
 
 from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
@@ -71,20 +72,20 @@ def atom_refs(atoms: AtomGroup, pair: tuple[int, int]) -> tuple[AtomRef, AtomRef
 
 
 def bond_separation(atoms: AtomGroup) -> np.ndarray:
-    """Number of bonds between each pair of ``atoms`` (n x n), along bonds among them only.
+    """Number of bonds between each pair of ``atoms`` (n x n), along the bonds among them only.
 
-    Raises ValueError unless the atoms form one bonded molecule (e.g. when bonds are missing).
+    Raises InputError unless those bonds join the atoms into one molecule (e.g. when bonds are missing).
     """
-    position = {index: i for i, index in enumerate(atoms.indices)}
-    bonded = np.zeros((len(atoms), len(atoms)), dtype=bool)
-    for a, b in atoms.bonds.indices:
-        if a in position and b in position:
-            bonded[position[a], position[b]] = True
-    separation = shortest_path(bonded, directed=False, unweighted=True)
-    if np.isinf(separation).any():
-        a, b = np.argwhere(np.isinf(separation))[0]
-        raise InputError(f"heavy atoms {atoms[a].name} and {atoms[b].name} are not connected by bonds")
-    return separation.astype(int)
+    bonds = atoms.intra_bonds.indices
+    n_topology = atoms.universe.atoms.n_atoms
+    bond_graph = coo_array((np.ones(len(bonds)), bonds.T), shape=(n_topology, n_topology)).tocsr()
+    bond_graph = bond_graph[atoms.indices][:, atoms.indices]
+
+    n_pieces, piece_of = connected_components(bond_graph, directed=False)
+    if n_pieces > 1:
+        pieces = [", ".join(atoms[piece_of == piece].names) for piece in range(n_pieces)]
+        raise InputError(f"the heavy atoms are not one bonded molecule but {n_pieces}: {' | '.join(pieces)}")
+    return shortest_path(bond_graph, directed=False, unweighted=True).astype(int)
 
 
 def bulk_pair(separation: np.ndarray) -> tuple[int, int]:
