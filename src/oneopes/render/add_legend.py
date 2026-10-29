@@ -6,6 +6,7 @@ from cyclopts.types import ExistingFile
 from PIL import Image, ImageDraw, ImageFont
 
 from oneopes.errors import InputError
+from oneopes.ligand.g1_g2 import SelectionResult, read_g1_g2_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -14,32 +15,46 @@ DEFAULT_FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 
+Rgb = tuple[int, int, int]
+G1_RGB: Rgb = (220, 20, 20)
+"""G1 (anti-bulk) is red in the renders."""
+G2_RGB: Rgb = (30, 60, 220)
+"""G2 (bulk) is blue in the renders."""
 
-def parse_entry(spec):
-    """'label:rgb_csv' e.g. 'Anti-bulk (G1):ATOM1, ATOM2:220,20,20' -> (label, (r,g,b))."""
-    parts = spec.split(":")
-    if len(parts) != 3:
-        raise InputError(f"--entry must be 'title:detail:r,g,b', got: {spec}")
-    title, detail, rgb_csv = parts
-    r, g, b = (int(x) for x in rgb_csv.split(","))
+
+def parse_entry(spec: str) -> tuple[str, Rgb]:
+    """'title:detail:r,g,b', e.g. 'Anti-bulk (G1):ATOM1, ATOM2:220,20,20' -> (label, (r, g, b))."""
+    try:
+        title, detail, rgb_csv = spec.split(":")
+        r, g, b = (int(x) for x in rgb_csv.split(","))
+    except ValueError:
+        raise InputError(f"--entry must be 'title:detail:r,g,b', got: {spec}") from None
     return f"{title}:  {detail}", (r, g, b)
 
 
-def load_fonts(title_size, body_size):
+def selection_entries(selection: SelectionResult) -> list[tuple[str, Rgb]]:
+    """The legend entries of a G1/G2 selection, coloured as the renders colour them."""
+    return [(f"Anti-bulk (G1):  {selection.G1[0].name}, {selection.G1[1].name}", G1_RGB),
+            (f"Bulk (G2):  {selection.G2[0].name}, {selection.G2[1].name}", G2_RGB)]
+
+
+def load_fonts(title_size: int, body_size: int) -> tuple[ImageFont.ImageFont | ImageFont.FreeTypeFont, ...]:
+    """DejaVu Sans at the two sizes, or PIL's default font when it is not installed."""
     for path in DEFAULT_FONT_PATHS:
         try:
             return ImageFont.truetype(path, title_size), ImageFont.truetype(path, body_size)
-        except Exception:
+        except OSError:
             continue
     return ImageFont.load_default(), ImageFont.load_default()
 
 
-def add_legend(*, src: ExistingFile, dst: Path, entry: list[str], title: str = "Selected atoms", caption: str = "",
-               title_font_size: int = 34, body_font_size: int = 30) -> None:
+def add_legend(*, src: ExistingFile, dst: Path, g1_g2: ExistingFile | None = None, entry: list[str] | None = None,
+               title: str = "Selected atoms", caption: str = "", title_font_size: int = 34,
+               body_font_size: int = 30) -> None:
     """Add a legend to a raw render of the selected atoms and save the annotated figure.
 
     The raw render comes from render_selected_atoms.py (PyMOL) or render_selected_atoms_chimera.py.
-    Example: --entry "Anti-bulk (G1):ATOM1, ATOM2:220,20,20" --entry "Bulk (G2):ATOM3, ATOM4:30,60,220".
+    Example: --g1-g2 g1_g2.yaml, or --entry "Anti-bulk (G1):ATOM1, ATOM2:220,20,20" --entry "...".
 
     Parameters
     ----------
@@ -47,10 +62,15 @@ def add_legend(*, src: ExistingFile, dst: Path, entry: list[str], title: str = "
         The raw render.
     dst
         The annotated figure to write.
+    g1_g2
+        g1_g2.yaml whose G1 (red) and G2 (blue) atoms become the first legend entries.
     entry
-        One legend swatch as 'label:detail:r,g,b'; repeat for each swatch.
+        One more legend swatch as 'label:detail:r,g,b'; repeat for each swatch.
     """
-    entries = [parse_entry(e) for e in entry]
+    entries = selection_entries(read_g1_g2_yaml(g1_g2)) if g1_g2 else []
+    entries += [parse_entry(spec) for spec in entry or []]
+    if not entries:
+        raise InputError("The legend needs --g1-g2 or at least one --entry.")
 
     img = Image.open(src).convert("RGB")
     draw = ImageDraw.Draw(img)

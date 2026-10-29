@@ -37,6 +37,8 @@ pytest
   them into a fresh `outputs/` tree. Fixed in `build_ligand_cv.py` and
   `add_legend.py`; `write_g1_g2_yaml` is covered in
   `test_g1_g2_selection.py`.
+- `test_add_legend.py` - `oneopes add-legend`: entries from `g1_g2.yaml` or
+  typed by hand, malformed entries rejected, the legend drawn on the render.
 
 ## What's intentionally NOT covered by automated tests
 
