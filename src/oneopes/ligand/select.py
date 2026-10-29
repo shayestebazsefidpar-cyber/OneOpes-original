@@ -1,6 +1,5 @@
 """The G1/G2 selection commands: ``oneopes select`` over a frame window, ``oneopes select-block`` on a saved run."""
 import logging
-from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -68,7 +67,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     hydration = measure_hydration(ligand, water, frames, hydration_options)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
                 frames.start, frames.stop - 1, hydration.fp.sortby(hydration.fp).to_series().to_string())
-    options = {"system": asdict(system_options), "window": asdict(window), "hydration": asdict(hydration_options),
+    options = {"system_options": system_options, "window": window, "hydration_options": hydration_options,
                "fp_round_decimals": fp_round_decimals}
     write_run_metadata(outdir, provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "frames": frames,
@@ -97,5 +96,5 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     """
     hydration = chosen_block(load_run(run), block)
     write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
-        "block": int(hydration.block), "fp_round_decimals": fp_round_decimals})
+        "block": int(hydration.block), "options": {"block": block, "fp_round_decimals": fp_round_decimals}})
     write_selection(ligand_atoms(load_universe(tpr), hydration), hydration, outdir, fp_round_decimals)

@@ -2,7 +2,6 @@
 import logging
 import time
 from collections.abc import Iterator
-from dataclasses import asdict
 from itertools import count
 from pathlib import Path
 from typing import Annotated
@@ -181,9 +180,9 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
 
     u.load_new(str(xtc))
     trajectory_end_ns = frame_time_ns(u, -1)
-    options = {"system": asdict(system_options), "hydration": asdict(hydration_options),
-               "blocks": asdict(block_options),
-               "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds, "fp_round_decimals": fp_round_decimals}
+    options = {"system_options": system_options, "hydration_options": hydration_options,
+               "block_options": block_options, "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds,
+               "fp_round_decimals": fp_round_decimals}
     metadata = provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)

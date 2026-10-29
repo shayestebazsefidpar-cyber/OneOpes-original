@@ -9,12 +9,13 @@ def _(mo):
     mo.md(r"""
     # Funnel axis from BioSimSpace
 
-    Rebuilds the funnel CV atoms (`atoms0`, `atoms1`) of one system with BioSimSpace's
-    `makeFunnel()`, with no P0/P1 residues taken from an existing `plumed.dat`.
+    The funnel CV atoms (`atoms0`, `atoms1`) and axis of one system, from BioSimSpace's `makeFunnel()`.
 
     `whole.pdb` has the positions but no molecule boundaries, which `makeFunnel()` needs to
     find the protein (largest molecule) and the ligand (second largest); `top.top` + `npt.gro`
     have the boundaries. `read_system` reads the topology with the positions of `whole.pdb`.
+    Run with `marimo edit notebooks/funnel_check.py`, or as a script:
+    `python notebooks/funnel_check.py -- --dir path/to/system`.
     """)
     return
 
@@ -32,34 +33,32 @@ def _():
 
 @app.cell
 def _(mo):
-    system_dir = mo.ui.text(
-        value="original/HSP90/OneOPES/lig1",
-        label="System directory (containing top.top, npt.gro, whole.pdb)",
-        full_width=True,
-    )
+    system_dir = mo.ui.text(value=mo.cli_args().get("dir") or "",
+                            label="System directory (containing top.top, npt.gro, whole.pdb)", full_width=True)
     system_dir
     return (system_dir,)
 
 
 @app.cell
-def _(Path, molecule_sizes, read_system, system_dir):
+def _(Path, mo, molecule_sizes, read_system, system_dir):
+    mo.stop(not system_dir.value, mo.md("Enter a system directory."))
     directory = Path(system_dir.value)
     system = read_system(directory / "top.top", directory / "npt.gro", structure=directory / "whole.pdb")
-    sizes = molecule_sizes(system)
-    print(f"{system.nMolecules()} molecules, {system.nAtoms()} atoms")
-    print("protein guess (largest):   {} atoms, molecule {}".format(*sizes[0]))
-    print("ligand guess (2nd largest): {} atoms, molecule {}".format(*sizes[1]))
+    (protein_atoms, protein), (ligand_atoms, ligand) = molecule_sizes(system)[:2]
+    mo.md(f"{system.nMolecules()} molecules, {system.nAtoms()} atoms. Protein (largest): molecule {protein}, "
+          f"{protein_atoms} atoms; ligand (second largest): molecule {ligand}, {ligand_atoms} atoms.")
     return (system,)
 
 
 @app.cell
-def _(make_funnel, system):
+def _(make_funnel, mo, system):
     funnel = make_funnel(system)
     axis = funnel.axis
-    print("atoms0 (funnel origin):     ", axis.atoms0)
-    print("atoms1 (funnel inflection): ", axis.atoms1)
-    print(f"P0 {axis.p0} A, P1 {axis.p1} A, axis length {axis.length:.2f} A")
-    funnel.parameters
+    mo.vstack([
+        mo.md(f"atoms0 (funnel origin): {list(axis.atoms0)}  \natoms1 (funnel inflection): {list(axis.atoms1)}  \n"
+              f"P0 {axis.p0} A, P1 {axis.p1} A, axis length {axis.length:.2f} A"),
+        funnel.parameters,
+    ])
     return
 
 

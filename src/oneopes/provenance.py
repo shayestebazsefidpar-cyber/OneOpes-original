@@ -1,5 +1,6 @@
 """Where a command's results came from: the package versions and the input files it used."""
 
+import dataclasses
 import hashlib
 import json
 import platform
@@ -42,11 +43,18 @@ def provenance(inputs: Mapping[str, Path]) -> dict[str, Any]:
     return {"versions": versions(), "inputs": {role: file_record(path) for role, path in inputs.items()}}
 
 
-def json_value(value: range | np.generic) -> list[int] | float | int | bool:
-    """JSON stand-in for the values ``json`` cannot write: a range as [start, stop], numpy scalars as Python ones."""
-    return [value.start, value.stop] if isinstance(value, range) else value.item()
+def json_value(value: object) -> Any:
+    """JSON stand-in for what ``json`` cannot write: a range as [start, stop], an option dataclass as a dict,
+    numpy scalars as Python ones."""
+    if isinstance(value, range):
+        return [value.start, value.stop]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"{type(value).__name__} cannot be written as JSON")
 
 
 def to_json(data: Mapping[str, Any]) -> str:
-    """``data`` as indented JSON, ranges and numpy scalars included."""
+    """``data`` as indented JSON, ranges, dataclasses and numpy scalars included."""
     return json.dumps(data, indent=2, default=json_value)

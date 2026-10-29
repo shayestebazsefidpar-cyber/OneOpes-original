@@ -112,7 +112,7 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx(run_ns)
     assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx(run_ns)
     assert summary["n_blocks"] == n_blocks
-    assert meta["frames"]["analysed"].stop - meta["frames"]["blocks"][-1]["frames"].stop == n_frames - n_blocks * fpb
+    assert meta["frames"].analysed.stop - meta["frames"].blocks[-1].frames.stop == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert len(metrics) == n_blocks - 1
     expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
@@ -177,7 +177,7 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
                                       "Min_distance_to_ligand_A", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
-    assert len(meta["frames"]["blocks"]) == n_blocks
+    assert len(meta["frames"].blocks) == n_blocks
     assert len(pd.read_csv(out / "rdf_profiles_per_block.csv")) == n_blocks * n * 2001
     ranks = pd.read_csv(out / "fp_ranking_by_block_wide.csv", index_col=0)
     values = pd.read_csv(out / "fp_values_by_block_wide.csv", index_col=0)
@@ -217,7 +217,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     meta_text = (out / "run_metadata.json").read_text()
     assert str(tmp_path) not in meta_text
     meta = json.loads(meta_text)
-    assert meta["candidate_cutoff_A"] == 7.0  # default
+    assert meta["options"]["candidate_cutoff_A"] == 7.0  # default
     assert set(meta["inputs"]) == {"complex", "topology", "trajectory"} and "versions" in meta
     assert metadata_of(run) == meta
 
@@ -229,7 +229,7 @@ def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     _u_traj, meta = _run(tmp_path, options, n_frames=4)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     expected = select_candidates(protein_system(u_complex, u_complex), cutoff)
-    assert meta["candidate_cutoff_A"] == cutoff
+    assert meta["options"].candidate_cutoff_A == cutoff
     assert set(table["Atom_index"]) == set(expected.atom_index.values) and len(table) == expected.sizes["atom"]
     assert table["Min_distance_to_ligand_A"].max() <= cutoff
 
@@ -255,7 +255,7 @@ def test_cli_explicit_10_A_cutoff_end_to_end(tmp_path):
     main(["protein", "--complex", str(work / "sys.pdb"), "--topology", str(work / "sys.pdb"),
           "--trajectory", str(work / "traj.xtc"), "--output-dir", str(out), "--block-ns", str(BLOCK_NS),
           "--candidate-cutoff-A", "10.0"])
-    assert json.loads((out / "run_metadata.json").read_text())["candidate_cutoff_A"] == 10.0
+    assert json.loads((out / "run_metadata.json").read_text())["options"]["candidate_cutoff_A"] == 10.0
     assert pd.read_csv(out / "final_per_atom_table.csv")["Min_distance_to_ligand_A"].max() <= 10.0
 
 

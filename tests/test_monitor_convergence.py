@@ -59,6 +59,7 @@ def test_stops_at_convergence_and_selects_g1_g2_on_the_converged_block(tmp_path)
         assert (again / name).read_text() == (outdir / "selection" / name).read_text(), name
     metadata = json.loads((again / "run_metadata.json").read_text())
     assert (metadata["block"], metadata["inputs"]["run"]["file"]) == (2, "blocks.nc")
+    assert metadata["options"] == {"block": None, "fp_round_decimals": 3}
 
 
 def test_select_block_picks_any_block_of_a_saved_run(tmp_path):
@@ -84,7 +85,7 @@ def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     metadata = json.loads((outdir / "run_metadata.json").read_text())
     assert metadata_of(run) == metadata
     assert {role: entry["file"] for role, entry in metadata["inputs"].items()} == {"tpr": "top.pdb", "xtc": "traj.xtc"}
-    assert metadata["options"]["blocks"]["tolerances"]["fp_rel_tol"] == 0
+    assert metadata["options"]["block_options"]["tolerances"]["fp_rel_tol"] == 0
     assert "metadata" not in summary
     assert not (outdir / "selection").exists()
 

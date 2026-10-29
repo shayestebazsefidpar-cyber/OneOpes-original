@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -103,14 +103,13 @@ def analysis_details(analysis: ProteinAnalysis) -> dict[str, Any]:
     """What the analysis used: cutoffs, selections, frame layout and options."""
     sel = analysis.system.selection
     return {
-        "candidate_cutoff_A": analysis.options.candidate_cutoff_A,
         "contact_cutoff_A": CONTACT_CUTOFF_A,
         "bridge_water_cutoff_A": BRIDGE_WATER_CUTOFF_A,
         "n_candidate_atoms": analysis.candidates.sizes["atom"],
         "ligand_selection": sel.ligand_selection,
         "water_selection": sel.water_selection,
-        "frames": asdict(analysis.layout),
-        "options": asdict(analysis.options),
+        "frames": analysis.layout,
+        "options": analysis.options,
     }
 
 
