@@ -1,29 +1,29 @@
-# Machine-readable manifest for the ligand_waterfp workflow.
+# Machine-readable manifest for the ligand-side oneopes workflow.
 # Describes stage order, modules, and their inputs/outputs. Parameter
 # defaults live in configs/ligand_waterfp.yaml, not here. `module` paths
-# are importable ligand_waterfp submodules (pip install -e . first);
+# are importable oneopes submodules (pip install -e . first);
 # `console_script` names are the entry points pyproject.toml registers
 # for the same module's main().
 
-name: ligand_waterfp
+name: oneopes
 description: >
   Ligand-only hydration analysis: unbiased MD -> WaterFP calculation ->
   block-wise convergence -> G1/G2 ligand atom selection -> ligand-side
   CV construction.
-package: ligand_waterfp
+package: oneopes
 upstream_method:
   waterfp_repo: https://github.com/valeriorizzi/WaterFP
   vendored_commit: 6a5aef725a66b28e86d3582aee3e9e8bbbe4bc54
 
 stages:
   - id: system_setup
-    module: ligand_waterfp.system_setup.prepare_ligand_system
+    module: oneopes.ligand.setup
     console_script: ligand-waterfp-prepare-system
     inputs: [ligand_gro, ligand_top]
     outputs: [npt_gro, npt_cpt, system_top]
 
   - id: convergence
-    module: ligand_waterfp.convergence.monitor_convergence
+    module: oneopes.ligand.monitor
     console_script: ligand-waterfp-monitor
     depends_on: [system_setup]
     inputs: [tpr, xtc]
@@ -31,7 +31,7 @@ stages:
               rdf_csv, fingerprints_csv, g1_g2_yaml]   # the last three in selection/, on convergence
 
   - id: selection
-    module: ligand_waterfp.g1_g2_selection.select_g1_g2
+    module: oneopes.ligand.g1_g2
     console_script: ligand-waterfp-select
     depends_on: [convergence]
     inputs: [tpr, xtc]
@@ -41,10 +41,10 @@ stages:
       The convergence stage already runs this on its converged block; run
       it by hand only for another frame window. WaterFP, then the G1/G2
       rules of the upstream notebook, tested against its vendored code in
-      src/ligand_waterfp/official_selection/vendored_selection.py.
+      tests/reference/vendored_selection.py.
 
   - id: ligand_cv
-    module: ligand_waterfp.ligand_cv.build_ligand_cv
+    module: oneopes.ligand.plumed_cv
     console_script: ligand-waterfp-build-cv
     depends_on: [convergence]
     inputs: [g1_g2_yaml]
@@ -53,9 +53,9 @@ stages:
   - id: visualization
     optional: true
     modules:
-      - module: ligand_waterfp.visualization.render_selected_atoms       # invoked via `pymol -cq <path> -- ...`, not a console script
-      - module: ligand_waterfp.visualization.render_selected_atoms_chimera  # invoked via `chimera --script <path> ...`, not a console script
-      - module: ligand_waterfp.visualization.add_legend
+      - module: oneopes.render.render_selected_atoms       # invoked via `pymol -cq <path> -- ...`, not a console script
+      - module: oneopes.render.render_selected_atoms_chimera  # invoked via `chimera --script <path> ...`, not a console script
+      - module: oneopes.render.add_legend
         console_script: ligand-waterfp-add-legend
     depends_on: [selection]
     inputs: [complex_pdb, g1_g2_yaml]

@@ -1,4 +1,4 @@
-# ligand_waterfp
+# oneopes
 
 A reusable, system-independent, **installable Python package** for
 ligand-side hydration-CV construction:
@@ -43,42 +43,41 @@ a quick visual check.
 ## 2. Package layout
 
 ```text
-ligand_waterfp/
 ├── pyproject.toml              <- installable package (pip install -e .)
 ├── configs/ligand_waterfp.yaml <- generic parameter template
 ├── workflow.yaml                <- machine-readable stage manifest
-└── src/ligand_waterfp/
-    ├── system_setup/            <- 1. build the ligand-only MD system
-    ├── convergence/              <- 2. block-wise hydration convergence monitor
-    ├── g1_g2_selection/           <- 3. WaterFP over the converged block -> G1/G2
-    ├── official_selection/       <- vendored upstream selection code (test reference)
-    ├── ligand_cv/                 <- 4. starting-point PLUMED CV fragment
-    └── visualization/             <- 5. optional: render selected atoms
+├── docs/                        <- per-stage notes and METHOD_RATIONALE.md
+├── tests/reference/             <- vendored upstream selection code (test reference)
+└── src/oneopes/
+    ├── waterfp.py, convergence.py, trajectory_blocks.py, system.py  <- shared core
+    ├── ligand/
+    │   ├── setup.py, mdp/       <- 1. build the ligand-only MD system
+    │   ├── monitor.py           <- 2. block-wise hydration convergence monitor
+    │   ├── g1_g2.py             <- 3. WaterFP over the converged block -> G1/G2
+    │   └── plumed_cv.py         <- 4. starting-point PLUMED CV fragment
+    ├── render/                  <- 5. optional: render selected atoms
+    ├── protein/                 <- protein-side analysis (`protein-waterfp`)
+    └── funnel/                  <- BioSimSpace funnel CV
 ```
 
-Each subpackage has its own `README.md` with full detail. `main()` in
-every stage's driver script is registered as a console-script entry point
-in `pyproject.toml` (see section 4).
+Each stage has its notes in `docs/`. `main()` in every stage's module is
+registered as a console-script entry point in `pyproject.toml` (see
+section 4).
 
 ## 3. Install
 
 ```bash
-cd ligand_waterfp/
 pip install -e .        # or: uv pip install -e .
 ```
 
-This installs the `ligand_waterfp` package and its `ligand-waterfp-*`
-console commands (one per stage script - see section 4). `requirements.txt`
-is provided as a fallback if you'd rather `pip install -r requirements.txt`
-and run scripts via `python -m ligand_waterfp.<subpackage>.<module>`
-without installing the package itself.
+This installs the `oneopes` package and its `ligand-waterfp-*` console
+commands (one per stage - see section 4).
 
 Additional, non-pip dependencies:
 
 - GROMACS (tested against 2021.7) on `PATH`, for stage 1/production MD
 - PyMOL and/or UCSF Chimera, only if you use stage 5's rendering scripts
-  (invoked by file path, not as console scripts - see
-  `src/ligand_waterfp/visualization/README.md`)
+  (invoked by file path, not as console scripts - see `docs/render.md`)
 
 ## 4. Input requirements
 
@@ -98,7 +97,7 @@ Additional, non-pip dependencies:
 ligand-waterfp-prepare-system \
     --ligand-gro ligand.gro --ligand-top ligand.top --outdir outputs/lig_system/
 
-# ... production MD (see src/ligand_waterfp/system_setup/README.md), then:
+# ... production MD (see docs/ligand_setup.md), then:
 
 # Stage 2 - convergence monitor (auto-stops production once converged).
 # Stage 3 runs here too: on convergence it writes rdf.csv, fingerprints.csv
@@ -108,14 +107,14 @@ ligand-waterfp-monitor $MDRUN_PID \
     --outdir outputs/convergence
 
 # Stage 3 by hand, only to select over another frame window (see
-# convergence's README for the converged block's frame range):
+# docs/ligand_monitor.md for the converged block's frame range):
 # ligand-waterfp-select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
 
 # Stage 4 - ligand-side CV fragment
 ligand-waterfp-build-cv \
     --g1-g2 outputs/convergence/selection/g1_g2.yaml --out outputs/ligand_cv/plumed_fragment.dat
 
-# Stage 5 - optional visualization, see src/ligand_waterfp/visualization/README.md
+# Stage 5 - optional visualization, see docs/render.md
 ```
 
 `configs/ligand_waterfp.yaml` is a generic parameter template (paths and
@@ -124,13 +123,13 @@ flag.
 
 ## 6. What each stage does
 
-| Stage | Subpackage | Console command(s) | Purpose |
+| Stage | Module | Console command(s) | Purpose |
 |---|---|---|---|
-| 1 | `system_setup/` | `ligand-waterfp-prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
-| 2 | `convergence/` | `ligand-waterfp-monitor` | Block-wise hydration convergence monitor + auto-stop |
-| 3 | `g1_g2_selection/` | `ligand-waterfp-select` | WaterFP over the converged block, then G1/G2 by the official selection rules |
-| 4 | `ligand_cv/` | `ligand-waterfp-build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
-| 5 | `visualization/` | `ligand-waterfp-add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
+| 1 | `oneopes.ligand.setup` | `ligand-waterfp-prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
+| 2 | `oneopes.ligand.monitor` | `ligand-waterfp-monitor` | Block-wise hydration convergence monitor + auto-stop |
+| 3 | `oneopes.ligand.g1_g2` | `ligand-waterfp-select` | WaterFP over the converged block, then G1/G2 by the official selection rules |
+| 4 | `oneopes.ligand.plumed_cv` | `ligand-waterfp-build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
+| 5 | `oneopes.render` | `ligand-waterfp-add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
 
 ## 7. Where generated outputs are written
 
@@ -147,7 +146,7 @@ The selection rules come from the upstream notebook
 `https://github.com/valeriorizzi/WaterFP` (commit
 `6a5aef725a66b28e86d3582aee3e9e8bbbe4bc54`). Its selection functions are
 vendored verbatim in
-`src/ligand_waterfp/official_selection/vendored_selection.py`, and
+`tests/reference/vendored_selection.py`, and
 `tests/test_g1_g2_reference.py` checks that `select_g1_g2` picks the same
 atoms on hundreds of random ligands.
 
@@ -158,7 +157,7 @@ WaterFP plus a partner among the next most negative atoms that is not
 bonded to it, preferring the farthest when FP values are close. G2 (the
 "bulk" pair) is the atom with the least negative WaterFP plus the next
 least negative atom at least three bonds away. See
-`ligand_waterfp.g1_g2_selection.select_g1_g2`.
+`oneopes.ligand.g1_g2`.
 
 ## 10. How the resulting ligand CV is constructed
 
@@ -167,9 +166,9 @@ each as a `GROUP`, plus a `COORDINATION` CV for each against a
 water-oxygen reference group. This is a starting point requiring manual
 review (switching-function parameters, the water-reference group, and
 merging into your system's real `plumed.dat`) - see
-`src/ligand_waterfp/ligand_cv/README.md`.
+`docs/plumed_cv.md`.
 
-# oneopes_funnel
+# oneopes.funnel
 
 A thin, generic OneOPES API around the **public BioSimSpace** funnel API
 (`BioSimSpace.Metadynamics.CollectiveVariable.makeFunnel` and `Funnel`).
@@ -204,7 +203,7 @@ modules or attributes).
 
 ```python
 import BioSimSpace as BSS
-from oneopes_funnel.make_funnel import make_funnel
+from oneopes.funnel.make_funnel import make_funnel
 
 system = BSS.IO.readMolecules(["top.top", "npt.gro"])
 f = make_funnel(system)               # extra kwargs go to BSS Funnel(...)
@@ -240,9 +239,9 @@ tree, or set `ONEOPES_FUNNEL_REF_DIRS`.
 | `plumed_io.py` | (stub) read-only parsing of existing `plumed.dat` files |
 | `system_io.py` | (stub) system loading |
 
-Repository location: `workflows/oneopes_funnel/` in `OneOpes-original`.
+Code in `src/oneopes/funnel/`, tests in `tests/funnel/`.
 
-# protein_waterfp
+# oneopes.protein (`protein-waterfp`)
 
 Protein-side WaterFP hydration analysis of one protein-ligand system, run
 **retrospectively on an existing, completed unbiased MD trajectory**. The
@@ -362,6 +361,6 @@ analysed frame range with the same code as the blocks; SASA is static;
 ## Install and test
 
 ```bash
-pip install -e ../ligand_waterfp -e ".[dev]"   # or: uv pip install -e ".[dev]"
+pip install -e ".[dev]"   # or: uv pip install -e ".[dev]"
 pytest
 ```

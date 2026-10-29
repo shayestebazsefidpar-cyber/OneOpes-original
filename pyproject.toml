@@ -1,7 +1,7 @@
 [project]
-name = "ligand-waterfp"
+name = "oneopes"
 version = "0.1.0"
-description = "Ligand-only WaterFP hydration-CV workflow: unbiased MD -> WaterFP -> convergence -> G1/G2 atom selection -> ligand-side CV"
+description = "Hydration (WaterFP) and funnel collective variables for OneOPES, from unbiased MD"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,14 +20,16 @@ dependencies = [
 dev = ["pytest>=7"]
 # stage 5 rendering needs a PyMOL or Chimera install, invoked by path
 # (pymol -cq .../render_selected_atoms.py -- ...), not via console_scripts -
-# see visualization/README.md. Nothing extra to pip-install here.
+# see docs/render.md. Nothing extra to pip-install here. The funnel
+# (oneopes.funnel) needs BioSimSpace, which is conda-only.
 
 [project.scripts]
-ligand-waterfp-prepare-system = "ligand_waterfp.system_setup.prepare_ligand_system:main"
-ligand-waterfp-monitor = "ligand_waterfp.convergence.monitor_convergence:main"
-ligand-waterfp-select = "ligand_waterfp.g1_g2_selection.select_g1_g2:main"
-ligand-waterfp-build-cv = "ligand_waterfp.ligand_cv.build_ligand_cv:main"
-ligand-waterfp-add-legend = "ligand_waterfp.visualization.add_legend:main"
+ligand-waterfp-prepare-system = "oneopes.ligand.setup:main"
+ligand-waterfp-monitor = "oneopes.ligand.monitor:main"
+ligand-waterfp-select = "oneopes.ligand.g1_g2:main"
+ligand-waterfp-build-cv = "oneopes.ligand.plumed_cv:main"
+ligand-waterfp-add-legend = "oneopes.render.add_legend:main"
+protein-waterfp = "oneopes.protein.analysis:main"
 
 [build-system]
 requires = ["uv_build>=0.12.6,<0.13.0"]

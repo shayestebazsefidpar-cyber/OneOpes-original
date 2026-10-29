@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import AtomRef, SelectionResult, select_g1_g2
-from ligand_waterfp.official_selection import vendored_selection as official
+from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2
+from reference import vendored_selection as official
 
 MOL = "SystemA-lig1"  # the vendored code's "<system>-<ligand>" id
 SENTENCE = re.compile(r"selection: (\w+) \((\d+)\), (\w+) \((\d+)\)")  # "...selection: C3 (5), C9 (12)"

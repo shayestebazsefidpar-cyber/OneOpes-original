@@ -1,7 +1,7 @@
 """Tests for the ligand convergence monitor's plots (synthetic data, no trajectory)."""
 import pandas as pd
 
-from ligand_waterfp.convergence.monitor_convergence import plot_atom
+from oneopes.ligand.monitor import plot_atom
 
 
 def test_plot_atom_writes_expected_files(tmp_path):

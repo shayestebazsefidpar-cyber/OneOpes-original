@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-from ligand_waterfp.ligand_cv.build_ligand_cv import main as build_ligand_cv_main
-from ligand_waterfp.convergence.monitor_convergence import main as monitor_main
+from oneopes.ligand.monitor import main as monitor_main
+from oneopes.ligand.plumed_cv import main as build_ligand_cv_main
 
 
 # --- build_ligand_cv: missing required input fails early and clearly -------

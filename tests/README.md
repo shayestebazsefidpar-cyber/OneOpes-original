@@ -53,4 +53,4 @@ validation is not committed here (it depends on data outside this repo)
 but is exactly what caught the `os.makedirs` bug this test suite now
 guards against, plus a documentation gap (Stage 3 must be run over the
 convergence-defining block's own frame range, not the whole trajectory -
-see `../src/ligand_waterfp/convergence/README.md`'s "Next stage" section).
+see `../docs/ligand_monitor.md`'s "Next stage" section).

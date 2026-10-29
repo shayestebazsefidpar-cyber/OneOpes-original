@@ -10,7 +10,7 @@ import sys
 import pytest
 import yaml
 
-from ligand_waterfp.ligand_cv.build_ligand_cv import main as build_ligand_cv_main
+from oneopes.ligand.plumed_cv import main as build_ligand_cv_main
 
 
 def _run_build_ligand_cv(monkeypatch, tmp_path, g1_g2_data):

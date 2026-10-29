@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from ligand_waterfp.g1_g2_selection.select_g1_g2 import AtomRef, SelectionResult, main, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, main, select_g1_g2, write_g1_g2_yaml
 
 RAW = {
     "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],

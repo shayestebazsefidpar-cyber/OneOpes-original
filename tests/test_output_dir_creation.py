@@ -14,8 +14,8 @@ import sys
 import yaml
 from PIL import Image
 
-from ligand_waterfp.ligand_cv.build_ligand_cv import main as build_ligand_cv_main
-from ligand_waterfp.visualization.add_legend import main as add_legend_main
+from oneopes.ligand.plumed_cv import main as build_ligand_cv_main
+from oneopes.render.add_legend import main as add_legend_main
 
 
 def test_build_ligand_cv_creates_nested_output_dir(tmp_path, monkeypatch):
