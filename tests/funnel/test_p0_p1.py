@@ -4,35 +4,22 @@ import numpy as np
 import pytest
 from bss_helpers import bss_xyz, molecule_layout
 
-from oneopes.funnel.p0_p1 import centroid, p0_p1_from_atoms
+from oneopes.funnel.p0_p1 import P0P1Result
 
 
 # --------------------------------------------------------------------------
 # B: unit tests (no BioSimSpace)
 # --------------------------------------------------------------------------
-def test_b2_centroid_is_plain_mean():
-    coords = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 4.0, 0.0], [2.0, 4.0, 6.0]])
-    np.testing.assert_allclose(centroid(coords), [1.0, 2.0, 1.5], atol=1e-12)
-    with pytest.raises(ValueError):
-        centroid(np.empty((0, 3)))
-
-
-def test_b3_p0_p1_from_system_level_indices():
-    # A 3-atom "water" first, so system indices != protein-local indices.
-    coords = np.array(
-        [
-            [50.0, 50.0, 50.0], [50.8, 50.0, 50.0], [50.0, 50.8, 50.0],  # water (0-2)
-            [0.0, 0.0, 0.0], [2.0, 0.0, 0.0],                             # atoms0 (3, 4)
-            [9.0, 9.0, 9.0],                                              # unrelated (5)
-            [0.0, 0.0, 8.0], [2.0, 0.0, 8.0],                             # atoms1 (6, 7)
-        ]
-    )
-    r = p0_p1_from_atoms([3, 4], [6, 7], coords)
-    assert (r.atoms0, r.atoms1) == ([3, 4], [6, 7])
-    np.testing.assert_allclose(r.p0, [1.0, 0.0, 0.0], atol=1e-12)
-    np.testing.assert_allclose(r.p1, [1.0, 0.0, 8.0], atol=1e-12)
+def test_b3_axis_runs_from_p0_to_p1():
+    r = P0P1Result(atoms0=[3, 4], atoms1=[6, 7], p0=np.array([1.0, 0.0, 0.0]), p1=np.array([1.0, 0.0, 8.0]))
     np.testing.assert_allclose(r.axis, [0.0, 0.0, 1.0], atol=1e-12)
     assert r.axis_length == pytest.approx(8.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("p1", [[1.0, 2.0, 3.0], [np.nan, 0.0, 0.0]])
+def test_b3_p0_and_p1_must_be_distinct_points(p1):
+    with pytest.raises(ValueError, match="distinct points"):
+        P0P1Result(atoms0=[0], atoms1=[1], p0=np.array([1.0, 2.0, 3.0]), p1=np.array(p1))
 
 
 # --------------------------------------------------------------------------

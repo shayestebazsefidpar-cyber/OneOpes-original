@@ -1,65 +1,24 @@
 """
-Top-level makeFunnel-type API around BioSimSpace.
-
-``make_funnel(system, ...)`` = public BioSimSpace ``makeFunnel()``
-(atoms0/atoms1) + a public BioSimSpace ``Funnel`` CV built from them, with
-P0/P1, axis, CV parameters and funnel geometry exposed as plain numbers.
-See ``p0_p1.py`` and ``geometry.py``.
+``make_funnel(system, ...)``: the BioSimSpace ``makeFunnel()`` atom selections with the P0/P1 derived
+from them (``p0_p1.py``), and the BioSimSpace ``Funnel`` CV built on them with its parameters
+(``geometry.py``).
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
-from oneopes.funnel.geometry import FunnelParameters, funnel_extent, funnel_parameters, funnel_wall_points
-from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, P0P1Result, make_p0_p1, require_biosimspace
+from oneopes.funnel.bss import require_biosimspace
+from oneopes.funnel.geometry import FunnelParameters, funnel_parameters
+from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, P0P1Result, make_p0_p1
 
 
 @dataclass(frozen=True)
 class FunnelResult:
-    """A BioSimSpace funnel: makeFunnel atom selections, derived P0/P1, and the BSS ``Funnel`` CV.
-
-    ``getCorrection()`` and every other CV method are available on ``.cv``.
-    """
+    """A BioSimSpace funnel: the makeFunnel selections with P0/P1, the ``Funnel`` CV and its parameters."""
 
     p0p1: P0P1Result
     cv: object
-    """The BioSimSpace ``Funnel`` collective variable (source of all CV quantities)."""
+    """The BioSimSpace ``Funnel`` CV (e.g. ``cv.getCorrection()``)."""
     parameters: FunnelParameters
-
-    @property
-    def atoms0(self) -> list[int]:
-        return self.p0p1.atoms0
-
-    @property
-    def atoms1(self) -> list[int]:
-        return self.p0p1.atoms1
-
-    @property
-    def p0(self) -> np.ndarray:
-        return self.p0p1.p0
-
-    @property
-    def p1(self) -> np.ndarray:
-        return self.p0p1.p1
-
-    @property
-    def axis(self) -> np.ndarray:
-        return self.p0p1.axis
-
-    @property
-    def axis_length(self) -> float:
-        return self.p0p1.axis_length
-
-    def extent_nm(self, projection_nm) -> np.ndarray:
-        """Funnel radius (nm) at projection(s) along the axis (nm) - ``cv.getExtent()``."""
-        return funnel_extent(self.cv, projection_nm)
-
-    def wall_points(self, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
-        """Funnel wall points (A) with ``cv.getExtent()`` radii; see :func:`geometry.funnel_wall_points`."""
-        return funnel_wall_points(self.p0, self.p1, self.cv, step_A=step_A, n_angles=n_angles)
 
 
 def make_funnel(
@@ -70,18 +29,11 @@ def make_funnel(
     property_map: dict | None = None,
     **funnel_kwargs,
 ) -> FunnelResult:
-    """Build a BioSimSpace funnel for ``system``.
+    """Build a BioSimSpace funnel for ``system``, a solvated protein-ligand BioSimSpace System.
 
-    Parameters
-    ----------
-    system : BioSimSpace System
-        Solvated protein-ligand system (e.g. from ``BioSimSpace.IO.readMolecules``).
-    protein, ligand, alpha_carbon_name, property_map
-        Passed unchanged to BioSimSpace ``makeFunnel()``.
-    **funnel_kwargs
-        Passed unchanged to BioSimSpace ``Funnel(atoms0, atoms1, ...)``
-        (``width``, ``buffer``, ``steepness``, ``inflection``, ``lower_bound``,
-        ``upper_bound``, ``hill_width``, ``grid``) - BSS types and defaults.
+    ``protein``, ``ligand``, ``alpha_carbon_name`` and ``property_map`` go unchanged to BioSimSpace
+    ``makeFunnel()``; ``funnel_kwargs`` (``width``, ``buffer``, ``steepness``, ``inflection``,
+    ``lower_bound``, ``upper_bound``, ...) go unchanged to BioSimSpace ``Funnel(atoms0, atoms1, ...)``.
     """
     require_biosimspace()
     from BioSimSpace.Metadynamics.CollectiveVariable import Funnel  # pyright: ignore[reportMissingImports]

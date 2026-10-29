@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "oneopes" / "funnel"
-MODULES = ["oneopes.funnel", "oneopes.funnel.p0_p1", "oneopes.funnel.geometry", "oneopes.funnel.make_funnel", "oneopes.funnel.plumed_io", "oneopes.funnel.system_io"]
+MODULES = ["oneopes.funnel", "oneopes.funnel.bss", "oneopes.funnel.p0_p1", "oneopes.funnel.geometry",
+           "oneopes.funnel.make_funnel", "oneopes.funnel.plumed_io", "oneopes.funnel.system_io"]
 
 
 @pytest.mark.parametrize("name", MODULES)
@@ -20,17 +21,19 @@ def test_b1_modules_import_without_biosimspace(name, monkeypatch):
 
 
 def test_b4_result_dataclasses_are_frozen():
-    from oneopes.funnel.geometry import FunnelParameters
+    from oneopes.funnel.geometry import Bound, FunnelParameters
     from oneopes.funnel.make_funnel import FunnelResult
-    from oneopes.funnel.p0_p1 import p0_p1_from_atoms
+    from oneopes.funnel.p0_p1 import P0P1Result
 
-    r = p0_p1_from_atoms([0], [1], np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 3.0]]))
-    params = FunnelParameters(0.6, 0.15, 1.5, 2.0, 0.5, 2000.0, 4.0, 2000.0)
+    r = P0P1Result(atoms0=[0], atoms1=[1], p0=np.array([0.0, 0.0, 0.0]), p1=np.array([0.0, 0.0, 3.0]))
+    lower = Bound(position_nm=0.5, force_constant=2000.0)
+    params = FunnelParameters(width_nm=0.6, buffer_nm=0.15, steepness_per_nm=1.5, inflection_nm=2.0,
+                              lower_bound=lower, upper_bound=Bound(position_nm=4.0, force_constant=2000.0))
     f = FunnelResult(p0p1=r, cv=None, parameters=params)
-    for obj, field in [(r, "atoms0"), (params, "width_nm"), (f, "cv")]:
+    for obj, field in [(r, "atoms0"), (lower, "position_nm"), (params, "width_nm"), (f, "cv")]:
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(obj, field, None)
-    assert (f.atoms0, f.atoms1, f.axis_length) == ([0], [1], 3.0)
+    assert (f.p0p1.atoms0, f.p0p1.atoms1, f.p0p1.axis_length) == ([0], [1], 3.0)
 
 
 def test_b7_clear_error_without_biosimspace(monkeypatch):

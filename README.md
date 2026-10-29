@@ -208,16 +208,17 @@ modules or attributes).
 
 ```python
 import BioSimSpace as BSS
+from oneopes.funnel.geometry import funnel_extent, funnel_wall_points
 from oneopes.funnel.make_funnel import make_funnel
 
 system = BSS.IO.readMolecules(["top.top", "npt.gro"])
-f = make_funnel(system)               # extra kwargs go to BSS Funnel(...)
-f.atoms0, f.atoms1                    # BSS makeFunnel selections
-f.p0, f.p1, f.axis, f.axis_length     # derived from those selections (A)
-f.parameters                          # width, buffer, steepness, inflection, bounds (nm)
-f.extent_nm([0.5, 1.0, 2.0])          # radius via Funnel.getExtent()
-f.wall_points(step_A=2.0, n_angles=8) # (N, 3) wall points in A
-f.cv                                  # the BioSimSpace Funnel object (e.g. f.cv.getCorrection())
+f = make_funnel(system)                       # extra kwargs go to BSS Funnel(...)
+f.p0p1.atoms0, f.p0p1.atoms1                  # BSS makeFunnel selections
+f.p0p1.p0, f.p0p1.p1, f.p0p1.axis             # derived from those selections (A)
+f.parameters                                  # width, buffer, steepness, inflection, bounds (nm)
+f.cv                                          # the BioSimSpace Funnel object (e.g. f.cv.getCorrection())
+funnel_extent(f.cv, [0.5, 1.0, 2.0])          # radius (nm) via Funnel.getExtent()
+funnel_wall_points(f.p0p1, f.cv, step_A=2.0)  # (N, 3) wall points in A
 ```
 
 ## Install and test
@@ -238,6 +239,7 @@ tree, or set `ONEOPES_FUNNEL_REF_DIRS`.
 
 | Module | Purpose |
 |---|---|
+| `bss.py` | the BioSimSpace calls, with lengths and positions as plain numbers |
 | `p0_p1.py` | `makeFunnel()` selections + derived P0/P1 |
 | `geometry.py` | CV parameters, `getExtent()` radius, wall points |
 | `make_funnel.py` | `make_funnel()` - selections + the BioSimSpace `Funnel` CV |

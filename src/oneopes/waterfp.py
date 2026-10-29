@@ -17,6 +17,7 @@ from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
 from MDAnalysis.lib.distances import capped_distance
+from MDAnalysis.units import convert
 from scipy.special import xlogy
 
 from oneopes.errors import InputError
@@ -49,7 +50,7 @@ class RadialGrid:
     @property
     def edges_a(self) -> np.ndarray:
         """The bin edges in Angstrom, the unit of MDAnalysis distances."""
-        return 10.0 * self.edges_nm
+        return convert(self.edges_nm, "nm", "A")
 
     @property
     def r_nm(self) -> np.ndarray:

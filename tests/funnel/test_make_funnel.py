@@ -29,7 +29,7 @@ def test_c7_cv_is_the_bss_funnel_built_from_makefunnel(funnel, bss_reference):
     assert isinstance(funnel.cv, Funnel)
     assert funnel.cv.getAtoms0() == list(atoms0)
     assert funnel.cv.getAtoms1() == list(atoms1)
-    assert (funnel.atoms0, funnel.atoms1) == (list(atoms0), list(atoms1))
+    assert (funnel.p0p1.atoms0, funnel.p0p1.atoms1) == (list(atoms0), list(atoms1))
 
 
 def test_c8_default_parameters_equal_bss_defaults(funnel, bss_reference):
@@ -52,16 +52,18 @@ def test_c9_funnel_kwargs_reach_bss_unchanged(ref):
         upper_bound=Bound(Length(3.7, "nanometer"), force_constant=20000),
     )
     f = make_funnel(ref.system, **kwargs)
-    reference = Funnel(f.atoms0, f.atoms1, **kwargs)
+    reference = Funnel(f.p0p1.atoms0, f.p0p1.atoms1, **kwargs)
     assert f.parameters == funnel_parameters(reference)
 
 
-def test_c10_extent_nm_equals_bss_getextent(funnel, bss_reference):
+def test_c10_extent_equals_bss_getextent(funnel, bss_reference):
     from BioSimSpace.Types import Length
+
+    from oneopes.funnel.geometry import funnel_extent
 
     proj = [0.0, 0.5, 1.0, 2.0, 3.0, 4.0]
     expected = [bss_reference[2].getExtent(Length(x, "nanometer")).nanometers().value() for x in proj]
-    np.testing.assert_array_equal(funnel.extent_nm(proj), expected)
+    np.testing.assert_array_equal(funnel_extent(funnel.cv, proj), expected)
 
 
 def test_c12_getcorrection_available_via_cv(funnel, bss_reference):
@@ -74,5 +76,7 @@ def test_c12_getcorrection_available_via_cv(funnel, bss_reference):
 
 def test_e3_p0_p1_in_angstrom_from_bss_coordinates(ref, funnel, bss_reference):
     atoms0, atoms1, _ = bss_reference
-    np.testing.assert_allclose(funnel.p0, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms0], axis=0), atol=1e-9)
-    np.testing.assert_allclose(funnel.p1, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms1], axis=0), atol=1e-9)
+    np.testing.assert_allclose(funnel.p0p1.p0, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms0], axis=0),
+                               atol=1e-9)
+    np.testing.assert_allclose(funnel.p0p1.p1, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms1], axis=0),
+                               atol=1e-9)

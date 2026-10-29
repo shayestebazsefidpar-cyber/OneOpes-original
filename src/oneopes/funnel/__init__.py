@@ -1,14 +1,11 @@
 """
-Funnel construction for OneOPES.
+Funnel construction for OneOPES, on top of the public BioSimSpace API.
 
 Modules:
-    system_io     - load the protein-ligand system; identify protein / ligand / water
+    bss           - the BioSimSpace calls, with lengths and positions as plain numbers
     p0_p1         - BioSimSpace makeFunnel() atom selections + derived P0/P1
     geometry      - Funnel CV parameters, getExtent() radius, wall points
-    plumed_io     - read-only parsing of existing plumed.dat funnel definitions
-    make_funnel   - top-level makeFunnel-type API
-
-Implemented on top of the public BioSimSpace API:
-    p0_p1, geometry, make_funnel
-Stubs: system_io, plumed_io.
+    make_funnel   - selections + the BioSimSpace Funnel CV
+    system_io     - (stub) system loading
+    plumed_io     - (stub) read-only parsing of existing plumed.dat funnel definitions
 """
