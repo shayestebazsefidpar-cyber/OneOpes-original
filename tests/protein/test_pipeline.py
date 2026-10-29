@@ -9,7 +9,7 @@ import pytest
 from cyclopts import ValidationError
 
 from oneopes.cli import app, main
-from oneopes.protein.analysis import AnalysisOptions, run_analysis
+from oneopes.protein.analysis import AnalysisOptions, json_value, protein_system, run_analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
 from oneopes.system import select_system
@@ -36,24 +36,22 @@ def _trajectory(u, n_frames=N_FRAMES, noise=0.3, dt_ps=DT_PS, t0_ps=0.0):
     return u
 
 
-def _run(tmp_path, **traj_kw):
-    u_complex = _system()
+def _run(tmp_path, options=AnalysisOptions(block_ns=BLOCK_NS), **traj_kw):
+    """Run the analysis on the synthetic system; return the trajectory universe and the run metadata."""
     u_traj = _trajectory(_system(), **traj_kw)
-    meta = run_analysis(u_complex, u_traj, AnalysisOptions(block_ns=BLOCK_NS), tmp_path, log=lambda *_: None)
+    meta = run_analysis(protein_system(u_traj, _system()), options, tmp_path, log=lambda *_: None)
     return u_traj, meta
 
 
 @pytest.fixture
 def analysis(tmp_path):
-    u_complex = _system()
-    u_traj = _trajectory(_system())
-    meta = run_analysis(u_complex, u_traj, AnalysisOptions(block_ns=BLOCK_NS), tmp_path, log=lambda *_: None)
-    return u_complex, meta, tmp_path
+    _u_traj, meta = _run(tmp_path)
+    return _system(), meta, tmp_path
 
 
 def test_no_zone_funnel_or_plumed_anywhere_in_a_run(analysis):
     _u, meta, out = analysis
-    text = json.dumps(meta).lower()
+    text = json.dumps(meta, default=json_value).lower()
     assert not any(word in text for word in ("zone", "funnel", "projection", "deep", "entrance", "plumed"))
     assert not list(out.glob("*funnel*")) and not list(out.glob("*zone*"))
     table = pd.read_csv(out / "final_per_atom_table.csv", keep_default_na=False)
@@ -112,7 +110,7 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
     assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
     assert summary["n_blocks"] == n_blocks
-    assert meta["frames"]["frames_not_in_a_complete_block"] == n_frames - n_blocks * fpb
+    assert meta["frames"]["analysed"].stop - meta["frames"]["blocks"][-1].stop == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert len(metrics) == n_blocks - 1
     expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
@@ -216,9 +214,7 @@ def test_cli_end_to_end_from_files(tmp_path):
 @pytest.mark.parametrize("cutoff", [7.0, 10.0])
 def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     u_complex = _system()
-    u_traj = _trajectory(_system(), n_frames=4)
-    meta = run_analysis(u_complex, u_traj, AnalysisOptions(candidate_cutoff_A=cutoff, block_ns=BLOCK_NS), tmp_path,
-                        log=lambda *_: None)
+    _u_traj, meta = _run(tmp_path, AnalysisOptions(candidate_cutoff_A=cutoff, block_ns=BLOCK_NS), n_frames=4)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     expected = select_candidates(u_complex, select_system(u_complex), cutoff)
     assert meta["candidate_cutoff_A"] == cutoff

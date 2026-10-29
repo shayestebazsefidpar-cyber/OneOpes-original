@@ -12,9 +12,11 @@ import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
+from MDAnalysis import AtomGroup, Universe
 
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
+    ConvergenceSummary,
     Tolerances,
     compare_blocks,
     stack_blocks,
@@ -23,8 +25,8 @@ from oneopes.convergence import (
     write_block_tables,
     write_summary,
 )
-from oneopes.system import select_system
-from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, frame_layout
+from oneopes.system import SystemSelection, select_system
+from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, FrameLayout, frame_layout
 from oneopes.waterfp import WaterFP
 
 from oneopes import __version__
@@ -50,6 +52,52 @@ class AnalysisOptions:
     tolerances: Tolerances = DEFAULT_TOLERANCES
 
 
+@dataclass(frozen=True)
+class ProteinSystem:
+    """A protein-ligand system: its trajectory, its complex structure, and which atoms are which."""
+    trajectory: Universe
+    """Topology and production trajectory."""
+    complex: Universe
+    """Topology and complex coordinates, for the candidate pool and SASA."""
+    selection: SystemSelection
+    chain_ids: np.ndarray | None
+    """Chain IDs as written in the complex file, one per atom; None when unknown."""
+
+
+def protein_system(trajectory: Universe, complex: Universe, complex_file: Universe | None = None,
+                   ligand_selection: str | None = None, water_selection: str | None = None) -> ProteinSystem:
+    """Check that the inputs describe the same atoms, and find the protein, ligand and water.
+
+    ``complex_file`` is the complex file read on its own: its protein and ligand heavy-atom names must
+    match the topology (water and hydrogen naming may differ between formats), and its chain IDs fill
+    ``Chain_ID``.
+    """
+    validate_same_atoms(trajectory, complex, "complex vs trajectory topology")
+    selection = select_system(trajectory, ligand_selection, water_selection)
+    chain_ids = None
+    if complex_file is not None:
+        validate_same_atoms(trajectory, complex_file, "complex structure",
+                            indices=np.concatenate([selection.protein_heavy, selection.ligand_heavy]))
+        chain_ids = structure_chain_ids(complex_file)
+    return ProteinSystem(trajectory=trajectory, complex=complex, selection=selection, chain_ids=chain_ids)
+
+
+@dataclass(frozen=True)
+class FrameAnalysis:
+    """WaterFP and Contact/Bridge occupancy of the candidate atoms over one range of frames."""
+    waterfp: WaterFP
+    contacts: Contacts
+
+
+def analyse_frames(system: ProteinSystem, candidate_atoms: AtomGroup, frames: range) -> FrameAnalysis:
+    atoms = system.trajectory.atoms
+    ligand, water = atoms[system.selection.ligand_heavy], atoms[system.selection.water_oxygens]
+    return FrameAnalysis(
+        waterfp=WaterFP(candidate_atoms, water).run(start=frames.start, stop=frames.stop),
+        contacts=Contacts(candidate_atoms, ligand, water).run(start=frames.start, stop=frames.stop),
+    )
+
+
 def contacts_per_block(contacts: Sequence[Contacts], times_ns: Sequence[tuple[float, float]],
                        labels: Sequence[str]) -> pd.DataFrame:
     """One row per (block, candidate atom): block, t_start_ns, t_end_ns, then the Contacts table."""
@@ -57,87 +105,63 @@ def contacts_per_block(contacts: Sequence[Contacts], times_ns: Sequence[tuple[fl
     return times.merge(stack_blocks([block.table(labels) for block in contacts]), on="block")
 
 
-def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print, complex_structure=None) -> dict:
-    """Retrospective analysis of an existing trajectory; writes all outputs to ``outdir``.
-
-    Every complete block is analysed and every transition scored, whether or not
-    convergence is reached; final per-atom values cover the whole analysed range.
-    ``complex_structure``: the complex file read on its own; its protein and ligand
-    atom names are checked and its chain IDs fill ``Chain_ID`` (empty when None).
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    validate_same_atoms(u_traj, u_complex, "complex vs trajectory topology")
-
-    sel = select_system(u_traj, options.ligand_selection, options.water_selection)
-    log(f"[protein-waterfp] ligand: {sel.ligand_description} ({len(sel.ligand_heavy)} heavy atoms); "
-        f"water: {sel.water_description} ({len(sel.water_oxygens)} oxygens)")
-
-    chain_ids = None
-    if complex_structure is not None:
-        validate_same_atoms(u_traj, complex_structure, "complex structure",
-                            indices=np.concatenate([sel.protein_heavy, sel.ligand_heavy]))
-        chain_ids = structure_chain_ids(complex_structure)
-    candidates = select_candidates(u_complex, sel, options.candidate_cutoff_A, chain_ids)
+def write_outputs(outdir: Path, candidates: pd.DataFrame, layout: FrameLayout, blocks: Sequence[FrameAnalysis],
+                  full: FrameAnalysis, sasa: np.ndarray, summary: ConvergenceSummary) -> None:
+    """Write the candidate pool, the block-wise tables, the convergence summary and the final per-atom table."""
     labels = list(candidates["Atom"])
-    cand_idx = candidates["Atom_index"].to_numpy()
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
-
-    layout = frame_layout(u_traj, options.block_ns, options.first_frame, options.last_frame)
-    analysed, block_times = layout.analysed, layout.block_times_ns
-    log(f"[protein-waterfp] trajectory: {layout.n_frames} frames, dt {layout.dt_ps} ps, "
-        f"{layout.trajectory_start_ns:g}-{layout.trajectory_end_ns:g} ns "
-        f"({layout.trajectory_end_ns - layout.trajectory_start_ns:g} ns); "
-        f"analysed frames {analysed.start}-{analysed.stop - 1} ({layout.analysis_time_ns:g} ns)")
-    log(f"[protein-waterfp] {len(layout.blocks)} blocks of {len(layout.blocks[0])} frames ({options.block_ns} ns), "
-        f"{len(layout.blocks) - 1} transitions; {layout.tail_frames} trailing frame(s) not in a complete block")
-
-    candidate_atoms = u_traj.atoms[cand_idx]
-    ligand = u_traj.atoms[sel.ligand_heavy]
-    water_oxygens = u_traj.atoms[sel.water_oxygens]
-    blocks, contacts = [], []
-    for b, (frames, (start_ns, end_ns)) in enumerate(zip(layout.blocks, block_times)):
-        blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=frames.start, stop=frames.stop))
-        contacts.append(Contacts(candidate_atoms, ligand, water_oxygens).run(start=frames.start, stop=frames.stop))
-        log(f"[protein-waterfp] block {b} ({start_ns:g}-{end_ns:g} ns) done")
-    log(f"[protein-waterfp] full-trajectory pass over frames {analysed.start}-{analysed.stop - 1}")
-    fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=analysed.start, stop=analysed.stop).results.fp
-    contacts_full = Contacts(candidate_atoms, ligand, water_oxygens).run(start=analysed.start, stop=analysed.stop)
-
-    tol = options.tolerances
-    stabilities = compare_blocks([block.results for block in blocks], tol)
-    summary = summarize(stabilities, block_times, options.block_ns, tol)
-    log(f"[protein-waterfp] first sustained convergence: {summary.converged_ns} ns")
-
-    write_block_tables(outdir, blocks, block_times, tol, labels)
-    contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
+    write_block_tables(outdir, [block.waterfp for block in blocks], layout.block_times_ns, summary.tolerances, labels)
+    contacts_per_block([block.contacts for block in blocks], layout.block_times_ns, labels).to_csv(
+        outdir / "contact_occupancy_per_block.csv", index=False)
     write_summary(outdir / "convergence_summary.json", summary,
                   trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
                   analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
-
-    sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
-    table = build_final_table(candidates, fp_full, contacts_full.results.contact_occupancy,
-                              contacts_full.results.bridge_occupancy, sasa, layout.analysis_time_ns,
+    table = build_final_table(candidates, full.waterfp.results.fp, full.contacts.results.contact_occupancy,
+                              full.contacts.results.bridge_occupancy, sasa, layout.analysis_time_ns,
                               summary.converged_ns)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
+
+def run_analysis(system: ProteinSystem, options: AnalysisOptions, outdir: Path, log=print) -> dict:
+    """Analyse every complete block and the whole analysed range of an existing trajectory.
+
+    Every transition is scored whether or not convergence is reached; the final per-atom values
+    cover the whole analysed range. Writes all outputs to ``outdir`` and returns the run's metadata.
+    """
+    sel = system.selection
+    log(f"[protein-waterfp] ligand: {sel.ligand_description} ({len(sel.ligand_heavy)} heavy atoms); "
+        f"water: {sel.water_description} ({len(sel.water_oxygens)} oxygens)")
+    candidates = select_candidates(system.complex, sel, options.candidate_cutoff_A, system.chain_ids)
+    candidate_index = candidates["Atom_index"].to_numpy()
+    log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
+    layout = frame_layout(system.trajectory, options.block_ns, options.first_frame, options.last_frame)
+    log(f"[protein-waterfp] {layout.describe()}")
+
+    candidate_atoms = system.trajectory.atoms[candidate_index]
+    blocks = [analyse_frames(system, candidate_atoms, frames) for frames in layout.blocks]
+    full = analyse_frames(system, candidate_atoms, layout.analysed)
+    stabilities = compare_blocks([block.waterfp.results for block in blocks], options.tolerances)
+    summary = summarize(stabilities, layout.block_times_ns, options.block_ns, options.tolerances)
+    log(f"[protein-waterfp] first sustained convergence: {summary.converged_ns} ns")
+
+    sasa = static_sasa(system.complex, sel.protein_all, sel.ligand_all, candidate_index)
+    outdir.mkdir(parents=True, exist_ok=True)
+    write_outputs(outdir, candidates, layout, blocks, full, sasa, summary)
     return {
         "candidate_cutoff_A": options.candidate_cutoff_A,
         "contact_cutoff_A": CONTACT_CUTOFF_A,
         "bridge_water_cutoff_A": BRIDGE_WATER_CUTOFF_A,
-        "n_candidate_atoms": len(labels),
+        "n_candidate_atoms": len(candidates),
         "ligand_selection": sel.ligand_description,
         "water_selection": sel.water_description,
-        "frames": {"n_frames": layout.n_frames, "dt_ps": layout.dt_ps, "frames_per_block": len(layout.blocks[0]),
-                   "analysed_frame_range": [analysed.start, analysed.stop - 1],
-                   "frames_not_in_a_complete_block": layout.tail_frames,
-                   "blocks": [[frames.start, frames.stop] for frames in layout.blocks]},
-        "final_values": {"FP": "full analysed frame range", "Contact_occupancy_5A": "full analysed frame range",
-                         "Bridge_occupancy": "full analysed frame range",
-                         "SASA_A2": "static, complex structure", "FP_Rank": "1 = most negative FP"},
+        "frames": asdict(layout),
     }
+
+
+def json_value(value: object) -> object:
+    """JSON stand-in for the values ``json`` cannot write: a range as [start, stop], numpy numbers as floats."""
+    return [value.start, value.stop] if isinstance(value, range) else float(value)
 
 
 def _sha256(path: Path) -> str:
@@ -190,15 +214,13 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     block_ns
         Trajectory block size (ns).
     """
-    import MDAnalysis as mda
-
     try:
-        u_traj = mda.Universe(str(topology), str(trajectory))
+        u_traj = Universe(str(topology), str(trajectory))
     except Exception as err:
         raise SystemExit(f"[protein-waterfp] topology and trajectory are incompatible: {err}") from err
     try:
-        u_complex = mda.Universe(str(topology), str(complex))
-        raw_complex = mda.Universe(str(complex))
+        u_complex = Universe(str(topology), str(complex))
+        complex_file = Universe(str(complex))
     except Exception as err:
         raise SystemExit(f"[protein-waterfp] topology and complex are incompatible: {err}") from err
 
@@ -206,12 +228,12 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
         candidate_cutoff_A=candidate_cutoff_A, block_ns=block_ns, first_frame=first_frame, last_frame=last_frame,
         ligand_selection=ligand_selection, water_selection=water_selection, tolerances=tol,
     )
-    outdir = output_dir
-    meta = run_analysis(u_complex, u_traj, options, outdir, complex_structure=raw_complex)
+    system = protein_system(u_traj, u_complex, complex_file, ligand_selection, water_selection)
+    meta = run_analysis(system, options, output_dir)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
     meta["inputs"] = {name: {"file": path.name, "sha256": _sha256(path), "bytes": path.stat().st_size}
                       for name, path in inputs.items()}
     meta["options"] = asdict(options)
     meta["versions"] = _versions()
-    (outdir / "run_metadata.json").write_text(json.dumps(meta, indent=2, default=float))
-    print(f"[protein-waterfp] {meta['n_candidate_atoms']} candidates -> {outdir / 'final_per_atom_table.csv'}")
+    (output_dir / "run_metadata.json").write_text(json.dumps(meta, indent=2, default=json_value))
+    print(f"[protein-waterfp] {meta['n_candidate_atoms']} candidates -> {output_dir / 'final_per_atom_table.csv'}")

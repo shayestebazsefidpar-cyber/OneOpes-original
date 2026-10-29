@@ -73,6 +73,12 @@ class FrameLayout:
         """Analysed frames after the last complete block, in no block."""
         return self.analysed.stop - self.blocks[-1].stop
 
+    def describe(self) -> str:
+        """The layout in one line, for the log."""
+        return (f"{self.n_frames} frames of {self.dt_ps} ps ({self.trajectory_start_ns:g}-{self.trajectory_end_ns:g} ns); "
+                f"analysed frames {self.analysed.start}-{self.analysed.stop - 1} ({self.analysis_time_ns:g} ns) "
+                f"in {len(self.blocks)} blocks of {len(self.blocks[0])} frames, {self.tail_frames} left over")
+
 
 def frame_layout(u: Universe, block_ns: float, first_frame: int = 0, last_frame: int | None = None) -> FrameLayout:
     """Split frames [first_frame, last_frame) of ``u`` (default: all) into complete ``block_ns`` blocks.

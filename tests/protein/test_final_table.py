@@ -60,7 +60,7 @@ def test_not_converged_leaves_first_convergence_empty():
 
 def test_missing_value_for_a_candidate_fails():
     cand, fp, *rest = _inputs()
-    with pytest.raises(ValueError, match="FP has 2 values for 3 candidate atoms"):
+    with pytest.raises(ValueError, match="Length of values"):
         build_final_table(cand, fp[:2], *rest)
 
 
@@ -69,8 +69,17 @@ def test_markdown_copy_has_same_rows_and_columns():
 
     table = build_final_table(*_inputs())
     lines = final_table_markdown(table).splitlines()
-    assert lines[0] == "| " + " | ".join(REQUIRED) + " |"
+    cells = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
+    assert cells[0] == REQUIRED
     assert len(lines) == 2 + len(table)
-    rows = [line.strip("| ").split(" | ") for line in lines[2:]]
-    assert [r[1] for r in rows] == list(table["Atom"])
-    assert rows[0][REQUIRED.index("FP")] == "-21.000"
+    assert [row[1] for row in cells[2:]] == list(table["Atom"])
+    assert cells[2][REQUIRED.index("FP")] == "-21.000"
+
+
+def test_markdown_leaves_missing_values_empty():
+    """Without convergence, First_convergence_ns (the last column) is an empty cell, not "nan"."""
+    from oneopes.protein.final_table import final_table_markdown
+
+    *args, _first = _inputs()
+    last_row = final_table_markdown(build_final_table(*args, None)).splitlines()[-1]
+    assert last_row.split("|")[-2].strip() == ""

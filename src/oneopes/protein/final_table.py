@@ -38,27 +38,21 @@ def build_final_table(candidates: pd.DataFrame, fp: np.ndarray, contact: np.ndar
     """The final table from full-trajectory per-atom values, each in ``candidates`` row order.
 
     ``first_convergence_ns`` is None (written as an empty cell) when sustained
-    convergence was never reached.
+    convergence was never reached. Raises ValueError when a value array does not
+    have one value per candidate.
     """
-    labels = list(candidates["Atom"])
-    for name, values in (("FP", fp), ("Contact", contact), ("Bridge", bridge), ("SASA", sasa)):
-        if len(values) != len(labels):
-            raise ValueError(f"{name} has {len(values)} values for {len(labels)} candidate atoms.")
-    table = candidates.copy()
-    table["FP"] = fp
-    table["FP_Rank"] = fp_ranks(table["FP"])
-    table["Contact_occupancy_5A"] = contact
-    table["Bridge_occupancy"] = bridge
-    table["SASA_A2"] = sasa
-    table["Analysis_time_ns"] = float(analysis_time_ns)
-    table["First_convergence_ns"] = float("nan") if first_convergence_ns is None else float(first_convergence_ns)
-    table = table[FINAL_COLUMNS].sort_values("FP_Rank").reset_index(drop=True)
-    if table["Atom"].duplicated().any() or len(table) != len(labels):
-        raise AssertionError("final table must have exactly one row per candidate atom")
-    return table
+    table = candidates.assign(
+        FP=fp,
+        FP_Rank=fp_ranks(pd.Series(fp)),
+        Contact_occupancy_5A=contact,
+        Bridge_occupancy=bridge,
+        SASA_A2=sasa,
+        Analysis_time_ns=float(analysis_time_ns),
+        First_convergence_ns=np.nan if first_convergence_ns is None else float(first_convergence_ns),
+    )
+    return table[FINAL_COLUMNS].sort_values("FP_Rank").reset_index(drop=True)
 
 
-# Decimals used only for the human-readable copy; the CSV keeps full precision.
 MARKDOWN_DECIMALS = {
     "Min_distance_to_ligand_A": 2,
     "FP": 3,
@@ -68,20 +62,11 @@ MARKDOWN_DECIMALS = {
     "Analysis_time_ns": 2,
     "First_convergence_ns": 2,
 }
+"""Decimals of the floats in the Markdown copy; the CSV keeps full precision."""
 
 
 def final_table_markdown(table: pd.DataFrame) -> str:
-    """The final table as a Markdown table (same rows, order and columns; floats rounded)."""
-
-    def cell(column, value):
-        if pd.isna(value):
-            return ""
-        if column in MARKDOWN_DECIMALS:
-            return f"{float(value):.{MARKDOWN_DECIMALS[column]}f}"
-        return str(value)
-
-    columns = list(table.columns)
-    lines = ["| " + " | ".join(columns) + " |", "|" + "|".join("---" for _ in columns) + "|"]
-    for row in table.itertuples(index=False):
-        lines.append("| " + " | ".join(cell(c, v) for c, v in zip(columns, row)) + " |")
-    return "\n".join(lines) + "\n"
+    """The final table as Markdown: same rows, order and columns; floats rounded, missing values empty."""
+    float_formats = [f".{MARKDOWN_DECIMALS[column]}f" if column in MARKDOWN_DECIMALS else "g" for column in table]
+    cells = table.astype(object).where(table.notna(), None)
+    return cells.to_markdown(index=False, missingval="", floatfmt=float_formats) + "\n"
