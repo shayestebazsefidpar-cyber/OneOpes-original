@@ -1,8 +1,4 @@
-"""
-``make_funnel(system, ...)``: the BioSimSpace ``makeFunnel()`` atom selections with the P0/P1 derived
-from them (``p0_p1.py``), and the BioSimSpace ``Funnel`` CV built on them with its parameters
-(``geometry.py``).
-"""
+"""A BioSimSpace funnel: the ``makeFunnel()`` atom selections and the ``Funnel`` CV built on them."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -22,7 +18,7 @@ class FunnelResult:
 
     @property
     def parameters(self) -> FunnelParameters:
-        """The CV's parameters as plain numbers (see :func:`funnel_parameters`)."""
+        """The CV's parameters as plain numbers."""
         return funnel_parameters(self.cv)
 
 
@@ -34,11 +30,9 @@ def make_funnel(
     property_map: PropertyMap | None = None,
     **funnel_kwargs: Any,
 ) -> FunnelResult:
-    """Build a BioSimSpace funnel for ``system``, a solvated protein-ligand BioSimSpace System.
+    """Build a BioSimSpace funnel for a solvated protein-ligand ``system``.
 
-    ``protein``, ``ligand``, ``alpha_carbon_name`` and ``property_map`` go unchanged to BioSimSpace
-    ``makeFunnel()``; ``funnel_kwargs`` (``width``, ``buffer``, ``steepness``, ``inflection``,
-    ``lower_bound``, ``upper_bound``, ...) go unchanged to BioSimSpace ``Funnel(atoms0, atoms1, ...)``.
+    The named arguments go to ``makeFunnel()``, ``funnel_kwargs`` (e.g. ``width``, ``lower_bound``) to ``Funnel()``.
     """
     require_biosimspace()
     from BioSimSpace.Metadynamics.CollectiveVariable import Funnel  # pyright: ignore[reportMissingImports]

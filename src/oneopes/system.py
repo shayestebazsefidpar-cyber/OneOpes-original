@@ -65,8 +65,7 @@ class SystemSelection:
 
 
 def load_universe(topology: Path, *coordinates: Path) -> Universe:
-    """``topology`` with ``coordinates`` (a structure or trajectories, if any); raises InputError when
-    MDAnalysis cannot read them, e.g. when a trajectory has another number of atoms than the topology."""
+    """An MDAnalysis Universe; raises InputError when the files cannot be read together."""
     try:
         return Universe(str(topology), *map(str, coordinates))
     except Exception as err:  # MDAnalysis raises ValueError, OSError, TypeError, ... for files it cannot use
@@ -82,7 +81,7 @@ def ensure_elements(u: Universe) -> None:
 
 
 def heavy_atoms(atoms: AtomGroup) -> AtomGroup:
-    """The heavy atoms of ``atoms`` (see :data:`HEAVY_ATOMS`)."""
+    """The heavy atoms of ``atoms``, guessing elements first if the topology has none."""
     ensure_elements(atoms.universe)
     return atoms.select_atoms(HEAVY_ATOMS)
 

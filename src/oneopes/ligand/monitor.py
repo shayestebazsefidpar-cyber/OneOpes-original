@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_alive(pid: int | None) -> bool:
-    """Whether process ``pid`` is running (False without a pid, or once it has ended, even if not yet reaped)."""
+    """Whether process ``pid`` is running; a zombie has ended."""
     if pid is None:
         return False
     try:
@@ -42,17 +42,16 @@ def process_alive(pid: int | None) -> bool:
 
 
 def complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
-    """How many frames of the trajectory are fully written: all once mdrun has stopped; while it runs,
-    all but the last, which mdrun may still be writing (reading it raises an XTC read error)."""
+    """Frames fully written: while mdrun runs, all but the last, which it may still be writing."""
     n_frames = len(u.trajectory)
     return n_frames - 1 if process_alive(mdrun_pid) else n_frames
 
 
 def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid: int | None,
                     poll_seconds: float) -> None:
-    """Reread ``trajectory`` into ``u`` until it has ``n_frames`` complete frames or mdrun is no longer running.
+    """Reread ``trajectory`` into ``u`` until it has ``n_frames`` complete frames or mdrun has stopped.
 
-    An open trajectory does not see frames written later, so it is read again on every poll.
+    An open trajectory does not see frames written later, hence the rereading.
     """
     while True:
         u.load_new(str(trajectory))
@@ -63,10 +62,7 @@ def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid:
 
 def completed_blocks(u: mda.Universe, trajectory: Path, block_length: int, mdrun_pid: int | None,
                      poll_seconds: float) -> Iterator[range]:
-    """The frames of each block of ``block_length`` frames, as soon as all of them are complete in ``u``.
-
-    Ends when mdrun is no longer running and the next block is incomplete.
-    """
+    """The frames of each block, as soon as they are complete; ends when mdrun stops before the next one."""
     for first in count(0, block_length):
         frames = range(first, first + block_length)
         wait_for_frames(u, trajectory, frames.stop, mdrun_pid, poll_seconds)
@@ -76,10 +72,9 @@ def completed_blocks(u: mda.Universe, trajectory: Path, block_length: int, mdrun
 
 
 def stop_mdrun(pid: int | None) -> None:
-    """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md).
+    """Send SIGTERM to mdrun if it is still running (never SIGKILL: see docs/ligand_setup.md).
 
-    The process must have ``mdrun`` on its command line: a PID can be reused once mdrun has ended,
-    and another program must not be stopped by mistake.
+    Checks the command line first, since the PID may have been reused by another program.
     """
     if pid is None or not process_alive(pid):
         return
@@ -95,7 +90,7 @@ def stop_mdrun(pid: int | None) -> None:
 
 
 def log_progress(blocks: xr.Dataset) -> None:
-    """One log line for the latest block of a :func:`block_run` (none for block 0)."""
+    """Log the latest transition of a block run."""
     if blocks.sizes["block"] < 2:
         return
     latest = blocks.isel(block=-1)
@@ -113,11 +108,7 @@ def plot_blocks(blocks: xr.Dataset, outdir: Path) -> None:
 
 
 def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
-    """Save one atom's FP against time and its g(r) of each block; return the two paths.
-
-    ``blocks`` are the stacked block measurements; the plots go to fp_plots/ and rdf_plots/
-    in ``outdir``, which must exist.
-    """
+    """Save one atom's FP against time and its g(r) per block in existing fp_plots/ and rdf_plots/; return the paths."""
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
     rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
@@ -147,10 +138,9 @@ def save_figure(fig: Figure, path: Path) -> None:
 def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration: HydrationOptions,
                            blocks: BlockOptions, outdir: Path, mdrun_pid: int | None,
                            poll_seconds: float) -> xr.Dataset:
-    """Measure each block of the trajectory as soon as mdrun has written it, compare it with the blocks
-    before, and write the run to ``outdir``; until convergence, or until mdrun has stopped.
+    """Measure, compare and write each block as mdrun writes it, until convergence or until mdrun stops.
 
-    Returns the run; raises InputError when mdrun ends before the first block is complete.
+    Raises InputError when mdrun ends before the first block is complete.
     """
     ligand, water = sel.ligand(u), sel.water(u)
     wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
@@ -182,11 +172,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
             fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
 
-    Analyses the trajectory block by block as mdrun writes it, compares each block with the
-    previous one, and once --n-stable transitions in a row are stable sends SIGTERM to the
-    mdrun PID. Tables, plots and convergence_summary.json go to --outdir; on convergence, the
-    G1/G2 selection of the converged block goes to --outdir/selection.
-    docs/METHOD_RATIONALE.md explains the criteria.
+    After --n-stable stable transitions in a row, sends SIGTERM to mdrun and writes the G1/G2 selection
+    of the converged block to --outdir/selection. docs/METHOD_RATIONALE.md explains the criteria.
 
     Parameters
     ----------

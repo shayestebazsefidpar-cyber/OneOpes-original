@@ -37,10 +37,7 @@ def require_biosimspace() -> ModuleType:
 
 
 def with_positions_of(coordinates: Path, structure: Path, out: Path) -> None:
-    """Write ``coordinates`` (e.g. npt.gro) to ``out`` with the atom positions of ``structure``, matched by index.
-
-    Names, residues and box stay those of ``coordinates``. Raises InputError when the atom counts differ.
-    """
+    """Write ``coordinates`` to ``out`` with the atom positions of ``structure``; names, residues and box are kept."""
     u = mda.Universe(str(coordinates))
     positions = mda.Universe(str(structure)).atoms.positions
     if len(positions) != u.atoms.n_atoms:
@@ -50,10 +47,9 @@ def with_positions_of(coordinates: Path, structure: Path, out: Path) -> None:
 
 
 def read_system(topology: Path, coordinates: Path, structure: Path | None = None) -> BssSystem:
-    """A BioSimSpace System from a GROMACS topology and its coordinates (e.g. top.top and npt.gro).
+    """A BioSimSpace System from a GROMACS topology and its coordinates.
 
-    With ``structure``, e.g. a whole.pdb from ``gmx trjconv``, its positions are used instead: the
-    topology gives the molecules, which such a PDB lacks, and the structure gives the positions.
+    With ``structure`` (e.g. a whole.pdb, which lacks the molecules), its positions replace the coordinates'.
     """
     bss = require_biosimspace()
     if structure is None:
@@ -65,10 +61,7 @@ def read_system(topology: Path, coordinates: Path, structure: Path | None = None
 
 
 def molecule_sizes(system: BssSystem) -> list[tuple[int, int]]:
-    """(atoms, molecule index) of each molecule of a BioSimSpace System, largest first.
-
-    ``makeFunnel()`` takes the largest molecule as the protein and the second largest as the ligand.
-    """
+    """(atoms, molecule index) of each molecule, largest first, as ``makeFunnel()`` picks protein and ligand."""
     return sorted(((molecule.nAtoms(), index) for index, molecule in enumerate(system.getMolecules())),
                   reverse=True)
 

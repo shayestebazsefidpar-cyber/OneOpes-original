@@ -1,10 +1,4 @@
-"""
-The candidate pool: the protein atoms the protein analysis follows.
-
-Candidates are the protein heavy atoms whose minimum distance to any ligand heavy
-atom in the complex structure is <= the cutoff (minimum image when the structure
-has a box). The pool is computed once and never changes.
-"""
+"""The candidate pool: the protein atoms the protein analysis follows, chosen once on the complex structure."""
 
 import numpy as np
 import xarray as xr

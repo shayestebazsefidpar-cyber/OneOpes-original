@@ -40,8 +40,7 @@ class AnalysisOptions:
 
 def measure_frames(system: ProteinSystem, candidates: xr.Dataset, frames: range,
                    hydration: HydrationOptions) -> xr.Dataset:
-    """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
-    ``frames``, along ``atom`` (named by their ``Atom`` label), with their details as coordinates."""
+    """Hydration and contacts of the candidates over ``frames``, with the candidates' coordinates."""
     u = system.trajectory
     candidate_atoms, labels = u.atoms[candidates.atom_index.values], list(candidates.atom.values)
     ligand, water = system.selection.ligand(u), system.selection.water(u)
@@ -56,20 +55,15 @@ class ProteinAnalysis:
     system: ProteinSystem
     options: AnalysisOptions
     candidates: xr.Dataset
-    """The candidate pool (see :func:`select_candidates`), whose details every per-atom result carries."""
     layout: FrameLayout
     blocks: xr.Dataset
-    """The :func:`block_run` of the :func:`measure_frames` of each block, with the frame layout's times."""
+    """The block run, one measurement per block."""
     full: xr.Dataset
-    """The :func:`measure_frames` of the whole analysed range, with the static ``sasa`` (A^2) of each atom."""
+    """The measurement of the whole analysed range, with the static ``sasa`` (A^2) of each atom."""
 
 
 def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnalysis:
-    """Analyse every complete block and the whole analysed range of an existing trajectory.
-
-    Every transition is scored whether or not convergence is reached; the final per-atom values
-    cover the whole analysed range.
-    """
+    """Analyse every complete block, and the whole analysed range, of a finished trajectory."""
     sel = system.selection
     logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_selection,
                 len(sel.ligand_heavy), sel.water_selection, len(sel.water_oxygens))
@@ -95,8 +89,7 @@ OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupa
 
 
 def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str, Any] | None = None) -> None:
-    """Write the candidate pool, the block run (blocks.nc, block-wise tables, convergence summary, and
-    with ``metadata`` run_metadata.json) with the contacts per block, and the final per-atom table."""
+    """Write the candidate pool, the block run with its contacts per block, and the final per-atom table."""
     candidates = analysis.candidates
     outdir.mkdir(parents=True, exist_ok=True)
     candidate_table = candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
@@ -128,11 +121,9 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
             options: Annotated[AnalysisOptions, Parameter(name="*")] = AnalysisOptions()) -> None:
     """Analyse the protein atoms around a bound ligand: WaterFP, contacts and SASA, block by block.
 
-    Retrospective post-processing of a completed unbiased trajectory (nothing is stopped
-    early): candidate pool (protein heavy atoms within --candidate-cutoff-A of the ligand in
-    --complex) -> consecutive blocks over the whole trajectory -> per block WaterFP, Contact
-    and Bridge -> convergence of every transition -> full-trajectory FP, Contact and Bridge
-    plus static SASA -> final_per_atom_table.csv (and a readable .md).
+    Post-processing of a finished unbiased trajectory. Candidates are the protein heavy atoms within
+    --candidate-cutoff-A of the ligand in --complex; final_per_atom_table.csv gives their FP, Contact
+    and Bridge over the whole trajectory, and their SASA.
 
     Parameters
     ----------

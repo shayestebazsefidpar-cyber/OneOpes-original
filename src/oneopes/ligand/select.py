@@ -25,11 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
-    """The atoms of ``u`` that ``hydration`` was measured around, in its order (its ``atom_index``).
-
-    Raises InputError unless they exist and carry the measured atom names, i.e. ``u`` has the
-    topology the hydration was measured with.
-    """
+    """The atoms of ``u`` that ``hydration`` was measured around; raises InputError if ``u`` has another topology."""
     indices = hydration.atom_index.values
     if indices.max() >= u.atoms.n_atoms or not np.array_equal(u.atoms[indices].names, hydration.atom.values):
         raise InputError("The topology's atoms do not match the measured ones: use the topology of the run.")
@@ -37,8 +33,7 @@ def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
 
 
 def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_round_decimals: int) -> None:
-    """Write rdf.csv and fingerprints.csv of the ligand's ``hydration`` to ``outdir``, then its G1/G2
-    selection as g1_g2.yaml; raises InputError when there is no selection (after writing the CSVs)."""
+    """Write rdf.csv, fingerprints.csv and g1_g2.yaml; the CSVs are written even when the selection fails."""
     write_hydration_files(hydration, outdir)
     selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
@@ -52,11 +47,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
-    The monitor already does this for its converged block; use this command for any other
-    frame window. Writes, for review, to --outdir:
-    rdf.csv (atom, r_nm, n_r: water-O number density, waters/nm^3),
-    fingerprints.csv (atom, fp: WaterFP per ligand heavy atom) and
-    g1_g2.yaml (G1 and G2 atom names and 1-based serials, MDAnalysis index + 1).
+    The monitor already does this for its converged block; use this command for any other frame window.
 
     Parameters
     ----------
@@ -89,8 +80,7 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
                  fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2 from one block of a saved block run, by default its converged block.
 
-    Takes the FP of the block from --run, the blocks.nc of `oneopes monitor`, so the trajectory is
-    not read again. Writes rdf.csv, fingerprints.csv and g1_g2.yaml to --outdir, as `oneopes select`.
+    Reads the block's FP from --run, so the trajectory is not read again.
 
     Parameters
     ----------

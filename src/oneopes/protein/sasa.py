@@ -1,10 +1,8 @@
 """
 Static per-atom SASA (A^2) of the candidate atoms.
 
-One structure only (the complex), protein + ligand heavy atoms, no water or
-ions; freesasa's default algorithm (Lee & Richards) and default radii. Atoms
-are added to freesasa in topology order, so every SASA value maps to its atom
-by index - no file is written or reused.
+Computed on the complex structure's protein and ligand heavy atoms, without water or ions, with
+freesasa's default algorithm (Lee & Richards) and radii.
 """
 
 import numpy as np

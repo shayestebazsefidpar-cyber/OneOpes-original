@@ -57,11 +57,7 @@ def funnel_extent(cv: BssFunnel, projection_nm: ArrayLike) -> np.ndarray:
 
 
 def funnel_wall_points(p0p1: P0P1Result, cv: BssFunnel, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
-    """Points on the funnel wall (A), ring by ring, shape (n_rings * n_angles, 3).
-
-    A ring every ``step_A`` along the P0 -> P1 axis from the CV's lower bound up to its upper bound,
-    each with ``n_angles`` points and the funnel radius (``cv.getExtent()``) at its position.
-    """
+    """Points on the funnel wall (A): a ring every ``step_A`` along the axis between the CV's bounds, shape (n, 3)."""
     if step_A <= 0 or n_angles < 3:
         raise InputError(f"The wall needs step_A > 0 and n_angles >= 3, got {step_A} and {n_angles}.")
     parameters = funnel_parameters(cv)

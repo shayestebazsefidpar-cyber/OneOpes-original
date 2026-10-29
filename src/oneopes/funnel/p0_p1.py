@@ -1,10 +1,8 @@
 """
-P0 / P1: the atoms BioSimSpace ``makeFunnel()`` selects, and the points derived from them.
+P0 / P1: the atoms BioSimSpace ``makeFunnel()`` selects, and their average positions (A).
 
-``makeFunnel()`` (called unchanged; this package selects no atoms itself) returns two lists of
-0-based system-level atom indices: ``atoms0``, alpha carbons deep in the protein (the funnel's
-origin), and ``atoms1``, alpha carbons around the ligand (its inflection side). P0 and P1 are the
-average positions of those atoms, in Angstrom.
+``atoms0`` are alpha carbons deep in the protein (the funnel's origin), ``atoms1`` alpha carbons
+around the ligand (its inflection side).
 """
 
 from dataclasses import dataclass
@@ -20,11 +18,7 @@ MIN_AXIS_LENGTH_A = 1e-6
 
 @dataclass(frozen=True)
 class P0P1Result:
-    """The makeFunnel atom selections and the P0/P1 points derived from them (A).
-
-    Frozen: the fields cannot be reassigned, and the atom selections are tuples; the P0/P1 arrays
-    are not read-only, so do not modify them in place.
-    """
+    """The makeFunnel atom selections and the P0/P1 points derived from them (A)."""
 
     atoms0: tuple[int, ...]
     """0-based system indices of the P0 (funnel origin) atoms."""
@@ -57,11 +51,7 @@ def make_p0_p1(
     alpha_carbon_name: str = ALPHA_CARBON_NAME,
     property_map: PropertyMap | None = None,
 ) -> P0P1Result:
-    """atoms0/atoms1 from BioSimSpace ``makeFunnel()``, and P0/P1 as their average positions.
-
-    All arguments are passed unchanged to
-    ``makeFunnel(system, protein, ligand, alpha_carbon_name, property_map)``.
-    """
+    """atoms0/atoms1 from BioSimSpace ``makeFunnel()``, which gets the arguments unchanged, and P0/P1."""
     require_biosimspace()
     from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel  # pyright: ignore[reportMissingImports]
 

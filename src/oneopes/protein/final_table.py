@@ -1,10 +1,4 @@
-"""
-The final per-atom table: one row per candidate atom, sorted by FP_Rank (1 = most negative FP).
-
-FP, Contact and Bridge are computed over the full analysed trajectory (not one block); SASA is
-static. Block-wise convergence is reported separately (convergence_metrics.csv), and the analysed
-time span and the time of first sustained convergence are in convergence_summary.json.
-"""
+"""The final per-atom table: FP, Contact and Bridge over the whole analysed trajectory, and static SASA."""
 
 import pandas as pd
 import xarray as xr

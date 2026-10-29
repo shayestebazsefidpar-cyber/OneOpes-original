@@ -26,13 +26,7 @@ def bridged_by_water(candidates: np.ndarray, ligand: np.ndarray, waters: np.ndar
 
 
 class Contacts(AnalysisBase):
-    """Fraction of frames each candidate atom is in contact with the ligand, and bridged to it by a water.
-
-    Per frame (distances in A, minimum image): :func:`in_contact` and :func:`bridged_by_water`.
-
-    Usage: ``results = Contacts(candidates, ligand, water_oxygens).run(start=..., stop=...).results``,
-    then ``results.contact_occupancy`` and ``results.bridge_occupancy``, one value per candidate.
-    """
+    """Fraction of frames each candidate atom is in contact with the ligand, and bridged to it by a water."""
 
     def __init__(self, candidates: AtomGroup, ligand: AtomGroup, water_oxygens: AtomGroup, **kwargs: Any) -> None:
         super().__init__(candidates.universe.trajectory, **kwargs)

@@ -24,9 +24,8 @@ def protein_system(trajectory: Universe, complex: Universe, complex_file: Univer
                    options: SystemOptions = SystemOptions()) -> ProteinSystem:
     """Check that the inputs describe the same atoms, and find the protein (required), ligand and water.
 
-    ``complex_file`` is the complex file read on its own: its protein and ligand heavy-atom names must
-    match the topology (water and hydrogen naming may differ between formats), and its chain IDs fill
-    ``Chain_ID``.
+    ``complex_file``, the complex file read without the topology, gives the chain IDs; only its protein and
+    ligand atom names are checked, since water and hydrogen naming differ between formats.
     """
     validate_same_atoms(trajectory, complex, "complex vs trajectory topology")
     selection = select_system(trajectory, options)
@@ -41,12 +40,9 @@ def protein_system(trajectory: Universe, complex: Universe, complex_file: Univer
 
 
 def structure_chain_ids(u_structure: Universe) -> np.ndarray | None:
-    """Chain IDs as written in a structure file (e.g. PDB column 22), one per atom.
+    """Chain IDs as written in a structure file, one per atom; None when it has none.
 
-    Pass a Universe built from the structure file alone: with a GROMACS .tpr
-    topology MDAnalysis fills ``chainIDs`` with molecule-type names (e.g.
-    "Protein"), which are not chain IDs. Returns None when the file carries no
-    chain IDs; blank entries stay empty. Nothing is inferred.
+    Pass a Universe of the structure file alone: from a .tpr, MDAnalysis gives molecule-type names instead.
     """
     if not hasattr(u_structure.atoms, "chainIDs"):
         return None
@@ -54,8 +50,7 @@ def structure_chain_ids(u_structure: Universe) -> np.ndarray | None:
 
 
 def validate_same_atoms(reference: Universe, other: Universe, what: str, indices: np.ndarray | None = None) -> None:
-    """Fail unless ``other`` has the same atom count as ``reference`` and the same
-    atom names at ``indices`` (all atoms if None)."""
+    """Raise SystemDefinitionError unless ``other`` has the atom count of ``reference`` and its names at ``indices``."""
     if len(other.atoms) != len(reference.atoms):
         raise SystemDefinitionError(
             f"{what}: {len(other.atoms)} atoms, but the topology has {len(reference.atoms)}."

@@ -1,8 +1,6 @@
 """A block run: the measured trajectory blocks, each compared with the one before, as one Dataset (blocks.nc).
 
-Its attributes are the settings it was made with (the :class:`BlockOptions` and
-:class:`~oneopes.waterfp.HydrationOptions`) and any facts about the run, e.g. the ligand selection;
-the convergence summary is derived from it, not stored.
+Its attributes hold the settings and facts of the run; the convergence summary is derived from it, not stored.
 """
 
 import json
@@ -42,14 +40,13 @@ SETTINGS = list(settings(BlockOptions(), HydrationOptions()))
 
 def block_run(measured: Sequence[xr.Dataset], blocks: BlockOptions, hydration: HydrationOptions,
               **facts: str | float | list[str]) -> xr.Dataset:
-    """The measured blocks, stacked and compared (:func:`compare_blocks`), with the options they were made
-    with and ``facts`` (strings, numbers or lists of them) as attributes."""
+    """The measured blocks, stacked and compared, with the settings and ``facts`` as attributes."""
     compared = compare_blocks(stack_blocks(measured), blocks.tolerances)
     return compared.assign_attrs(**settings(blocks, hydration), **facts)
 
 
 def run_block_options(run: xr.Dataset) -> BlockOptions:
-    """The block options of a run."""
+    """The block options a run was made with, rebuilt from its attributes."""
     tolerances = Tolerances(fp_rel_tol=float(run.attrs["fp_rel_tol"]),
                             rdf_nrmsd_tol=float(run.attrs["rdf_nrmsd_tol"]),
                             spearman_tol=float(run.attrs["spearman_tol"]), n_stable=int(run.attrs["n_stable"]))
@@ -69,7 +66,7 @@ def run_facts(run: xr.Dataset) -> dict[str, Any]:
 
 
 def run_metadata(run: xr.Dataset) -> dict[str, Any]:
-    """The metadata stored with a run (see :func:`oneopes.reports.write_run`): versions, inputs and options."""
+    """The metadata stored with a run: versions, inputs and options."""
     return json.loads(run.attrs["metadata"])
 
 

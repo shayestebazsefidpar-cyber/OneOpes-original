@@ -35,9 +35,8 @@ PRINT ARG=g1_coord,g2_coord STRIDE=500 FILE=LIGAND_WATERFP_CV.dat
 def build_cv(*, g1_g2: ExistingFile, out: Path, water_group_def: str | None = None) -> None:
     """Write a starting-point PLUMED fragment with GROUP and COORDINATION CVs for G1 and G2.
 
-    Not a ready-to-run plumed.dat: the switching-function parameters (R_0, NN, MM) are
-    placeholders to review against your own system's conventions before production.
-    Nothing here is fit to, or copied from, any specific system's plumed.dat.
+    Not a ready-to-run plumed.dat: the switching-function parameters (R_0, NN, MM) are placeholders
+    to review before production.
 
     Parameters
     ----------

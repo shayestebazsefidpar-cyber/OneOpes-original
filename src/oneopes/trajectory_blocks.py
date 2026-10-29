@@ -12,8 +12,7 @@ BLOCK_NS_DEFAULT = 5.0
 
 
 def frame_step_ps(u: Universe, n_frames: int | None = None) -> float:
-    """Time between frames (ps), checked over the first ``n_frames`` frames (default: all);
-    raises InputError unless they are evenly spaced."""
+    """Time between frames (ps) over the first ``n_frames``; raises InputError unless they are evenly spaced."""
     n = len(u.trajectory) if n_frames is None else n_frames
     if n < 2:
         raise InputError("The trajectory needs at least two frames.")
@@ -122,9 +121,9 @@ class FrameWindow:
 
 
 def frame_layout(u: Universe, block_ns: float, window: FrameWindow = FrameWindow()) -> FrameLayout:
-    """Split the ``window`` frames of ``u`` (default: all) into complete ``block_ns`` blocks.
+    """Split the ``window`` frames of ``u`` into complete ``block_ns`` blocks.
 
-    Raises InputError for an invalid frame window, unevenly spaced frames, or fewer frames than one block.
+    Raises InputError for an invalid window, unevenly spaced frames, or fewer frames than one block.
     """
     n_frames = len(u.trajectory)
     analysed = window.frames(n_frames)

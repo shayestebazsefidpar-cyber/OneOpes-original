@@ -1,8 +1,4 @@
-"""Tables and files reporting hydration and convergence results.
-
-``blocks`` is a block run (:func:`oneopes.block_run.block_run`); ``hydration`` is one
-:func:`oneopes.waterfp.hydration` Dataset.
-"""
+"""Tables and files reporting hydration and convergence results."""
 
 import json
 from collections.abc import Mapping
@@ -32,11 +28,7 @@ def fp_by_block(blocks: xr.Dataset) -> pd.DataFrame:
 
 
 def write_block_tables(outdir: Path, blocks: xr.Dataset) -> None:
-    """Write the block-wise CSVs to ``outdir``: FP and g(r) per block, FP and FP rank per atom and block,
-    and the transitions between blocks (convergence_metrics.csv, from block 1).
-
-    g(r) leaves out the block times, which would repeat on every radius.
-    """
+    """Write the block-wise CSVs: FP, g(r) and FP rank per block, and the transitions (convergence_metrics.csv)."""
     blocks.fp.to_dataframe(name="FP").to_csv(outdir / "fp_values_per_block.csv")
     blocks.g.reset_coords(drop=True).to_dataframe(name="g_r").to_csv(outdir / "rdf_profiles_per_block.csv")
     fp_wide = fp_by_block(blocks)
@@ -52,16 +44,13 @@ def write_summary(path: Path, blocks: xr.Dataset) -> None:
 
 
 def write_run_metadata(outdir: Path, metadata: Mapping[str, Any]) -> None:
-    """Write run_metadata.json: what a command used (see :func:`oneopes.provenance.provenance`)."""
+    """Write run_metadata.json: what a command used."""
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "run_metadata.json").write_text(to_json(metadata))
 
 
 def write_run(outdir: Path, blocks: xr.Dataset, metadata: Mapping[str, Any] | None = None) -> None:
-    """Write a block run to ``outdir``: blocks.nc, the block-wise CSVs and convergence_summary.json.
-
-    With ``metadata``, also run_metadata.json, and the same JSON as the run's ``metadata`` attribute.
-    """
+    """Write blocks.nc, the block-wise CSVs, convergence_summary.json and, with ``metadata``, run_metadata.json."""
     if metadata is not None:
         blocks = blocks.assign_attrs(metadata=to_json(metadata))
         write_run_metadata(outdir, metadata)

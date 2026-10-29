@@ -12,10 +12,9 @@ def perpendicular_basis(axis: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def circles_around_axis(origin: np.ndarray, axis: np.ndarray, positions: np.ndarray, radii: np.ndarray,
                         n_points: int) -> np.ndarray:
-    """Points on circles perpendicular to the unit vector ``axis``, shape (len(positions), n_points, 3).
+    """``n_points`` on each circle around ``axis``, centred ``positions[i]`` from ``origin`` with radius ``radii[i]``.
 
-    Circle i is centred ``positions[i]`` from ``origin`` along the axis, has radius ``radii[i]``,
-    and holds ``n_points`` points evenly spaced in angle.
+    Shape (len(positions), n_points, 3).
     """
     u, v = perpendicular_basis(axis)
     angles = np.linspace(0.0, 2 * np.pi, n_points, endpoint=False)
