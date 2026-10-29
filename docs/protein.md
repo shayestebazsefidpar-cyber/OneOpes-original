@@ -26,6 +26,8 @@ same atoms, with the same protein and ligand heavy-atom names.
 - `blocks.nc` and the per-block CSVs (FP, g(r), contacts, ranks; each atom with its residue,
   chain and distance to the ligand), `convergence_metrics.csv`,
   `convergence_summary.json` (`converged_ns` is the end of the block completing the stable run).
+- `fp_vs_time.png` and `g_per_block.png`, one panel for each of the 24 candidates with the most
+  negative FP (any atoms: `notebooks/explore_run.py`).
 - `candidate_atom_mapping.csv`, `run_metadata.json`.
 
 ## Reading the results

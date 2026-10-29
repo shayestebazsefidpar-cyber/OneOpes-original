@@ -33,7 +33,8 @@ def fp_chart(run: xr.Dataset) -> alt.FacetChart:
     layers = [fp]
     converged_ns = convergence_summary(run).converged_ns
     if converged_ns is not None:
-        layers.append(alt.Chart().mark_rule(strokeDash=[4, 4], color="grey").encode(x=alt.datum(converged_ns)))
+        one_per_panel = alt.Chart().transform_aggregate(groupby=["atom"], points="count()")
+        layers.append(one_per_panel.mark_rule(strokeDash=[4, 4], color="grey").encode(x=alt.datum(converged_ns)))
     return per_atom(alt.LayerChart(layer=layers, data=data), run).resolve_scale(y="independent")
 
 

@@ -10,6 +10,7 @@ from cyclopts import ValidationError
 
 from oneopes.block_run import BlockOptions, load_run, metadata_of
 from oneopes.cli import app, main
+from oneopes.protein import analysis as analysis_module
 from oneopes.protein.analysis import AnalysisOptions, analysis_details, run_analysis, write_outputs
 from oneopes.provenance import to_json
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
@@ -45,6 +46,20 @@ def _run(tmp_path, options=AnalysisOptions(block_options=BlockOptions(block_ns=B
     analysis = run_analysis(protein_system(u_traj, _system()), options)
     write_outputs(tmp_path, analysis)
     return u_traj, analysis_details(analysis)
+
+
+def test_the_charts_come_last_and_show_the_most_negative_fp_candidates(tmp_path, monkeypatch):
+    charted = []
+
+    def record(run, outdir):
+        charted.append((list(run.atom.values), (outdir / "final_per_atom_table.csv").exists()))
+
+    monkeypatch.setattr(analysis_module, "write_charts", record)
+    monkeypatch.setattr(analysis_module, "CHARTED_ATOMS", 3)
+    _run(tmp_path)
+    [(atoms, table_written_first)] = charted
+    assert table_written_first
+    assert atoms == list(pd.read_csv(tmp_path / "final_per_atom_table.csv")["Atom"][:3])
 
 
 @pytest.fixture
@@ -208,9 +223,8 @@ def test_cli_end_to_end_from_files(tmp_path):
     assert {"residue_name", "residue_number", "chain_id"} <= set(run.coords)
     for name in ("blocks.nc", "candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
-                 "convergence_summary.json", "final_per_atom_table.csv",
-                 "final_per_atom_table.md",
-                 "run_metadata.json"):
+                 "convergence_summary.json", "final_per_atom_table.csv", "final_per_atom_table.md",
+                 "fp_vs_time.png", "g_per_block.png", "run_metadata.json"):
         assert (out / name).exists(), name
     table = pd.read_csv(out / "final_per_atom_table.csv", keep_default_na=False)
     assert set(table["Chain_ID"]) == {"B"}  # the chain written in the complex file

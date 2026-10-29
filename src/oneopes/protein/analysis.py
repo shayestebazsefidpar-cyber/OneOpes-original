@@ -12,6 +12,7 @@ from cyclopts.types import ExistingFile
 
 from oneopes.block_run import BlockOptions, block_run, convergence_summary
 from oneopes.errors import InputError
+from oneopes.plots import write_charts
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import TABLE_NAMES, build_final_table, final_table_markdown
@@ -86,8 +87,12 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, run=run, full=full)
 
 
+CHARTED_ATOMS = 24
+"""The charts show this many candidates: those with the most negative FP over the whole range."""
+
+
 def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str, Any] | None = None) -> None:
-    """Write the candidate pool, the block run with its contacts per block, and the final per-atom table."""
+    """Write the candidate pool, the block run with its contacts per block, the final per-atom table, then charts."""
     outdir.mkdir(parents=True, exist_ok=True)
     candidate_table = analysis.candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
     candidate_table.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
@@ -97,6 +102,8 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str
     table = build_final_table(analysis.full)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
+    most_negative = analysis.full.fp.sortby(analysis.full.fp).atom.values[:CHARTED_ATOMS]
+    write_charts(analysis.run.sel(atom=most_negative), outdir)
 
 
 def analysis_details(analysis: ProteinAnalysis) -> dict[str, Any]:
@@ -131,7 +138,8 @@ def protein(*, complex_file: Annotated[ExistingFile, Parameter(name="--complex")
     trajectory
         Production trajectory.
     output_dir
-        Directory for blocks.nc, the tables, the final per-atom table and run_metadata.json.
+        Directory for blocks.nc, the tables, the final per-atom table, the charts (fp_vs_time.png,
+        g_per_block.png) and run_metadata.json.
     """
     system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex_file),
                             load_universe(complex_file), options.system_options)
