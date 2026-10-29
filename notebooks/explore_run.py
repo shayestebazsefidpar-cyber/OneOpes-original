@@ -20,11 +20,11 @@ def _(mo):
 @app.cell
 def _():
     import marimo as mo
-    import matplotlib.pyplot as plt
 
     from oneopes.block_run import convergence_summary, facts_of, load_run
-    from oneopes.convergence import TRANSITION_VARIABLES
-    return TRANSITION_VARIABLES, convergence_summary, facts_of, load_run, mo, plt
+    from oneopes.convergence import transitions
+    from oneopes.plots import fp_figure, g_figure
+    return convergence_summary, facts_of, fp_figure, g_figure, load_run, mo, transitions
 
 
 @app.cell
@@ -45,17 +45,14 @@ def _(convergence_summary, facts_of, load_run, mo, run_path):
 
 
 @app.cell
-def _(plt, run):
-    fig, ax = plt.subplots(figsize=(7, 4))
-    run.fp.plot.line(x="t_mid_ns", hue="atom", marker="o", ax=ax, add_legend=run.sizes["atom"] <= 12)
-    ax.set(xlabel="simulation time (ns)", ylabel="FP", title="FP per atom")
-    fig
+def _(fp_figure, run):
+    fp_figure(run)
     return
 
 
 @app.cell
-def _(TRANSITION_VARIABLES, run):
-    run[TRANSITION_VARIABLES].isel(block=slice(1, None)).to_dataframe()
+def _(run, transitions):
+    transitions(run).to_dataframe()
     return
 
 
@@ -68,11 +65,8 @@ def _(mo, run):
 
 
 @app.cell
-def _(atom, plt, run):
-    fig_g, ax_g = plt.subplots(figsize=(7, 4))
-    run.g.sel(atom=atom.value).plot.line(x="r_nm", hue="block", alpha=0.6, ax=ax_g)
-    ax_g.set(xlabel="r (nm) to water O", ylabel="g(r)", xlim=(0, 1.0), title=f"g(r) per block - {atom.value}")
-    fig_g
+def _(atom, g_figure, run):
+    g_figure(run, atom.value)
     return
 
 

@@ -9,10 +9,6 @@ from typing import Annotated
 
 import MDAnalysis as mda
 import psutil
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
@@ -22,6 +18,7 @@ from oneopes.block_run import BlockOptions, block_run, chosen_block, convergence
 from oneopes.convergence import converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.select import write_selection
+from oneopes.plots import fp_figure, g_figure
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, SystemSelection, load_universe, select_system
@@ -109,30 +106,11 @@ def plot_blocks(run: xr.Dataset, outdir: Path) -> None:
 
 def plot_atom(atom_name: str, run: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
     """Save one atom's FP against time and its g(r) per block in existing fp_plots/ and rdf_plots/; return the paths."""
-    outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
     rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
-    atom = run.sel(atom=atom_name)
-
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    atom.fp.plot.line(x="t_mid_ns", marker="o", ax=ax)
-    ax.set(xlabel="simulation time (ns)", ylabel="FP (WaterFP excess-entropy integral)",
-           title=f"Hydration FP vs time - {atom_name}")
-    save_figure(fig, fp_plot_path)
-
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    atom.g.plot.line(x="r_nm", hue="block", alpha=0.6, ax=ax, add_legend=atom.sizes["block"] <= 8)
-    ax.set(xlabel="r (nm) to water O", ylabel="g(r)", xlim=(0, 1.0), title=f"RDF per block - {atom_name}")
-    save_figure(fig, rdf_plot_path)
-
+    fp_figure(run, atom_name).savefig(fp_plot_path, dpi=150)
+    g_figure(run, atom_name).savefig(rdf_plot_path, dpi=150)
     return fp_plot_path, rdf_plot_path
-
-
-def save_figure(fig: Figure, path: Path) -> None:
-    """Save ``fig`` at 150 dpi and close it."""
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
 
 
 def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration_options: HydrationOptions,

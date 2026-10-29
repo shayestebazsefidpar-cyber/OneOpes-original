@@ -10,7 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from oneopes.block_run import convergence_summary, facts_of, save_run
-from oneopes.convergence import TRANSITION_VARIABLES
+from oneopes.convergence import transitions
 from oneopes.provenance import to_json
 
 
@@ -34,8 +34,7 @@ def write_block_tables(outdir: Path, run: xr.Dataset) -> None:
     fp_wide = fp_by_block(run)
     fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
-    transitions = run[TRANSITION_VARIABLES].isel(block=slice(1, None))
-    transitions.to_dataframe().to_csv(outdir / "convergence_metrics.csv")
+    transitions(run).to_dataframe().to_csv(outdir / "convergence_metrics.csv")
 
 
 def write_summary(path: Path, run: xr.Dataset) -> None:

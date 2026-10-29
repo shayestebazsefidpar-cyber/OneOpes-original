@@ -67,6 +67,11 @@ TRANSITION_VARIABLES = ["fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rd
 """The variables :func:`compare_blocks` adds."""
 
 
+def transitions(compared: xr.Dataset) -> xr.Dataset:
+    """The comparison of each block with the one before, from block 1 on."""
+    return compared[TRANSITION_VARIABLES].isel(block=slice(1, None))
+
+
 def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> xr.Dataset:
     """Each block compared with the one before: the criteria, which passed, and the stable transitions in a row.
 
