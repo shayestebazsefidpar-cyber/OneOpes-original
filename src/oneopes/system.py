@@ -47,12 +47,9 @@ class SystemSelection:
     """0-based atom indices of each part of the system, and the selections that found the ligand and water.
 
     Indices rather than AtomGroups, so that they apply to any universe of the same topology (the
-    monitor reloads its trajectory; the protein side moves them to the complex structure).
-    The protein arrays are empty without a protein.
+    protein side uses them on the complex structure). ``protein_heavy`` is empty without a protein.
     """
-    protein_all: np.ndarray
     protein_heavy: np.ndarray
-    ligand_all: np.ndarray
     ligand_heavy: np.ndarray
     water_oxygens: np.ndarray
     ligand_selection: str
@@ -128,9 +125,7 @@ def select_system(u: Universe, options: SystemOptions = SystemOptions()) -> Syst
         raise SystemDefinitionError(f"Water selection {water_selection!r} contains no oxygen atoms.")
 
     return SystemSelection(
-        protein_all=protein.indices,
         protein_heavy=heavy_atoms(protein).indices,
-        ligand_all=ligand.indices,
         ligand_heavy=ligand_heavy.indices,
         water_oxygens=water_oxygens.indices,
         ligand_selection=ligand_selection,

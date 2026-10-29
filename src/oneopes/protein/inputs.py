@@ -60,13 +60,12 @@ def validate_same_atoms(reference: Universe, other: Universe, what: str, indices
         raise SystemDefinitionError(
             f"{what}: {len(other.atoms)} atoms, but the topology has {len(reference.atoms)}."
         )
-    idx = np.arange(len(reference.atoms)) if indices is None else np.asarray(indices)
-    names_other = np.asarray(other.atoms.names)[idx]
-    names_ref = np.asarray(reference.atoms.names)[idx]
-    mismatch = idx[names_other != names_ref]
-    if mismatch.size:
-        i = int(mismatch[0])
+    ours = reference.atoms if indices is None else reference.atoms[indices]
+    theirs = other.atoms if indices is None else other.atoms[indices]
+    differ = theirs.names != ours.names
+    if differ.any():
+        first = ours[differ][0]
         raise SystemDefinitionError(
-            f"{what}: atom names differ from the topology ({mismatch.size} atoms; first at index {i}: "
-            f"{other.atoms[i].name!r} vs {reference.atoms[i].name!r})."
+            f"{what}: atom names differ from the topology ({differ.sum()} atoms; first at index {first.index}: "
+            f"{theirs[differ][0].name!r} vs {first.name!r})."
         )

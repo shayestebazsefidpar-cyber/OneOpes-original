@@ -8,9 +8,9 @@ by index - no file is written or reused.
 """
 
 import numpy as np
+import pandas as pd
 
 from oneopes.protein.inputs import ProteinSystem
-from oneopes.system import heavy_atoms
 
 
 def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndarray:
@@ -18,17 +18,14 @@ def static_sasa(system: ProteinSystem, candidate_indices: np.ndarray) -> np.ndar
     import freesasa
 
     freesasa.setVerbosity(freesasa.silent)
-    selection = system.selection
-    atoms = heavy_atoms(system.complex.atoms[np.union1d(selection.protein_all, selection.ligand_all)])
+    complex_atoms, selection = system.complex.atoms, system.selection
+    atoms = complex_atoms[selection.protein_heavy] | complex_atoms[selection.ligand_heavy]
+    x, y, z = atoms.positions.astype(float).T.tolist()
     structure = freesasa.Structure()
-    for atom in atoms:
-        x, y, z = (float(c) for c in atom.position)
-        structure.addAtom(atom.name, atom.resname, str(atom.resid), "A", x, y, z)
+    structure.addAtoms(atoms.names.tolist(), atoms.resnames.tolist(), atoms.resids.astype(str).tolist(),
+                       ["A"] * len(atoms), x, y, z)
     if structure.nAtoms() != len(atoms):
         raise RuntimeError(f"freesasa accepted {structure.nAtoms()} of {len(atoms)} atoms.")
     result = freesasa.calc(structure)
-    position = {int(i): k for k, i in enumerate(atoms.indices)}
-    missing = [int(i) for i in candidate_indices if int(i) not in position]
-    if missing:
-        raise RuntimeError(f"Candidate atoms missing from the SASA structure: {missing[:5]}")
-    return np.array([result.atomArea(position[int(i)]) for i in candidate_indices])
+    area = pd.Series([result.atomArea(i) for i in range(len(atoms))], index=atoms.indices)
+    return area.loc[candidate_indices].to_numpy()

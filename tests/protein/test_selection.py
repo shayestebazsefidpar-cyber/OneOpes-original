@@ -71,7 +71,7 @@ def test_pool_has_only_protein_heavy_atoms(small_system):
     atoms = u.atoms[cand["Atom_index"].to_numpy()]
     assert set(atoms.resnames) == {"ALA"}
     assert "H" not in set(atoms.elements) and (atoms.masses >= 1.5).all()
-    assert not set(cand["Atom_index"]) & set(system.selection.ligand_all)
+    assert not set(cand["Atom_index"]) & set(system.selection.ligand_heavy)
 
 
 def test_seven_angstrom_only_as_the_configurable_default():
@@ -99,6 +99,14 @@ def test_topology_atom_mismatch_fails(small_system):
     other = build_universe(simple_protein(3), [("C1", "C", (12.0, 15.0, 10.0))], n_waters=2)
     with pytest.raises(SystemDefinitionError, match="atoms"):
         validate_same_atoms(small_system, other, "complex")
+
+
+def test_renamed_atoms_fail_and_the_first_one_is_named(small_system):
+    other = small_system.copy()
+    other.atoms[[5, 9]].names = ["XX", "YY"]
+    with pytest.raises(SystemDefinitionError, match=r"\(2 atoms; first at index 5: 'XX' vs"):
+        validate_same_atoms(small_system, other, "complex")
+    validate_same_atoms(small_system, other, "complex", indices=np.array([0, 1, 2]))
 
 
 def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
