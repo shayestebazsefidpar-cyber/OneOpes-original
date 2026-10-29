@@ -16,13 +16,12 @@ import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
-from MDAnalysis.core.groups import AtomGroup
 
-from oneopes.block_run import block_run, run_summary
+from oneopes.block_run import block_run, run_block, run_summary
 from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, converged_block
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
-from oneopes.reports import write_hydration_files, write_run
+from oneopes.ligand.g1_g2 import write_selection
+from oneopes.reports import write_run
 from oneopes.system import select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
@@ -98,18 +97,6 @@ def plot_blocks(blocks: xr.Dataset, outdir: Path) -> None:
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
     for atom_name in blocks.atom.values:
         plot_atom(str(atom_name), blocks, outdir)
-
-
-def select_g1_g2_on_block(ligand: AtomGroup, block: xr.Dataset, selection_dir: Path, fp_round_decimals: int) -> None:
-    """Write the block's rdf.csv and fingerprints.csv, then its G1/G2 selection as g1_g2.yaml (if there is one)."""
-    write_hydration_files(block, selection_dir)
-    try:
-        selection = select_g1_g2(ligand, block.fp.values, fp_round_decimals)
-    except InputError as e:
-        logger.warning("no G1/G2 selection: %s", e)
-        return
-    write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
-    logger.info("%s, written to %s", selection, selection_dir)
 
 
 def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
@@ -226,5 +213,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
 
     logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
-    select_g1_g2_on_block(ligand, blocks.sel(block=summary.converged_block), outdir / "selection",
-                          fp_round_decimals)
+    try:
+        write_selection(ligand, run_block(blocks), outdir / "selection", fp_round_decimals)
+    except InputError as e:
+        logger.warning("no G1/G2 selection: %s", e)

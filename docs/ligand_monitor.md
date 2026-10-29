@@ -42,14 +42,14 @@ block and writes `rdf.csv`, `fingerprints.csv` and `g1_g2.yaml` to
 `--outdir/selection` (`--fp-round-decimals` sets the FP rounding). Pass
 that `g1_g2.yaml` to `oneopes build-cv`.
 
-To redo the selection by hand, run `oneopes select` over the same
-block (`converged_block` and `block_ns` are in `convergence_summary.json`),
-not the whole trajectory:
+To redo the selection, e.g. with another `--fp-round-decimals` or on
+another block, run `oneopes select-block` on the monitor's `blocks.nc`; it
+reads the block's FP from that file instead of the trajectory (default
+block: the converged one):
 
-```text
-frames_per_block = round(block_ns * 1000 / dt_ps)   # dt_ps from the monitor's own log line
-start_frame = converged_block * frames_per_block
-end_frame   = (converged_block + 1) * frames_per_block
+```bash
+oneopes select-block --tpr prod.tpr --run outputs/convergence/blocks.nc \
+    --outdir outputs/selection [--block N] [--fp-round-decimals 1]
 ```
 
 The block matters: the G1/G2 selection's 0.2 fp_round tie-break

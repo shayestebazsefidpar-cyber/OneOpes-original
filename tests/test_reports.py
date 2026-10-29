@@ -77,7 +77,8 @@ def test_write_block_tables(tmp_path):
     write_block_tables(tmp_path, compare_blocks(blocks, TOL))
 
     fp_long = pd.read_csv(tmp_path / "fp_values_per_block.csv")
-    assert list(fp_long.columns) == ["block", "atom", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns", "FP"]
+    assert list(fp_long.columns) == ["block", "atom", "atom_index", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns",
+                                     "FP"]
     assert len(fp_long) == 4 * 3
     assert len(pd.read_csv(tmp_path / "convergence_metrics.csv")) == 3
     rdf = pd.read_csv(tmp_path / "rdf_profiles_per_block.csv")

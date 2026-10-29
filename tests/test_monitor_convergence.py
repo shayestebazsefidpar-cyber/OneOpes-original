@@ -44,6 +44,22 @@ def test_stops_at_convergence_and_selects_g1_g2_on_the_converged_block(tmp_path)
     expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy(), fp_round_decimals=3)
     assert read_g1_g2_yaml(outdir / "selection" / "g1_g2.yaml") == expected
 
+    again = tmp_path / "again"
+    main(["select-block", "--tpr", str(tmp_path / "top.pdb"), "--run", str(outdir / "blocks.nc"),
+          "--outdir", str(again), "--fp-round-decimals", "3"])
+    for name in ("g1_g2.yaml", "fingerprints.csv", "rdf.csv"):
+        assert (again / name).read_text() == (outdir / "selection" / name).read_text(), name
+
+
+def test_select_block_picks_any_block_of_a_saved_run(tmp_path):
+    outdir = run_monitor(tmp_path, *NEVER_STABLE)
+    main(["select-block", "--tpr", str(tmp_path / "top.pdb"), "--run", str(outdir / "blocks.nc"),
+          "--outdir", str(tmp_path / "block3"), "--block", "3"])
+    fingerprints = pd.read_csv(tmp_path / "block3" / "fingerprints.csv")
+    block_3 = pd.read_csv(outdir / "fp_values_per_block.csv").query("block == 3")
+    assert list(fingerprints["fp"]) == list(block_3["FP"])
+    assert (tmp_path / "block3" / "g1_g2.yaml").exists()
+
 
 def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     outdir = run_monitor(tmp_path, *NEVER_STABLE)

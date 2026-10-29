@@ -5,6 +5,7 @@ from typing import Annotated
 
 import MDAnalysis as mda
 import numpy as np
+import xarray as xr
 import yaml
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
@@ -13,6 +14,7 @@ from MDAnalysis.core.groups import Atom, AtomGroup
 from pydantic import BaseModel
 from scipy.sparse.csgraph import shortest_path
 
+from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
 from oneopes.reports import write_hydration_files
 from oneopes.system import select_system
@@ -116,6 +118,28 @@ def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.n
     return 0, partner
 
 
+def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
+    """The atoms of ``u`` that ``hydration`` was measured around, in its order (its ``atom_index``).
+
+    Raises InputError unless they exist and carry the measured atom names, i.e. ``u`` has the
+    topology the hydration was measured with.
+    """
+    indices = hydration.atom_index.values
+    if indices.max() >= u.atoms.n_atoms or list(u.atoms[indices].names) != list(hydration.atom.values):
+        raise InputError("The topology's atoms do not match the measured ones: use the topology of the run.")
+    return u.atoms[indices]
+
+
+def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_round_decimals: int) -> SelectionResult:
+    """Write rdf.csv and fingerprints.csv of the ligand's ``hydration`` to ``outdir``, then its G1/G2
+    selection as g1_g2.yaml; raises InputError when there is no selection (after writing the CSVs)."""
+    write_hydration_files(hydration, outdir)
+    selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
+    write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
+    logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)
+    return selection
+
+
 def write_g1_g2_yaml(selection: SelectionResult, path: Path) -> None:
     """Write the selection to YAML, creating the parent directory if needed."""
     path = Path(path)
@@ -166,8 +190,26 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     hydration = measure_hydration(ligand, water, frames, grid, norm_tail_bins)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
                 frames.start, frames.stop - 1, hydration.fp.sortby(hydration.fp).to_series().to_string())
+    write_selection(ligand, hydration, outdir, fp_round_decimals)
 
-    write_hydration_files(hydration, outdir)
-    selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
-    write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
-    logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)
+
+def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: int | None = None,
+                 fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
+    """Select G1/G2 from one block of a saved block run, by default its converged block.
+
+    Takes the FP of the block from --run, the blocks.nc of `oneopes monitor`, so the trajectory is
+    not read again. Writes rdf.csv, fingerprints.csv and g1_g2.yaml to --outdir, as `oneopes select`.
+
+    Parameters
+    ----------
+    tpr
+        Topology with bonds, the one the run was made with.
+    run
+        blocks.nc written by `oneopes monitor`.
+    block
+        Block to select on (default: the converged block).
+    fp_round_decimals
+        Decimals FP is rounded to when comparing atoms.
+    """
+    hydration = run_block(load_run(run), block)
+    write_selection(ligand_atoms(mda.Universe(str(tpr)), hydration), hydration, outdir, fp_round_decimals)

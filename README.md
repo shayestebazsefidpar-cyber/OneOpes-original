@@ -109,8 +109,8 @@ oneopes monitor $MDRUN_PID \
     --tpr outputs/lig_system/prod.tpr --xtc outputs/lig_system/prod.xtc \
     --outdir outputs/convergence
 
-# Stage 3 by hand, only to select over another frame window (see
-# docs/ligand_monitor.md for the converged block's frame range):
+# Stage 3 by hand: on another block of the monitor's run, or over any frame window
+# oneopes select-block --tpr ... --run outputs/convergence/blocks.nc --block N --outdir outputs/selection
 # oneopes select --tpr ... --xtc ... --start-frame N --end-frame M --outdir outputs/selection
 
 # Stage 4 - ligand-side CV fragment
@@ -131,7 +131,7 @@ overrides the file, and a misspelt setting is an error.
 |---|---|---|---|
 | 1 | `oneopes.ligand.setup` | `oneopes prepare-system` | Ligand-only system build (box, solvate, ionize, EM/NVT/NPT) |
 | 2 | `oneopes.ligand.monitor` | `oneopes monitor` | Block-wise hydration convergence monitor + auto-stop |
-| 3 | `oneopes.ligand.g1_g2` | `oneopes select` | WaterFP over the converged block, then G1/G2 by the official selection rules |
+| 3 | `oneopes.ligand.g1_g2` | `oneopes select`, `oneopes select-block` | G1/G2 by the official selection rules, from WaterFP over a frame window or a block of the monitor's `blocks.nc` |
 | 4 | `oneopes.ligand.plumed_cv` | `oneopes build-cv` | Builds a starting-point PLUMED CV fragment from G1/G2 |
 | 5 | `oneopes.render` | `oneopes add-legend` (+ PyMOL/Chimera scripts by path) | Optional: render selected atoms on the bound complex |
 | - | `oneopes.protein.analysis` | `oneopes protein` | Protein-side WaterFP, contacts and SASA around the bound ligand |

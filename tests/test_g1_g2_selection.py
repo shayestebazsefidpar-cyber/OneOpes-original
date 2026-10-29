@@ -3,12 +3,14 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 import yaml
 from pydantic import ValidationError
 
 from ligand_systems import ligand_in_water
 from oneopes.cli import main
-from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2, write_g1_g2_yaml
+from oneopes.errors import InputError
+from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, ligand_atoms, select_g1_g2, write_g1_g2_yaml
 
 RAW = {
     "G1": [{"name": "X1", "serial": 3}, {"name": "X2", "serial": 7}],
@@ -76,6 +78,15 @@ def test_atoms_not_bonded_into_one_molecule_are_rejected():
     u.add_TopologyAttr("bonds", [(0, 1)])
     with pytest.raises(ValueError, match="not connected by bonds"):
         select_g1_g2(u.atoms, np.array([-1.0, -0.5, 0.0]))
+
+
+@pytest.mark.parametrize("names, indices", [(["C0", "C2"], [0, 1]), (["C0", "C1"], [0, 6])])
+def test_ligand_atoms_must_be_the_measured_ones(names, indices):
+    u = chain(6).universe
+    hydration = xr.Dataset(coords={"atom": names, "atom_index": ("atom", indices)})
+    assert list(ligand_atoms(u, hydration.isel(atom=[0])).indices) == [0]
+    with pytest.raises(InputError, match="topology of the run"):
+        ligand_atoms(u, hydration)
 
 
 def test_select_command_writes_waterfp_and_g1_g2(tmp_path):

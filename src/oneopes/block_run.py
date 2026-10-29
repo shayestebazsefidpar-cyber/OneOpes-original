@@ -12,6 +12,7 @@ import numpy as np
 import xarray as xr
 
 from oneopes.convergence import ConvergenceSummary, Tolerances, compare_blocks, summarize
+from oneopes.errors import InputError
 from oneopes.trajectory_blocks import stack_blocks
 
 SETTINGS = ["block_ns", *asdict(Tolerances())]
@@ -38,6 +39,17 @@ def run_summary(run: xr.Dataset) -> ConvergenceSummary:
 def run_facts(run: xr.Dataset) -> dict:
     """The attributes of a run other than its settings, as plain Python values."""
     return {name: np.asarray(value).tolist() for name, value in run.attrs.items() if name not in SETTINGS}
+
+
+def run_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:
+    """Block ``block`` of a run, by default its converged block; raises InputError when there is none."""
+    if block is None:
+        block = run_summary(run).converged_block
+        if block is None:
+            raise InputError("The run did not converge: choose a block.")
+    if block not in run.block:
+        raise InputError(f"The run has blocks 0 to {run.sizes['block'] - 1}, not {block}.")
+    return run.sel(block=block)
 
 
 def save_run(run: xr.Dataset, path: Path) -> None:

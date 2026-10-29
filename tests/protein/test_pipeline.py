@@ -169,7 +169,7 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     fp = pd.read_csv(out / "fp_values_per_block.csv")
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
     contacts = pd.read_csv(out / "contact_occupancy_per_block.csv")
-    assert list(contacts.columns) == ["block", "atom", "Contact_occupancy_5A", "Bridge_occupancy",
+    assert list(contacts.columns) == ["block", "atom", "Contact_occupancy_5A", "Bridge_occupancy", "atom_index",
                                       "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1

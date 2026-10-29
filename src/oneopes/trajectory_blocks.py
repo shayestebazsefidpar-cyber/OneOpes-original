@@ -64,7 +64,8 @@ def label_block(measurement: xr.Dataset, block: Block) -> xr.Dataset:
 
 def stack_blocks(blocks: Sequence[xr.Dataset]) -> xr.Dataset:
     """Block measurements along a ``block`` dimension numbered from 0, with each block's mid time ``t_mid_ns``."""
-    stacked = xr.concat(blocks, dim="block", data_vars="all", coords="all", join="exact")
+    stacked = xr.concat(blocks, dim="block", data_vars="all", coords=["t_start_ns", "t_end_ns", "n_frames"],
+                        join="exact")
     stacked = stacked.assign_coords(block=np.arange(len(blocks)))
     return stacked.assign_coords(t_mid_ns=(stacked.t_start_ns + stacked.t_end_ns) / 2)
 

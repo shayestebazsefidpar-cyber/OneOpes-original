@@ -9,7 +9,7 @@ from cyclopts import App, Parameter
 from cyclopts.config import Yaml
 
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import select
+from oneopes.ligand.g1_g2 import select, select_block
 from oneopes.ligand.monitor import monitor
 from oneopes.ligand.plumed_cv import build_cv
 from oneopes.ligand.setup import prepare_system
@@ -18,7 +18,7 @@ from oneopes.render.add_legend import add_legend
 
 app = App(name="oneopes", help="Hydration and funnel collective variables for OneOPES, from unbiased MD.",
           result_action="return_value")
-for command in (prepare_system, monitor, select, build_cv, protein, add_legend):
+for command in (prepare_system, monitor, select, select_block, build_cv, protein, add_legend):
     app.command(command)
 
 

@@ -105,7 +105,8 @@ class WaterFP(AnalysisBase):
     """Water oxygens per radial shell around each solute atom, summed over the analysed frames.
 
     Usage: ``WaterFP(solute, water_oxygens).run(start=..., stop=...).results.hydration`` is the
-    :func:`hydration` Dataset; ``results.counts`` holds the raw counts, which add up across frames,
+    :func:`hydration` Dataset, with each atom's 0-based topology index as coordinate ``atom_index``;
+    ``results.counts`` holds the raw counts, which add up across frames,
     so the analysis can also run in parallel, e.g. ``run(backend="multiprocessing", n_workers=4)``.
     ``labels`` name the atoms in the Dataset (default: the solute's atom names).
     """
@@ -152,8 +153,8 @@ class WaterFP(AnalysisBase):
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        self.results.hydration = hydration(self.results.counts, self.n_frames, self.grid, self.labels,
-                                           self.norm_tail_bins)
+        measured = hydration(self.results.counts, self.n_frames, self.grid, self.labels, self.norm_tail_bins)
+        self.results.hydration = measured.assign_coords(atom_index=("atom", self.solute.indices))
 
 
 def measure_hydration(solute: AtomGroup, water_oxygens: AtomGroup, frames: range, grid: RadialGrid = RadialGrid(),

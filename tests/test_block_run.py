@@ -1,9 +1,11 @@
 """Tests for the `block_run` module: one Dataset per run, its settings and facts, and blocks.nc."""
 import numpy as np
+import pytest
 import xarray as xr
 
-from oneopes.block_run import block_run, load_run, run_facts, run_summary, run_tolerances, save_run
+from oneopes.block_run import block_run, load_run, run_block, run_facts, run_summary, run_tolerances, save_run
 from oneopes.convergence import Tolerances
+from oneopes.errors import InputError
 from oneopes.trajectory_blocks import Block, label_block
 
 TOL = Tolerances(fp_rel_tol=0.2, rdf_nrmsd_tol=0.15, spearman_tol=0.9, n_stable=2)
@@ -34,6 +36,21 @@ def test_the_summary_is_derived_from_the_run():
     summary = run_summary(_run())
     assert (summary.converged_block, summary.converged_ns, summary.block_ns) == (2, 6.0, 2.0)
     assert (summary.n_blocks, summary.unstable_after_convergence, summary.tolerances) == (4, 1, TOL)
+
+
+def test_run_block_defaults_to_the_converged_block():
+    run = _run()
+    assert int(run_block(run).block) == 2
+    assert int(run_block(run, 0).block) == 0
+    with pytest.raises(InputError, match="blocks 0 to 3, not 4"):
+        run_block(run, 4)
+
+
+def test_run_block_of_an_unconverged_run_needs_a_block():
+    fp = [-9.0, -5.0, -2.0]
+    run = block_run(_measured(fp, [-20.0, -5.0, -2.0]), TOL, 2.0)
+    with pytest.raises(InputError, match="did not converge"):
+        run_block(run)
 
 
 def test_a_saved_run_loads_back_identical(tmp_path):

@@ -134,7 +134,7 @@ def test_measure_hydration_covers_the_given_frames():
     u = random_universe()
     solute, water = u.atoms[:3], u.atoms[3:]
     counts = WaterFP(solute, water).run(start=1, stop=3).results.counts
-    expected = hydration(counts, 2, RadialGrid(), list(solute.names))
+    expected = hydration(counts, 2, RadialGrid(), list(solute.names)).assign_coords(atom_index=("atom", [0, 1, 2]))
     assert measure_hydration(solute, water, range(1, 3)).identical(expected)
 
 
