@@ -131,21 +131,33 @@ def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
     return fp.rank(method="first").astype(int)
 
 
+def stack_blocks(tables: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Each block's table one after the other, with the block index as first column."""
+    stacked = pd.concat([table.assign(block=b) for b, table in enumerate(tables)], ignore_index=True)
+    return stacked[["block", *tables[0].columns]]
+
+
+def times_table(times_ns: Sequence[tuple[float, float]]) -> pd.DataFrame:
+    """One row per block: block, t_start_ns, t_end_ns, t_mid_ns; ``times_ns[i]`` is the (start, end) of block i."""
+    start, end = np.array(times_ns, dtype=float).T
+    return pd.DataFrame({"block": np.arange(len(start)), "t_start_ns": start, "t_end_ns": end,
+                         "t_mid_ns": (start + end) / 2})
+
+
 def fp_per_block(blocks: Sequence[WaterFP], times_ns: Sequence[tuple[float, float]],
                  labels: Sequence[str] | None = None) -> pd.DataFrame:
     """One row per (block, atom): block, t_start_ns, t_end_ns, t_mid_ns, atom, FP.
 
     ``times_ns[i]`` is the (start, end) of block i; ``labels`` name the atoms (default: atom names).
     """
-    tables = [block.fp_table(labels).assign(block=b, t_start_ns=start, t_end_ns=end, t_mid_ns=0.5 * (start + end))
-              for b, (block, (start, end)) in enumerate(zip(blocks, times_ns))]
-    return pd.concat(tables, ignore_index=True)[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]]
+    fp = stack_blocks([block.fp_table(labels) for block in blocks])
+    return times_table(times_ns).merge(fp, on="block")
 
 
 def rdf_per_block(blocks: Sequence[WaterFP], labels: Sequence[str] | None = None) -> pd.DataFrame:
     """One row per (block, atom, r): block, atom, r_nm, g_r. ``labels`` name the atoms (default: atom names)."""
-    tables = [block.profile_table(labels).assign(block=b) for b, block in enumerate(blocks)]
-    return pd.concat(tables, ignore_index=True)[["block", "atom", "r_nm", "g_r"]]
+    profiles = stack_blocks([block.profile_table(labels) for block in blocks])
+    return profiles.drop(columns="n_r")
 
 
 # Column name of each StabilityResult field in convergence_metrics.csv, in column order.

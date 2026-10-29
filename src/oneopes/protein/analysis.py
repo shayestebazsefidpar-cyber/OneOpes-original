@@ -3,6 +3,7 @@
 import hashlib
 import json
 import platform
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated
@@ -16,7 +17,9 @@ from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     Tolerances,
     compare_blocks,
+    stack_blocks,
     summarize,
+    times_table,
     write_block_tables,
     write_summary,
 )
@@ -54,14 +57,11 @@ class AnalysisOptions:
     tolerances: Tolerances = DEFAULT_TOLERANCES
 
 
-def _contacts_per_block(contacts: list[Contacts], block_times: list[tuple[float, float]],
-                        labels: list[str]) -> pd.DataFrame:
-    """contact_occupancy_per_block.csv: one row per (block, candidate atom)."""
-    tables = [pd.DataFrame({"block": b, "t_start_ns": start, "t_end_ns": end, "atom": labels,
-                            "Contact_occupancy_5A": c.results.contact_occupancy,
-                            "Bridge_occupancy": c.results.bridge_occupancy, "n_frames": c.n_frames})
-              for b, (c, (start, end)) in enumerate(zip(contacts, block_times))]
-    return pd.concat(tables, ignore_index=True)
+def contacts_per_block(contacts: Sequence[Contacts], times_ns: Sequence[tuple[float, float]],
+                       labels: Sequence[str]) -> pd.DataFrame:
+    """One row per (block, candidate atom): block, t_start_ns, t_end_ns, then the Contacts table."""
+    times = times_table(times_ns).drop(columns="t_mid_ns")
+    return times.merge(stack_blocks([block.table(labels) for block in contacts]), on="block")
 
 
 def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print, complex_structure=None) -> dict:
@@ -134,7 +134,7 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
     # Report: per-block tables, convergence summary and the final per-atom table.
     write_block_tables(outdir, blocks, block_times, tol, labels)
-    _contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
+    contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     write_summary(outdir / "convergence_summary.json", summary,
                   trajectory_start_ns=traj_start_ns, trajectory_end_ns=traj_end_ns,
                   analysis_start_ns=analysis_start_ns, analysis_end_ns=analysis_end_ns)

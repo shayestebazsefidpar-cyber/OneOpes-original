@@ -1,6 +1,9 @@
 """Contact and Bridge occupancy of protein atoms around a bound ligand."""
 
+from collections.abc import Sequence
+
 import numpy as np
+import pandas as pd
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.core.groups import AtomGroup
 from MDAnalysis.lib.distances import distance_array
@@ -41,3 +44,15 @@ class Contacts(AnalysisBase):
     def _conclude(self) -> None:
         self.results.contact_occupancy = self.results.contact_frames / self.n_frames
         self.results.bridge_occupancy = self.results.bridge_frames / self.n_frames
+
+    def table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
+        """One row per candidate: atom, Contact_occupancy_5A, Bridge_occupancy, n_frames.
+
+        ``labels`` name the atoms (default: candidate atom names).
+        """
+        return pd.DataFrame({
+            "atom": self.candidates.names if labels is None else labels,
+            "Contact_occupancy_5A": self.results.contact_occupancy,
+            "Bridge_occupancy": self.results.bridge_occupancy,
+            "n_frames": self.n_frames,
+        })
