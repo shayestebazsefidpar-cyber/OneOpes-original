@@ -4,7 +4,7 @@
 `COORDINATION` of each with a water-oxygen group.
 
 ```bash
-oneopes build-cv --g1-g2 g1_g2.yaml --out plumed_fragment.dat [--water-group-def "GROUPA=1305-14858"]
+oneopes build-cv --g1-g2 g1_g2.yaml --out plumed_fragment.dat [--water-group-def "ATOMS=1305-14858:3"]
 ```
 
 It is a starting point, not a ready input. Before use:

@@ -38,8 +38,9 @@ def build_cv(*, g1_g2: ExistingFile, out: Path, water_group_def: str | None = No
     out
         The PLUMED fragment to write.
     water_group_def
-        PLUMED GROUP body of the water-oxygen reference group, e.g. 'GROUPA=1305-14858';
-        without it, the fragment refers to a WATER_O group you define yourself.
+        PLUMED GROUP body of the water-oxygen reference group, e.g. 'ATOMS=1305-14858:3' (every
+        third atom: the oxygens of a 3-site water); without it, the fragment refers to a WATER_O
+        group you define yourself.
     """
     selection = read_g1_g2_yaml(g1_g2)
 

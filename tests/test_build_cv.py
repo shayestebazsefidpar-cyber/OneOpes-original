@@ -30,8 +30,8 @@ def test_without_a_water_group_the_fragment_asks_for_one(tmp_path):
 
 
 def test_a_given_water_group_is_defined_in_the_fragment(tmp_path):
-    content = _build_cv(tmp_path, {"G1": G1, "G2": G2}, "--water-group-def", "GROUPA=1305-14858").read_text()
-    assert "WATER_O: GROUP GROUPA=1305-14858" in content and "TODO" not in content
+    content = _build_cv(tmp_path, {"G1": G1, "G2": G2}, "--water-group-def", "ATOMS=1305-14858:3").read_text()
+    assert "WATER_O: GROUP ATOMS=1305-14858:3" in content and "TODO" not in content
 
 
 @pytest.mark.parametrize("data", [
