@@ -32,11 +32,9 @@ from convergence import (
     StabilityResult,
     compare_blocks,
     first_convergence,
-    fp_per_block,
-    fp_ranks,
-    rdf_per_block,
     stable_in_a_row,
     transitions_table,
+    write_block_tables,
 )
 from trajectory_blocks import complete_blocks, frame_step_ps, frame_time_ns, frames_per_block, time_span_ns
 from waterfp import WaterFP
@@ -186,15 +184,9 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
     log(f"[protein-waterfp] first sustained convergence: {first_converged_ns} ns")
 
     # Report: per-block tables, convergence metrics, the final per-atom table and the summary.
-    fp_df = fp_per_block(blocks, block_times, labels)
-    fp_df.to_csv(outdir / "fp_values_per_block.csv", index=False)
-    rdf_per_block(blocks, labels).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+    write_block_tables(outdir, blocks, block_times, tol, labels)
     _contacts_per_block(contacts, block_times, labels).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     transitions = transitions_table(stabilities, block_times, tol.n_stable)
-    transitions.to_csv(outdir / "convergence_metrics.csv", index=False)
-    wide = fp_df.pivot(index="atom", columns="block", values="FP").loc[labels]
-    wide.to_csv(outdir / "fp_values_by_block_wide.csv")
-    fp_ranks(wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
     table = build_final_table(candidates, fp_full, st_full.contact_occupancy, st_full.bridge_occupancy,

@@ -19,6 +19,8 @@ import os
 import json
 import time
 import signal
+from collections.abc import Callable, Iterator
+from itertools import count
 from pathlib import Path
 
 import MDAnalysis as mda
@@ -31,10 +33,9 @@ from convergence import (
     compare_blocks,
     first_convergence,
     fp_per_block,
-    fp_ranks,
     rdf_per_block,
     stable_in_a_row,
-    transitions_table,
+    write_block_tables,
 )
 from ligand_waterfp.g1_g2_selection.select_g1_g2 import write_selection
 from trajectory_blocks import frame_step_ps, frames_per_block, time_span_ns
@@ -104,6 +105,20 @@ def wait_for_frames(load_universe, n_frames: int, mdrun_pid: int | None, poll_se
         time.sleep(poll_seconds)
 
 
+def completed_blocks(load_universe: Callable[[], mda.Universe], block_length: int, mdrun_pid: int | None,
+                     poll_seconds: float) -> Iterator[tuple[mda.Universe, range]]:
+    """Each block of ``block_length`` frames, with a universe holding it, as soon as the trajectory has it.
+
+    Ends when mdrun is no longer running and the next block is incomplete.
+    """
+    for first in count(0, block_length):
+        frames = range(first, first + block_length)
+        u = wait_for_frames(load_universe, frames.stop, mdrun_pid, poll_seconds)
+        if len(u.trajectory) < frames.stop:
+            return
+        yield u, frames
+
+
 def plot_atom(atom_name, fp_df, rdf_df, outdir):
     """Save the two per-atom diagnostic plots (FP vs. simulation time, and
     RDF per block) for `atom_name`, exactly as main()'s plotting loop used
@@ -147,28 +162,10 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     return fp_plot_path, rdf_plot_path
 
 
-def write_reports(outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
+def write_reports(outdir, converged, stop_reason, stop_block, stop_time_ns,
                    block_ns, tol: Tolerances, ligand_resname, heavy_names, n_blocks_completed):
-    """Write the end-of-run report files, exactly as main() used to build
-    them inline: the wide-format FP/ranking-by-block CSVs (pivoted from
-    fp_df), convergence_summary.json, and convergence_summary.txt. Same
-    schema, same field names, same text - only extracted out of main().
-    No printing (Rule 5) - returns the summary dict main() prints from.
-
-    tol supplies the threshold/streak values written into the JSON/TXT
-    summary below.
-
-    Does not write the per-block incremental CSVs (fp_values_per_block.csv,
-    rdf_profiles_per_block.csv, convergence_metrics.csv) - those are
-    written after every block, inside the loop, for resumability, which is
-    a different concern from this end-of-run reporting step; main() still
-    writes them directly (see the loop body), same as before.
-    """
+    """Write convergence_summary.json and convergence_summary.txt; return the summary."""
     outdir = Path(outdir)
-    fp_wide = fp_df.pivot(index="atom", columns="block", values="FP")
-    fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
-    fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
-
     summary = {
         "converged": converged,
         "stop_reason": stop_reason,
@@ -269,33 +266,24 @@ def main():
         raise SystemExit(f"[monitor] {e}")
     print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({args.block_ns} ns)")
 
-    blocks, block_times = [], []
-    converged_at = None
-
-    # Analyse one block at a time as mdrun writes it, until convergence or until mdrun stops.
-    while converged_at is None:
-        frames = range(len(blocks) * block_length, (len(blocks) + 1) * block_length)
-        u = wait_for_frames(get_universe, frames.stop, args.mdrun_pid, args.poll_seconds)
-        if len(u.trajectory) < frames.stop:
-            break
+    blocks, block_times, stabilities = [], [], []
+    for u, frames in completed_blocks(get_universe, block_length, args.mdrun_pid, args.poll_seconds):
         blocks.append(WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
                               norm_tail_bins=args.norm_tail_bins).run(start=frames.start, stop=frames.stop))
         block_times.append(time_span_ns(u, frames, dt_ps))
-
+        write_block_tables(outdir, blocks, block_times, tol)
         stabilities = compare_blocks([block.results for block in blocks], tol)
-        converged_at = first_convergence(stabilities, tol.n_stable)
-        fp_per_block(blocks, block_times).to_csv(outdir / "fp_values_per_block.csv", index=False)
-        rdf_per_block(blocks).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
-        transitions_table(stabilities, block_times, tol.n_stable).to_csv(
-            outdir / "convergence_metrics.csv", index=False)
         if stabilities:
             s = stabilities[-1]
             print(f"[monitor] block {len(blocks) - 1} (t={block_times[-1][1]:.1f} ns): "
                   f"max|dFP/FP|={s.fp_change:.3f} max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
                   f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
+        if first_convergence(stabilities, tol.n_stable) is not None:
+            break
 
     if not blocks:
         raise SystemExit("[monitor] mdrun ended before the first block was complete; nothing to report.")
+    converged_at = first_convergence(stabilities, tol.n_stable)
     converged = converged_at is not None
     if converged:
         stop_block = converged_at + 1
@@ -308,6 +296,7 @@ def main():
         )
     else:
         stop_block = len(blocks)
+        u = get_universe()
         stop_time_ns = u.trajectory[-1].time / 1000.0
         stop_reason = (
             f"mdrun process (pid {args.mdrun_pid}) is no longer running before block "
@@ -323,7 +312,7 @@ def main():
         plot_atom(name, fp_df, rdf_df, outdir)
 
     summary = write_reports(
-        outdir, fp_df, converged, stop_reason, stop_block, stop_time_ns,
+        outdir, converged, stop_reason, stop_block, stop_time_ns,
         args.block_ns, tol, args.ligand_resname, heavy_names, len(blocks),
     )
 
@@ -338,7 +327,7 @@ def main():
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
 
-    if converged:  # the last block analysed is the converged one
+    if converged:
         try:
             selection = write_selection(blocks[-1], outdir / "selection", args.fp_round_decimals)
             print(f"[monitor] {selection}, written to {outdir / 'selection'}")

@@ -17,7 +17,10 @@ from convergence import (
     nrmsd,
     stable_in_a_row,
     transitions_table,
+    write_block_tables,
 )
+from test_waterfp import random_universe
+from waterfp import WaterFP
 
 TOL = DEFAULT_TOLERANCES
 
@@ -142,6 +145,21 @@ def test_transitions_table_rows_and_times():
 def test_fp_rank_one_is_the_most_negative_fp():
     fp = pd.Series({"x": -3.0, "y": -40.0, "z": 2.0})
     assert fp_ranks(fp).to_dict() == {"x": 2, "y": 1, "z": 3}
+
+
+def test_write_block_tables(tmp_path):
+    """Five CSVs; wide tables keep the atoms' order (not alphabetical) and rank each block's FP."""
+    u = random_universe(n_frames=4)
+    blocks = [WaterFP(u.atoms[:3], u.atoms[3:]).run(start=i, stop=i + 1) for i in range(4)]
+    write_block_tables(tmp_path, blocks, [(i, i + 1.0) for i in range(4)], TOL, labels=["c", "a", "b"])
+
+    assert len(pd.read_csv(tmp_path / "fp_values_per_block.csv")) == 4 * 3
+    assert len(pd.read_csv(tmp_path / "convergence_metrics.csv")) == 3
+    assert pd.read_csv(tmp_path / "rdf_profiles_per_block.csv")["block"].nunique() == 4
+    fp = pd.read_csv(tmp_path / "fp_values_by_block_wide.csv", index_col="atom")
+    ranks = pd.read_csv(tmp_path / "fp_ranking_by_block_wide.csv", index_col="atom")
+    assert list(fp.index) == ["c", "a", "b"]
+    assert ranks.equals(fp.rank().astype(int))
 
 
 def test_fp_ranks_per_block_with_ties_in_atom_order():

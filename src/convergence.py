@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from itertools import accumulate, pairwise
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -136,3 +137,20 @@ def transitions_table(stabilities: Sequence[StabilityResult], block_times: Seque
         stable_transition_count=stable_in_a_row(stabilities),
         convergence_reached=False if first is None else block - 1 >= first,
     )
+
+
+def write_block_tables(outdir: Path, blocks: Sequence[WaterFP], times_ns: Sequence[tuple[float, float]],
+                       tol: Tolerances, labels: Sequence[str] | None = None) -> None:
+    """Write the block-wise CSVs to ``outdir``: FP and g(r) per block, FP and FP rank per atom and block,
+    and the transitions between blocks (convergence_metrics.csv).
+
+    ``times_ns[i]`` is the (start, end) of block i; ``labels`` name the atoms (default: atom names).
+    """
+    fp = fp_per_block(blocks, times_ns, labels)
+    fp.to_csv(outdir / "fp_values_per_block.csv", index=False)
+    rdf_per_block(blocks, labels).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+    fp_wide = fp.pivot(index="atom", columns="block", values="FP").loc[fp["atom"].unique()]
+    fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
+    fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
+    stabilities = compare_blocks([block.results for block in blocks], tol)
+    transitions_table(stabilities, times_ns, tol.n_stable).to_csv(outdir / "convergence_metrics.csv", index=False)
