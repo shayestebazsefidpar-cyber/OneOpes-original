@@ -82,14 +82,12 @@ def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> xr.Dataset:
         "rdf_nrmsd": nrmsd(current.g, previous.g).max("atom"),
         "spearman_rho": xr.corr(atom_ranks(current.fp), atom_ranks(previous.fp), dim="atom"),
     }).reset_coords(drop=True).reindex(block=blocks.block)
-    criteria = criteria.assign(
-        fp_pass=criteria.fp_change <= tol.fp_rel_tol,
-        rdf_pass=criteria.rdf_nrmsd <= tol.rdf_nrmsd_tol,
-        spearman_pass=criteria.spearman_rho >= tol.spearman_tol,
-    )
-    criteria = criteria.assign(passed=criteria.fp_pass & criteria.rdf_pass & criteria.spearman_pass)
-    criteria = criteria.assign(stable_in_a_row=("block", stable_in_a_row(criteria.passed.values)))
-    return blocks.assign(criteria)
+    fp_pass = criteria.fp_change <= tol.fp_rel_tol
+    rdf_pass = criteria.rdf_nrmsd <= tol.rdf_nrmsd_tol
+    spearman_pass = criteria.spearman_rho >= tol.spearman_tol
+    passed = fp_pass & rdf_pass & spearman_pass
+    return blocks.assign(criteria).assign(fp_pass=fp_pass, rdf_pass=rdf_pass, spearman_pass=spearman_pass,
+                                          passed=passed, stable_in_a_row=("block", stable_in_a_row(passed.values)))
 
 
 def converged_block(blocks: xr.Dataset, n_stable: int) -> int | None:
