@@ -32,7 +32,7 @@ cmd.show("cartoon", "protein_atoms")
 cmd.color("grey80", "protein_atoms")
 cmd.set("cartoon_transparency", 0.65, "protein_atoms")
 
-cmd.select("ligand", "resn {ligand_resname}")
+cmd.select("ligand", "id {ligand_ids}")
 cmd.show("sticks", "ligand")
 cmd.color("yellow", "ligand and elem C")
 cmd.set("stick_radius", 0.16, "ligand")
@@ -76,12 +76,16 @@ def pymol_names(atoms: tuple[AtomRef, ...]) -> str:
     return "+".join(atom.name for atom in atoms)
 
 
-def pymol_script(selection: G1G2Selection, complex_file: Path, ligand_resname: str, image: Path,
+def pymol_script(selection: G1G2Selection, complex_file: Path, ligand_ids: list[int], image: Path,
                  pocket_cutoff_A: float) -> str:
-    """The script rendering ``selection`` on the complex into ``image``; with absolute paths, it runs anywhere."""
+    """The script rendering ``selection`` on the complex into ``image``; with absolute paths, it runs anywhere.
+
+    ``ligand_ids`` are the ligand's atom ids (serial numbers) in ``complex_file``, which PyMOL keeps as ``id``.
+    """
     width, height = RENDER_SIZE
     return SCRIPT_TEMPLATE.format(
-        complex_file=str(complex_file.resolve()), ligand_resname=ligand_resname, pocket_cutoff_A=pocket_cutoff_A,
+        complex_file=str(complex_file.resolve()), ligand_ids="+".join(map(str, ligand_ids)),
+        pocket_cutoff_A=pocket_cutoff_A,
         g1_color=pymol_color(G1_RGB), g2_color=pymol_color(G2_RGB),
         g1_names=pymol_names(selection.G1), g2_names=pymol_names(selection.G2),
         image=str(image.resolve()), width=width, height=height, dpi=RENDER_DPI,

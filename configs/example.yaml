@@ -32,7 +32,7 @@ build-cv:
 render:
   g1-g2: outputs/convergence/selection/g1_g2.yaml
   complex: complex.pdb
-  ligand-resname: MOL
+  ligand-selection: resname MOL
   out: outputs/figures/selected_atoms.png
 
 protein:

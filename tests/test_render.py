@@ -34,22 +34,28 @@ def fake_pymol(tmp_path):
                                           "runpy.run_path(sys.argv[-1])\n")
 
 
-def write_complex(path: Path, ligand_names: list[str]) -> None:
-    """A complex of one ligand residue, LIG, with atoms of these names."""
-    u = mda.Universe.empty(len(ligand_names), n_residues=1, atom_resindex=[0] * len(ligand_names), trajectory=True)
-    u.add_TopologyAttr("names", ligand_names)
-    u.add_TopologyAttr("resnames", ["LIG"])
-    u.atoms.positions = np.arange(3 * len(ligand_names), dtype=float).reshape(-1, 3)
+LIGAND_NAMES = ("C1", "O4", "C7", "N2")
+
+
+def write_complex(path: Path, residues: list[tuple[str, ...]]) -> None:
+    """A complex of residues all named LIG, numbered from 1, with atoms of these names."""
+    names = [name for residue in residues for name in residue]
+    resindex = [index for index, residue in enumerate(residues) for _ in residue]
+    u = mda.Universe.empty(len(names), n_residues=len(residues), atom_resindex=resindex, trajectory=True)
+    u.add_TopologyAttr("names", names)
+    u.add_TopologyAttr("resnames", ["LIG"] * len(residues))
+    u.add_TopologyAttr("resids", list(range(1, len(residues) + 1)))
+    u.atoms.positions = np.arange(3 * len(names), dtype=float).reshape(-1, 3)
     u.dimensions = [30.0, 30.0, 30.0, 90.0, 90.0, 90.0]
     u.atoms.write(str(path))
 
 
-def render(tmp_path, pymol, *options, ligand_resname="LIG", ligand_names=("C1", "O4", "C7", "N2")):
+def render(tmp_path, pymol, *options, ligand_selection="resname LIG", residues=(LIGAND_NAMES,)):
     write_g1_g2_yaml(SELECTION, tmp_path / "g1_g2.yaml")
-    write_complex(tmp_path / "complex.pdb", list(ligand_names))
+    write_complex(tmp_path / "complex.pdb", list(residues))
     out = tmp_path / "figures" / "selected.png"
     main(["render", "--g1-g2", str(tmp_path / "g1_g2.yaml"), "--complex", str(tmp_path / "complex.pdb"),
-          "--ligand-resname", ligand_resname, "--out", str(out), "--pymol", pymol, *options])
+          "--ligand-selection", ligand_selection, "--out", str(out), "--pymol", pymol, *options])
     return out
 
 
@@ -68,7 +74,7 @@ def test_the_legend_is_drawn_in_the_render_s_colours(tmp_path, fake_pymol):
 
 def test_the_script_selects_the_g1_g2_atoms_in_the_legend_s_colours(tmp_path, fake_pymol):
     script = (render(tmp_path, fake_pymol).parent / "selected_pymol.py").read_text()
-    assert 'cmd.select("ligand", "resn LIG")' in script
+    assert 'cmd.select("ligand", "id 1+2+3+4")' in script
     assert 'cmd.select("g1", "ligand and name C1+O4")' in script
     assert 'cmd.select("g2", "ligand and name C7+N2")' in script
     assert f'cmd.set_color("g1_color", {pymol_color(G1_RGB)})' in script
@@ -89,17 +95,30 @@ def error_of(caplog) -> str:
     return error
 
 
-def test_a_ligand_name_not_in_the_complex_is_reported_before_pymol_runs(tmp_path, fake_pymol, caplog):
+def test_only_the_selected_residue_is_the_ligand_when_another_shares_its_name(tmp_path, fake_pymol):
+    """As in a complex whose cofactor has the ligand's residue name."""
+    out = render(tmp_path, fake_pymol, ligand_selection="resname LIG and resid 2",
+                 residues=(("C8", "N9"), LIGAND_NAMES))
+    assert 'cmd.select("ligand", "id 3+4+5+6")' in (out.parent / "selected_pymol.py").read_text()
+
+
+def test_a_selection_that_matches_nothing_is_reported_before_pymol_runs(tmp_path, fake_pymol, caplog):
     with pytest.raises(SystemExit):
-        render(tmp_path, fake_pymol, ligand_resname="MOL")
-    assert error_of(caplog) == "error: complex.pdb has no residue named MOL."
+        render(tmp_path, fake_pymol, ligand_selection="resname MOL")
+    assert error_of(caplog) == "error: --ligand-selection 'resname MOL' matches no atom of complex.pdb."
     assert not (tmp_path / "figures").exists()
+
+
+def test_an_invalid_selection_is_one_line(tmp_path, fake_pymol, caplog):
+    with pytest.raises(SystemExit):
+        render(tmp_path, fake_pymol, ligand_selection="resname LIG and")
+    assert error_of(caplog).startswith("error: --ligand-selection 'resname LIG and':")
 
 
 def test_g1_g2_atoms_missing_from_the_ligand_are_named(tmp_path, fake_pymol, caplog):
     with pytest.raises(SystemExit):
-        render(tmp_path, fake_pymol, ligand_names=("C1", "O4", "C7"))
-    assert error_of(caplog) == "error: The LIG residue of complex.pdb has no atoms named ['N2']."
+        render(tmp_path, fake_pymol, residues=(("C1", "O4", "C7"),))
+    assert error_of(caplog) == "error: The ligand (resname LIG) in complex.pdb has no atoms named ['N2']."
 
 
 def test_a_missing_pymol_is_reported(tmp_path, caplog):
