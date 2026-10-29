@@ -38,7 +38,7 @@ def random_ligand(rng: np.random.Generator) -> mda.Universe:
 
 def pair(sentence: str) -> tuple[AtomRef, AtomRef]:
     name1, serial1, name2, serial2 = SENTENCE.search(sentence).groups()
-    return AtomRef(name1, int(serial1)), AtomRef(name2, int(serial2))
+    return AtomRef(name=name1, serial=int(serial1)), AtomRef(name=name2, serial=int(serial2))
 
 
 def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> SelectionResult | None:

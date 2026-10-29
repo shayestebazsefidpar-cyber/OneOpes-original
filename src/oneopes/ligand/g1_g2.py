@@ -1,6 +1,5 @@
 """G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP (``oneopes select``)."""
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -11,6 +10,7 @@ import yaml
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from MDAnalysis.core.groups import AtomGroup
+from pydantic import BaseModel
 
 from oneopes.system import SystemDefinitionError, select_system
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
@@ -18,33 +18,16 @@ from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 SAME_FP = 0.2  # rounded FP values closer than this count as the same FP
 
 
-@dataclass(frozen=True)
-class AtomRef:
+class AtomRef(BaseModel, frozen=True):
     """An atom's name and 1-based serial."""
     name: str
     serial: int
 
-    @classmethod
-    def from_dict(cls, d: dict) -> "AtomRef":
-        return cls(name=d["name"], serial=int(d["serial"]))
 
-    def to_dict(self) -> dict:
-        return {"name": self.name, "serial": self.serial}
-
-
-@dataclass(frozen=True)
-class SelectionResult:
-    """The G1 (anti-bulk) and G2 (bulk) atom pairs."""
+class SelectionResult(BaseModel, frozen=True):
+    """The G1 (anti-bulk) and G2 (bulk) atom pairs, as written to and read from g1_g2.yaml."""
     G1: tuple[AtomRef, AtomRef]
     G2: tuple[AtomRef, AtomRef]
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "SelectionResult":
-        return cls(G1=tuple(AtomRef.from_dict(a) for a in d["G1"]),
-                   G2=tuple(AtomRef.from_dict(a) for a in d["G2"]))
-
-    def to_yaml_dict(self) -> dict:
-        return {"G1": [a.to_dict() for a in self.G1], "G2": [a.to_dict() for a in self.G2]}
 
     def __str__(self) -> str:
         return (f"G1 (anti-bulk): {self.G1[0].name}, {self.G1[1].name}; "
@@ -56,7 +39,7 @@ def write_g1_g2_yaml(selection: SelectionResult, out_path: Path) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
-        yaml.safe_dump(selection.to_yaml_dict(), f, sort_keys=False)
+        yaml.safe_dump(selection.model_dump(mode="json"), f, sort_keys=False)
 
 
 def write_selection(waterfp: WaterFP, outdir: Path, fp_round_decimals: int = 1) -> SelectionResult:

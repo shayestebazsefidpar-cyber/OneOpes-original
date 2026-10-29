@@ -1,11 +1,10 @@
 """G1/G2 result types, their YAML file, and the `oneopes select` command on a synthetic system."""
-import dataclasses
-
 import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2, write_g1_g2_yaml
@@ -17,24 +16,29 @@ RAW = {
 
 
 def test_selection_result_dict_roundtrip():
-    result = SelectionResult.from_dict(RAW)
-    assert result.G1 == (AtomRef("X1", 3), AtomRef("X2", 7))
-    assert result.to_yaml_dict() == RAW
+    result = SelectionResult.model_validate(RAW)
+    assert result.G1 == (AtomRef(name="X1", serial=3), AtomRef(name="X2", serial=7))
+    assert result.model_dump(mode="json") == RAW
 
 
 def test_selection_result_is_frozen():
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        SelectionResult.from_dict(RAW).G1 = ()
+    with pytest.raises(ValidationError):
+        SelectionResult.model_validate(RAW).G1 = ()
 
 
-def test_atom_entry_missing_serial_is_rejected():
-    with pytest.raises(KeyError):
-        SelectionResult.from_dict({**RAW, "G1": [{"name": "X1"}, {"name": "X2", "serial": 7}]})
+@pytest.mark.parametrize("g1", [
+    [{"name": "X1"}, {"name": "X2", "serial": 7}],                          # an atom without serial
+    [{"name": "X1", "serial": 3}],                                          # one atom instead of a pair
+    [{"name": "X1", "serial": "three"}, {"name": "X2", "serial": 7}],       # a serial that is not a number
+])
+def test_malformed_selection_is_rejected(g1):
+    with pytest.raises(ValidationError):
+        SelectionResult.model_validate({**RAW, "G1": g1})
 
 
 def test_write_g1_g2_yaml_creates_parent_directory(tmp_path):
     out_path = tmp_path / "nested" / "g1_g2.yaml"
-    write_g1_g2_yaml(SelectionResult.from_dict(RAW), out_path)
+    write_g1_g2_yaml(SelectionResult.model_validate(RAW), out_path)
     assert yaml.safe_load(out_path.read_text()) == RAW
 
 
@@ -71,4 +75,4 @@ def test_select_command_writes_waterfp_and_g1_g2(tmp_path):
 
     ligand = mda.Universe(top).select_atoms("resname MOL")
     expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy())
-    assert SelectionResult.from_dict(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected
+    assert SelectionResult.model_validate(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected

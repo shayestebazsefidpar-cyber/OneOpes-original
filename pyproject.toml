@@ -15,6 +15,7 @@ dependencies = [
     "PyYAML",
     "Pillow",
     "cyclopts>=5.3.2",
+    "pydantic>=2.14.1",
 ]
 
 [project.optional-dependencies]

@@ -47,7 +47,7 @@ def build_cv(*, g1_g2: ExistingFile, out: Path, water_group_def: str | None = No
         PLUMED GROUP body of the water-oxygen reference group, e.g. 'GROUPA=1305-14858';
         without it, the fragment refers to a WATER_O group you define yourself.
     """
-    selection = SelectionResult.from_dict(yaml.safe_load(g1_g2.read_text()))
+    selection = SelectionResult.model_validate(yaml.safe_load(g1_g2.read_text()))
 
     g1_serials = ",".join(str(a.serial) for a in selection.G1)
     g2_serials = ",".join(str(a.serial) for a in selection.G2)
