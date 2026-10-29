@@ -12,7 +12,6 @@ They are located (read-only) from, in order:
 BioSimSpace-dependent tests skip when BioSimSpace or the systems are missing.
 """
 
-import glob
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,8 +53,8 @@ def ref(request):
     pytest.importorskip("BioSimSpace")
     from oneopes.funnel.bss import read_system
 
-    top = os.path.join(request.param, "top.top")
-    gros = sorted(glob.glob(os.path.join(request.param, "npt*.gro")))
-    if not (os.path.exists(top) and gros):
+    top = Path(request.param) / "top.top"
+    gros = sorted(Path(request.param).glob("npt*.gro"))
+    if not (top.exists() and gros):
         pytest.skip(f"validation system (top.top + npt*.gro) not found in {request.param}")
     return RefSystem(system=read_system(top, gros[0]), directory=request.param)

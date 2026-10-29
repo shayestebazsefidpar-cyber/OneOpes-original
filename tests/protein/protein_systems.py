@@ -33,8 +33,8 @@ def build_universe(protein_atoms, ligand_atoms, n_waters=0, box=60.0, rng_seed=7
             continue
         rid = 1000 + placed
         atoms.append(("SOL", rid, "OW", "O", o, ("W", rid)))
-        atoms.append(("SOL", rid, "HW1", "H", o + [0.96, 0, 0], ("W", rid)))
-        atoms.append(("SOL", rid, "HW2", "H", o + [-0.24, 0.93, 0], ("W", rid)))
+        atoms.append(("SOL", rid, "HW1", "H", o + np.array([0.96, 0, 0]), ("W", rid)))
+        atoms.append(("SOL", rid, "HW2", "H", o + np.array([-0.24, 0.93, 0]), ("W", rid)))
         placed += 1
 
     keys = list(dict.fromkeys(a[5] for a in atoms))

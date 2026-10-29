@@ -43,14 +43,14 @@ def test_c9_funnel_kwargs_reach_bss_unchanged(ref):
 
     from oneopes.funnel.make_funnel import make_funnel
 
-    kwargs = dict(
-        width=Length(0.1, "nanometer"),
-        buffer=Length(0.25, "nanometer"),
-        steepness=0.5,
-        inflection=Length(2.0, "nanometer"),
-        lower_bound=Bound(Length(1.0, "nanometer"), force_constant=20000),
-        upper_bound=Bound(Length(3.7, "nanometer"), force_constant=20000),
-    )
+    kwargs = {
+        "width": Length(0.1, "nanometer"),
+        "buffer": Length(0.25, "nanometer"),
+        "steepness": 0.5,
+        "inflection": Length(2.0, "nanometer"),
+        "lower_bound": Bound(Length(1.0, "nanometer"), force_constant=20000),
+        "upper_bound": Bound(Length(3.7, "nanometer"), force_constant=20000),
+    }
     f = make_funnel(ref.system, **kwargs)
     reference = Funnel(f.p0p1.atoms0, f.p0p1.atoms1, **kwargs)
     assert f.parameters == funnel_parameters(reference)
@@ -70,7 +70,8 @@ def test_c12_getcorrection_available_via_cv(funnel, bss_reference):
     from BioSimSpace.Types import Length
 
     assert funnel.cv.getCorrection().value() == bss_reference[2].getCorrection().value()
-    kw = dict(proj_min=Length(0.5, "nanometer"), proj_max=Length(3.0, "nanometer"), delta=Length(0.01, "nanometer"))
+    kw = {"proj_min": Length(0.5, "nanometer"), "proj_max": Length(3.0, "nanometer"),
+          "delta": Length(0.01, "nanometer")}
     assert funnel.cv.getCorrection(**kw).value() == bss_reference[2].getCorrection(**kw).value()
 
 

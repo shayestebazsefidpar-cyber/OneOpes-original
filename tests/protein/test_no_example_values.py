@@ -8,7 +8,8 @@ import oneopes.protein
 SRC = Path(oneopes.protein.__file__).parent
 
 FORBIDDEN = [
-    r"(?i)plumed", r"(?i)\bzone", r"(?i)funnel", r"(?i)deep", r"(?i)entrance", r"oneopes_funnel", r"BRD4", r"HSP90", r"\blig\d", r"\bLIG\b", r"\bMOL\b", r"run0", r"rep_\d", r"WaterFP_protein_Ligand",
+    r"(?i)plumed", r"(?i)\bzone", r"(?i)funnel", r"(?i)deep", r"(?i)entrance", r"oneopes_funnel", r"BRD4",
+    r"HSP90", r"\blig\d", r"\bLIG\b", r"\bMOL\b", r"run0", r"rep_\d", r"WaterFP_protein_Ligand",
     r"/home/", r"Escritorio", r"parents\[", r"\bglob\(", r"\.\./",
     r"\b100(\.0)?\b", r"\b200(\.0)?\b", r"(?i)\d+\s*ns\b", r"(?i)n_blocks\s*=\s*\d", r"(?i)early.?stop",
     r"\b1\.028\b", r"\b1\.368\b", r"\b0\.02\b", r"\b115\b", r"\b1586\b",

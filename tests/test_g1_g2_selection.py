@@ -22,7 +22,8 @@ RAW = {
 
 def test_selection_result_dict_roundtrip():
     result = SelectionResult.model_validate(RAW)
-    assert result.G1 == (AtomRef(name="X1", serial=3), AtomRef(name="X2", serial=7))
+    g1 = result.G1
+    assert g1 == (AtomRef(name="X1", serial=3), AtomRef(name="X2", serial=7))
     assert result.model_dump(mode="json") == RAW
 
 

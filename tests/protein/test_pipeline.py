@@ -86,7 +86,7 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     from oneopes.waterfp import measure_hydration
 
     n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
-    u, meta = _run(tmp_path, n_frames=n_frames)
+    u, _meta = _run(tmp_path, n_frames=n_frames)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv").set_index("Atom")
     sel = select_system(u)
     labels = list(pd.read_csv(tmp_path / "candidate_atom_mapping.csv")["Atom"])
@@ -104,12 +104,13 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
                                                      (31, 500.0, 0.0), (10, 1000.0, 40000.0)])
 def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_path, n_frames, dt_ps, t0_ps):
     _u, meta = _run(tmp_path, n_frames=n_frames, dt_ps=dt_ps, t0_ps=t0_ps)
-    fpb = int(round(BLOCK_NS * 1000 / dt_ps))
+    fpb = round(BLOCK_NS * 1000 / dt_ps)
     n_blocks = n_frames // fpb
+    run_ns = (n_frames - 1) * dt_ps / 1000.0
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
     assert summary["trajectory_start_ns"] == pytest.approx(t0_ps / 1000.0)
-    assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
-    assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * dt_ps / 1000.0)
+    assert summary["trajectory_end_ns"] - summary["trajectory_start_ns"] == pytest.approx(run_ns)
+    assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx(run_ns)
     assert summary["n_blocks"] == n_blocks
     assert meta["frames"]["analysed"].stop - meta["frames"]["blocks"][-1]["frames"].stop == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
@@ -123,7 +124,7 @@ def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
     # Near-static trajectory: every transition is stable, so sustained convergence is reached
     # at the end of block 3 (third stable transition); all later blocks must still be analysed.
     n_frames = 20  # 10 blocks
-    _u, meta = _run(tmp_path, n_frames=n_frames, noise=0.0)
+    _run(tmp_path, n_frames=n_frames, noise=0.0)
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert metrics["passed"].all()

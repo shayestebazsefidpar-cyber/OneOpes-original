@@ -16,7 +16,7 @@ def run(tokens):
 def test_build_cv_missing_g1_g2_file_raises_clear_error(tmp_path):
     out_path = tmp_path / "out" / "plumed_fragment.dat"
 
-    with pytest.raises(ValidationError, match="does_not_exist.yaml.*does not exist"):
+    with pytest.raises(ValidationError, match=r"does_not_exist\.yaml.*does not exist"):
         run(["build-cv", "--g1-g2", str(tmp_path / "does_not_exist.yaml"), "--out", str(out_path)])
 
     assert not out_path.exists()

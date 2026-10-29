@@ -24,14 +24,14 @@ def test_default_cutoff_is_exactly_7_A():
 
 @pytest.mark.parametrize("value", [7.0, 10.0])
 def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
-    _command, bound, _ = app.parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", str(value)])
+    _command, bound, _ = app.parse_args([*protein_args(tmp_path), "--candidate-cutoff-A", str(value)])
     assert bound.arguments["options"].candidate_cutoff_A == value
 
 
 @pytest.mark.parametrize("value", ["0", "-3"])
 def test_cli_rejects_a_cutoff_that_is_not_positive(tmp_path, value):
     with pytest.raises(ValidationError):
-        app.parse_args(protein_args(tmp_path) + ["--candidate-cutoff-A", value], exit_on_error=False,
+        app.parse_args([*protein_args(tmp_path), "--candidate-cutoff-A", value], exit_on_error=False,
                        print_error=False)
 
 
@@ -51,7 +51,8 @@ def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):
         d = _min_dist(u, sel, i)
         assert (i in chosen) == (d <= CANDIDATE_CUTOFF_A_DEFAULT), (i, d)
     assert 0 < len(chosen) < len(sel.protein_heavy)
-    np.testing.assert_allclose(cand["Min_distance_to_ligand_A"], [_min_dist(u, sel, i) for i in cand["Atom_index"]], atol=1e-4)
+    expected = [_min_dist(u, sel, i) for i in cand["Atom_index"]]
+    np.testing.assert_allclose(cand["Min_distance_to_ligand_A"], expected, atol=1e-4)
 
 
 def test_cutoff_is_a_parameter(small_system):
@@ -86,8 +87,9 @@ def test_seven_angstrom_only_as_the_configurable_default():
 
 
 def test_ambiguous_ligand_requires_explicit_selection():
+    other = ("ZZY", [("X1", "C", (40.0, 40.0, 40.0)), ("X2", "C", (41.0, 40.0, 40.0))])
     u = build_universe(simple_protein(4), [("C1", "C", (12.0, 15.0, 10.0)), ("C2", "C", (13.0, 15.0, 10.0))],
-                       n_waters=5, extra_residues=[("ZZY", [("X1", "C", (40.0, 40.0, 40.0)), ("X2", "C", (41.0, 40.0, 40.0))])])
+                       n_waters=5, extra_residues=[other])
     with pytest.raises(SystemDefinitionError, match="ligand"):
         select_system(u)
     assert len(select_system(u, SystemOptions(ligand_selection="resname QZX")).ligand_heavy) == 2

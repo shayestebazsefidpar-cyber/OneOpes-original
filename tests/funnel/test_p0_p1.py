@@ -1,5 +1,7 @@
 """Tests for oneopes.funnel.p0_p1: BSS makeFunnel() selections + derived P0/P1."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from bss_helpers import bss_xyz, molecule_layout
@@ -52,9 +54,9 @@ def test_c3_arguments_pass_through_to_makefunnel(ref):
     system = ref.system
     protein, ligand, _, _ = molecule_layout(system)
     for kwargs in (
-        dict(protein=protein, ligand=ligand),
-        dict(protein=system[protein], ligand=system[ligand]),
-        dict(alpha_carbon_name="CA", property_map={}),
+        {"protein": protein, "ligand": ligand},
+        {"protein": system[protein], "ligand": system[ligand]},
+        {"alpha_carbon_name": "CA", "property_map": {}},
     ):
         expected0, expected1 = makeFunnel(system, **kwargs)
         r = make_p0_p1(system, **kwargs)
@@ -99,12 +101,10 @@ def test_d2_indices_are_system_level_not_protein_local(ref, ours):
 
 def test_d4_bss_index_plus_one_is_whole_pdb_serial(ref, ours):
     mda = pytest.importorskip("MDAnalysis")
-    import os
-
-    pdb = os.path.join(ref.directory, "whole.pdb")
-    if not os.path.exists(pdb):
+    pdb = Path(ref.directory) / "whole.pdb"
+    if not pdb.exists():
         pytest.skip(f"no whole.pdb in {ref.directory}")
-    u = mda.Universe(pdb)
+    u = mda.Universe(str(pdb))
     # residue name of each protein atom, from public Residue.name()/nAtoms()
     protein, _, offsets, _ = molecule_layout(ref.system)
     residue_of = []

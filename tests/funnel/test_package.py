@@ -42,11 +42,12 @@ def test_b7_clear_error_without_biosimspace(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "BioSimSpace", None)
     for fn in (make_p0_p1, make_funnel):
-        with pytest.raises(ImportError, match="BioSimSpace .*conda"):
+        with pytest.raises(ImportError, match=r"BioSimSpace .*conda"):
             fn(system=None)
 
 
 def test_b8_no_system_specific_values_in_src():
     forbidden = re.compile(r"HSP90|BRD4|lig\d|/home/|Escritorio|OneOpes-original", re.IGNORECASE)
-    hits = [f"{p.name}:{n}: {line.strip()}" for p in SRC.glob("*.py") for n, line in enumerate(p.read_text().splitlines(), 1) if forbidden.search(line)]
+    hits = [f"{path.name}:{number}: {line.strip()}" for path in SRC.glob("*.py")
+            for number, line in enumerate(path.read_text().splitlines(), 1) if forbidden.search(line)]
     assert hits == []

@@ -68,6 +68,14 @@ extend-immutable-calls = [
     "oneopes.waterfp.HydrationOptions", "oneopes.block_run.BlockOptions",
 ]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    # The synthetic test structures leave out PDB fields; MDAnalysis warns and fills in defaults.
+    "ignore:Found no information for attr:UserWarning:MDAnalysis",
+    "ignore:Found missing chainIDs:UserWarning:MDAnalysis",
+    "ignore:Element information is missing:UserWarning:MDAnalysis",
+]
+
 [tool.pyright]
 include = ["src"]
 exclude = ["src/oneopes/render/render_selected_atoms.py", "src/oneopes/render/render_selected_atoms_chimera.py"]
