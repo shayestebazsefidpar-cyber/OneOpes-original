@@ -32,11 +32,11 @@ oneopes prepare-system \
 ```
 
 Then run production yourself (so you control how/where mdrun is launched
-and can capture its PID):
+and can capture its PID), with the `prod.mdp` copied to the output folder:
 
 ```bash
 cd outputs/lig_system/
-gmx grompp -f <repo>/src/oneopes/ligand/mdp/prod.mdp -c npt.gro -t npt.cpt -p system.top -o prod.tpr -maxwarn 1
+gmx grompp -f prod.mdp -c npt.gro -t npt.cpt -p system.top -o prod.tpr -maxwarn 1
 gmx mdrun -deffnm prod -v &
 oneopes monitor $! --tpr prod.tpr --xtc prod.xtc
 ```

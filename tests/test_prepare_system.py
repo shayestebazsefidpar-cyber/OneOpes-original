@@ -5,6 +5,7 @@ import shlex
 import pytest
 
 from oneopes.cli import main
+from oneopes.ligand.setup import MDP_DIR
 
 ALL_STEPS = ["editconf", "solvate", "grompp", "genion", "grompp", "mdrun", "grompp", "mdrun", "grompp", "mdrun"]
 
@@ -21,9 +22,10 @@ def gmx_commands(tmp_path, caplog, *options: str) -> list[list[str]]:
     return [shlex.split(command.split(" | ")[-1])[1:] for command in shown]
 
 
-def test_runs_every_step_in_order_and_copies_the_topology(tmp_path, caplog):
+def test_runs_every_step_in_order_and_copies_the_topology_and_production_settings(tmp_path, caplog):
     assert [command[0] for command in gmx_commands(tmp_path, caplog)] == ALL_STEPS
     assert (tmp_path / "out" / "system.top").read_text() == "; topology\n"
+    assert (tmp_path / "out" / "prod.mdp").read_text() == (MDP_DIR / "prod.mdp").read_text()
 
 
 @pytest.mark.parametrize("start_from, expected", [("npt_tpr", ["grompp", "mdrun"]), ("genion", ALL_STEPS[3:])])

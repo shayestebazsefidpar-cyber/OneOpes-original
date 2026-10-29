@@ -32,7 +32,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
 
     Box definition -> solvation -> ionization -> EM -> NVT -> NPT, with no protein present
     (see docs/ligand_setup.md). Production MD is left to you, so that `oneopes monitor` can
-    follow the running mdrun's PID.
+    follow the running mdrun's PID; its settings, prod.mdp, are copied to --outdir.
 
     Parameters
     ----------
@@ -43,7 +43,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     outdir
         Working directory for all intermediate and output files.
     mdp_dir
-        Directory with em.mdp, ions.mdp, nvt.mdp and npt.mdp.
+        Directory with ions.mdp, em.mdp, nvt.mdp, npt.mdp and prod.mdp.
     water_model
         Coordinate file for `gmx solvate -cs` (spc216 suits TIP3P-class water models).
     ion_conc
@@ -53,12 +53,14 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     start_from
         Resume from this step instead of the beginning.
     """
-    for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp"):
+    for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp", "prod.mdp"):
         if not (mdp_dir / name).is_file():
             raise InputError(f"Required mdp file not found: {mdp_dir / name}")
     outdir.mkdir(parents=True, exist_ok=True)
     if not (outdir / "system.top").exists():
         shutil.copy(ligand_top, outdir / "system.top")
+    if not (outdir / "prod.mdp").exists():
+        shutil.copy(mdp_dir / "prod.mdp", outdir / "prod.mdp")
 
     def grompp(mdp: str, structure: list[str], tpr: str) -> list[str]:
         return [gmx, "grompp", "-f", str(mdp_dir / mdp), "-c", *structure, "-p", "system.top", "-o", tpr,
@@ -83,5 +85,5 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     for step in STEPS[STEPS.index(start_from):]:
         run_command(commands[step], cwd=outdir, stdin="SOL" if step == "genion" else None)
 
-    logger.info("done. NPT output: %s; next: grompp+mdrun production with mdp/prod.mdp, "
-                "then hand the mdrun PID to oneopes monitor", outdir / "npt.gro")
+    logger.info("done. NPT output: %s; next: grompp+mdrun production with %s, "
+                "then hand the mdrun PID to oneopes monitor", outdir / "npt.gro", outdir / "prod.mdp")
