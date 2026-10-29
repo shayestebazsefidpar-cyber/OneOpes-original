@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from itertools import accumulate, pairwise
 from pathlib import Path
 
@@ -160,39 +160,15 @@ def rdf_per_block(blocks: Sequence[WaterFP], labels: Sequence[str] | None = None
     return profiles.drop(columns="n_r")
 
 
-# Column name of each StabilityResult field in convergence_metrics.csv, in column order.
-CSV_COLUMNS = {
-    "fp_change": "FP_relative_change",
-    "fp_pass": "FP_pass",
-    "rdf_nrmsd": "RDF_nRMSD",
-    "rdf_pass": "RDF_pass",
-    "spearman_rho": "Spearman_rho",
-    "spearman_pass": "Spearman_pass",
-    "passed": "all_criteria_pass",
-}
+def transitions_table(stabilities: Sequence[StabilityResult], times_ns: Sequence[tuple[float, float]]) -> pd.DataFrame:
+    """One row per block after the first: its times, its StabilityResult against the block before it,
+    and the stable transitions in a row ending there.
 
-
-def transitions_table(stabilities: Sequence[StabilityResult], block_times: Sequence[tuple[float, float]],
-                      n_stable: int) -> pd.DataFrame:
-    """One row per transition: the columns of convergence_metrics.csv.
-
-    ``block_times[i]`` is the (start_ns, end_ns) of block i.
+    ``stabilities[i]`` compares block i + 1 with block i; ``times_ns[i]`` is the (start, end) of block i.
     """
-    first = first_convergence(stabilities, n_stable)
-    block = np.arange(1, len(stabilities) + 1)  # the later block of each transition
-    start_ns, end_ns = np.array(block_times, dtype=float)[block].T
-    blocks = pd.DataFrame({
-        "transition": [f"{b - 1}->{b}" for b in block],
-        "previous_block": block - 1,
-        "block": block,
-        "block_start_ns": start_ns,
-        "block_end_ns": end_ns,
-    })
-    metrics = pd.DataFrame([asdict(s) for s in stabilities], columns=list(CSV_COLUMNS)).rename(columns=CSV_COLUMNS)
-    return blocks.join(metrics).assign(
-        stable_transition_count=stable_in_a_row(stabilities),
-        convergence_reached=False if first is None else block - 1 >= first,
-    )
+    later_blocks = times_table(times_ns).iloc[1:len(stabilities) + 1].reset_index(drop=True)
+    stability = pd.DataFrame(map(asdict, stabilities), columns=[field.name for field in fields(StabilityResult)])
+    return later_blocks.join(stability).assign(stable_in_a_row=stable_in_a_row(stabilities))
 
 
 def write_block_tables(outdir: Path, blocks: Sequence[WaterFP], times_ns: Sequence[tuple[float, float]],
@@ -209,4 +185,4 @@ def write_block_tables(outdir: Path, blocks: Sequence[WaterFP], times_ns: Sequen
     fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
     stabilities = compare_blocks([block.results for block in blocks], tol)
-    transitions_table(stabilities, times_ns, tol.n_stable).to_csv(outdir / "convergence_metrics.csv", index=False)
+    transitions_table(stabilities, times_ns).to_csv(outdir / "convergence_metrics.csv", index=False)

@@ -116,8 +116,8 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert len(metrics) == n_blocks - 1
     expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
-    np.testing.assert_allclose(metrics["block_end_ns"], expected_ends)
-    np.testing.assert_allclose(metrics["block_start_ns"], np.array(expected_ends) - BLOCK_NS)
+    np.testing.assert_allclose(metrics["t_end_ns"], expected_ends)
+    np.testing.assert_allclose(metrics["t_start_ns"], np.array(expected_ends) - BLOCK_NS)
 
 
 def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
@@ -127,14 +127,14 @@ def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
     _u, meta = _run(tmp_path, n_frames=n_frames, noise=0.0)
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
-    assert metrics["all_criteria_pass"].all()
+    assert metrics["passed"].all()
     assert summary["converged"] is True
     assert summary["converged_ns"] == pytest.approx(4 * BLOCK_NS)
     assert summary["converged_block"] == 3
     assert summary["n_blocks"] == 10 and len(metrics) == 9  # nothing truncated
     assert summary["unstable_after_convergence"] == 0
     assert pd.read_csv(tmp_path / "fp_values_per_block.csv")["block"].max() == 9
-    assert list(metrics["convergence_reached"]) == [False, False] + [True] * 7
+    assert list(metrics["stable_in_a_row"]) == list(range(1, 10))
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     assert set(table["First_convergence_ns"]) == {4 * BLOCK_NS}
     assert set(table["Analysis_time_ns"]) == {(n_frames - 1) * DT_PS / 1000.0}
@@ -143,9 +143,8 @@ def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
 def test_convergence_metrics_are_a_separate_table(analysis):
     _u, _meta, out = analysis
     metrics = pd.read_csv(out / "convergence_metrics.csv")
-    for col in ("block_start_ns", "block_end_ns", "FP_relative_change", "FP_pass", "RDF_nRMSD", "RDF_pass",
-                "Spearman_rho", "Spearman_pass", "all_criteria_pass", "stable_transition_count",
-                "convergence_reached"):
+    for col in ("block", "t_start_ns", "t_end_ns", "fp_change", "fp_pass", "rdf_nrmsd", "rdf_pass",
+                "spearman_rho", "spearman_pass", "passed", "stable_in_a_row"):
         assert col in metrics.columns, col
     table = pd.read_csv(out / "final_per_atom_table.csv")
     assert not set(metrics.columns) & set(table.columns)
@@ -162,11 +161,11 @@ def test_worst_case_metrics_match_per_atom_block_data(analysis):
     f_last = fp[fp.block == last].set_index("atom")["FP"]
     f_prev = fp[fp.block == prev].set_index("atom")["FP"]
     rel = (f_last - f_prev).abs() / f_prev.abs().clip(lower=1e-6)
-    assert metrics.loc[last, "FP_relative_change"] == pytest.approx(rel.max(), rel=1e-9)
+    assert metrics.loc[last, "fp_change"] == pytest.approx(rel.max(), rel=1e-9)
     g = {b: rdf[rdf.block == b].sort_values(["atom", "r_nm"]).groupby("atom")["g_r"].apply(np.asarray)
          for b in (prev, last)}
     worst = max(nrmsd(g[last][a], g[prev][a]) for a in g[last].index)
-    assert metrics.loc[last, "RDF_nRMSD"] == pytest.approx(worst, rel=1e-6)
+    assert metrics.loc[last, "rdf_nrmsd"] == pytest.approx(worst, rel=1e-6)
 
 
 def test_block_data_kept_for_every_block_and_atom(analysis):

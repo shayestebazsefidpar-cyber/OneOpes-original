@@ -304,7 +304,7 @@ trajectory (length detected from the input)
   hydrated atom. Choosing final hydration CVs requires further scientific
   interpretation (e.g. together with `Contact_occupancy_5A`,
   `Bridge_occupancy` and `SASA_A2`); this workflow does not select CVs.
-* **Convergence criterion.** `FP_relative_change` is a worst-case per-atom
+* **Convergence criterion.** `fp_change` is a worst-case per-atom
   relative criterion, `max |FP_now − FP_prev| / max(|FP_prev|, 1e-6)` over
   all candidates. Atoms with FP close to zero (bulk-like, solvent-exposed) can
   produce very large relative changes and can dominate the verdict. This is
@@ -350,7 +350,7 @@ names (water/hydrogen naming may differ between formats).
 | `fp_values_per_block.csv`, `rdf_profiles_per_block.csv` | FP and g(r) per block and atom |
 | `contact_occupancy_per_block.csv` | Contact / Bridge per block and atom |
 | `fp_values_by_block_wide.csv`, `fp_ranking_by_block_wide.csv` | FP and rank (1 = most negative) per block |
-| `convergence_metrics.csv` | one row per block transition: `block_start_ns`, `block_end_ns`, `FP_relative_change`, `FP_pass`, `RDF_nRMSD`, `RDF_pass`, `Spearman_rho`, `Spearman_pass`, `all_criteria_pass`, `stable_transition_count`, `convergence_reached` |
+| `convergence_metrics.csv` | one row per block after the first, compared with the block before: `block`, `t_start_ns`, `t_end_ns`, `t_mid_ns`, `fp_change`, `rdf_nrmsd`, `spearman_rho`, `fp_pass`, `rdf_pass`, `spearman_pass`, `passed`, `stable_in_a_row` |
 | `convergence_summary.json` | block size, tolerances, number of blocks, `converged_block`/`converged_ns`, unstable transitions after convergence, trajectory and analysed time range |
 | `final_per_atom_table.csv` | one row per candidate, sorted by `FP_Rank` |
 | `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |
