@@ -9,7 +9,7 @@ time span and the time of first sustained convergence are in convergence_summary
 import numpy as np
 import pandas as pd
 
-from oneopes.convergence import fp_ranks
+from oneopes.reports import fp_ranks
 
 FINAL_COLUMNS = [
     "FP_Rank",

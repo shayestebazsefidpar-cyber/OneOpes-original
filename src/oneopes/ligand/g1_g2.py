@@ -14,8 +14,9 @@ from pydantic import BaseModel
 from scipy.sparse.csgraph import shortest_path
 
 from oneopes.errors import InputError
+from oneopes.reports import write_hydration_files
 from oneopes.system import select_system
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +116,6 @@ def anti_bulk_pair(fp_rounded: np.ndarray, same_fp_within: int, separation: np.n
     return 0, partner
 
 
-def write_waterfp_files(waterfp: WaterFP, outdir: Path) -> None:
-    """Write rdf.csv (atom, r_nm, n_r) and fingerprints.csv (atom, fp) of a finished WaterFP run."""
-    outdir.mkdir(parents=True, exist_ok=True)
-    waterfp.profile_table()[["atom", "r_nm", "n_r"]].to_csv(outdir / "rdf.csv", index=False)
-    waterfp.fp_table().rename(columns={"FP": "fp"}).to_csv(outdir / "fingerprints.csv", index=False)
-
-
 def write_g1_g2_yaml(selection: SelectionResult, path: Path) -> None:
     """Write the selection to YAML, creating the parent directory if needed."""
     path = Path(path)
@@ -168,13 +162,12 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     sel = select_system(u, ligand_selection, water_selection)
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
-    waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=norm_tail_bins)
-    waterfp.run(start=start_frame, stop=end_frame)
+    frames = range(start_frame, len(u.trajectory) if end_frame is None else end_frame)
+    hydration = measure_hydration(ligand, water, frames, grid, norm_tail_bins)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
-                waterfp.frames[0], waterfp.frames[-1],
-                waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
+                frames.start, frames.stop - 1, hydration.fp.sortby(hydration.fp).to_series().to_string())
 
-    write_waterfp_files(waterfp, outdir)
-    selection = select_g1_g2(ligand, waterfp.results.fp, fp_round_decimals)
+    write_hydration_files(hydration, outdir)
+    selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
     logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)

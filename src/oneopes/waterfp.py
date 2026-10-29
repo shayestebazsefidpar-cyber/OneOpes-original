@@ -1,13 +1,18 @@
-"""Functionality to compute WaterFP as in publication 10.1063/5.0287856
+"""WaterFP, the hydration fingerprint of an atom (publication 10.1063/5.0287856, github.com/valeriorizzi/WaterFP).
 
-Original at: github.com/valeriorizzi/WaterFP
+For each atom, water oxygens are counted in thin spherical shells around it over the analysed frames
+(:class:`WaterFP`), and :func:`hydration` turns the counts into the water structure around the atom:
+its water density n(r), the bulk density, g(r) = n(r) / bulk, and the fingerprint
+FP = ∫ -2π·bulk·(g ln g - g + 1)·r² dr, which is 0 for bulk-like water and more negative the more
+the water around the atom differs from bulk.
 """
 
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
+
 import numpy as np
-import pandas as pd
+import xarray as xr
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.results import ResultsGroup
 from MDAnalysis.core.groups import AtomGroup
@@ -59,56 +64,49 @@ class RadialGrid:
         return (4.0 / 3.0) * np.pi * (upper ** 3 - lower ** 3)
 
 
-@dataclass(frozen=True, eq=False)
-class WaterCounts:
-    """Water-oxygen counts per radial bin around each solute atom, summed over frames."""
-    counts: np.ndarray
-    """(n_atoms, grid.n_bins) int64."""
-    n_frames: int
-    """Frames contributing to ``counts``."""
-    solute_indices: np.ndarray
-    """(n_atoms,) atom indices in the universe; row i of ``counts`` is atom ``solute_indices[i]``."""
-    grid: RadialGrid
+def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: RadialGrid,
+                             box: np.ndarray | None) -> np.ndarray:
+    """Water oxygens in each radial shell around each solute atom, in one frame (positions in A).
 
-    @property
-    def density_nm3(self) -> np.ndarray:
-        """Water-O number density n(r) around each atom (waters/nm^3), shape (n_atoms, n_bins)."""
-        return self.counts / self.n_frames / self.grid.shell_volumes_nm3
-
-
-def fingerprint(counts: WaterCounts,
-                norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT) -> tuple[np.ndarray, np.ndarray]:
-    """WaterFP and g(r) of every solute atom in ``counts``.
-
-    g(r) is the water density relative to the bulk plateau (mean of the last
-    ``norm_tail_bins`` bins); FP integrates -2*pi*bulk*(g ln g - g + 1)*r^2 over r.
-    Returns (fp of shape (n_atoms,), g of shape (n_atoms, n_bins)).
-    Raises ValueError when an atom has no water at all in the bulk tail.
+    Returns an (n_solute, grid.n_bins) int64 array; waters beyond rmax are not counted. Distances use the
+    minimum image when ``box`` is given.
     """
-    density = counts.density_nm3
-    bulk = density[:, -norm_tail_bins:].mean(axis=1, keepdims=True)
-    no_bulk_water = bulk[:, 0] == 0
-    if no_bulk_water.any():
-        raise ValueError(
-            f"No water in the bulk tail (last {norm_tail_bins} bins, up to {counts.grid.rmax_nm} nm) around "
-            f"solute atoms {counts.solute_indices[no_bulk_water].tolist()}: check the water selection "
-            "and that the box holds water that far from the solute."
-        )
+    edges_a = grid.edges_a
+    pairs, distances = capped_distance(solute, waters, max_cutoff=edges_a[-1], box=box)
+    one_bin_per_atom = np.arange(len(solute) + 1)
+    histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(one_bin_per_atom, edges_a))
+    return histogram.astype(np.int64)
+
+
+def hydration(counts: np.ndarray, n_frames: int, grid: RadialGrid, atoms: Sequence[str],
+              tail_bins: int = NORM_TAIL_BINS_DEFAULT) -> xr.Dataset:
+    """The water structure around each atom, from its water counts summed over ``n_frames`` frames.
+
+    A Dataset over ``atom`` (the names in ``atoms``) and ``r_nm`` (the bin centres) holding
+    ``density`` n(r) (waters/nm^3), ``bulk`` (the mean density over the last ``tail_bins`` bins),
+    ``g`` = n(r) / bulk and ``fp``. Raises InputError when an atom has no water in the bulk tail.
+    """
+    waters = xr.DataArray(counts, dims=("atom", "r_nm"), coords={"atom": list(atoms), "r_nm": grid.r_nm})
+    shell_volumes = xr.DataArray(grid.shell_volumes_nm3, dims="r_nm", coords={"r_nm": grid.r_nm})
+    density = waters / n_frames / shell_volumes
+    bulk = density.isel(r_nm=slice(-tail_bins, None)).mean("r_nm")
+    if (bulk == 0).any():
+        no_water = bulk.atom[bulk == 0].values.tolist()
+        raise InputError(f"No water in the bulk tail (last {tail_bins} bins, up to {grid.rmax_nm} nm) around "
+                         f"atoms {no_water}: check the water selection and that the box holds water that far "
+                         "from the solute.")
     g = density / bulk
-    integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.grid.r_nm ** 2  # xlogy(0, 0) = 0
-    fp = np.asarray(np.trapezoid(integrand, dx=counts.grid.binwidth_nm, axis=1))
-    return fp, g
+    fp = (-2 * np.pi * bulk * (xlogy(g, g) - g + 1) * g.r_nm ** 2).integrate("r_nm")
+    return xr.Dataset({"density": density, "bulk": bulk, "g": g, "fp": fp})
 
 
 class WaterFP(AnalysisBase):
-    """WaterFP of each solute atom over the analysed frames.
+    """Water oxygens per radial shell around each solute atom, summed over the analysed frames.
 
-    Usage: ``results = WaterFP(solute, water_oxygens).run(start=..., stop=...).results``, then
-    ``results.fp`` (n_atoms,), ``results.g`` (n_atoms, n_bins), ``results.r_nm`` (n_bins,) and
-    ``results.water_counts`` (the raw, additive WaterCounts, e.g. for combining blocks).
-    After ``run()``, ``fp_table()`` and ``profile_table()`` give the same results as tables.
-    Counts add up across frames, so the analysis can also run in parallel,
-    e.g. ``run(backend="multiprocessing", n_workers=4)``.
+    Usage: ``WaterFP(solute, water_oxygens).run(start=..., stop=...).results.hydration`` is the
+    :func:`hydration` Dataset; ``results.counts`` holds the raw counts, which add up across frames,
+    so the analysis can also run in parallel, e.g. ``run(backend="multiprocessing", n_workers=4)``.
+    ``labels`` name the atoms in the Dataset (default: the solute's atom names).
     """
 
     _analysis_algorithm_is_parallelizable = True
@@ -118,24 +116,27 @@ class WaterFP(AnalysisBase):
         return ("serial", "multiprocessing", "dask")
 
     def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *, grid: RadialGrid = RadialGrid(),
-                 norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, **kwargs) -> None:
+                 norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT, labels: Sequence[str] | None = None,
+                 **kwargs) -> None:
         if not 1 <= norm_tail_bins <= grid.n_bins:
             raise InputError(
                 f"norm_tail_bins must be between 1 and the {grid.n_bins} radial bins, got {norm_tail_bins}.")
+        if labels is not None and len(labels) != len(solute):
+            raise ValueError(f"{len(labels)} labels for {len(solute)} solute atoms.")
         super().__init__(solute.universe.trajectory, **kwargs)
         self.solute = solute
         self.water_oxygens = water_oxygens
         self.grid = grid
         self.norm_tail_bins = norm_tail_bins
+        self.labels = list(solute.names) if labels is None else list(labels)
 
     def _prepare(self) -> None:
         self.results.counts = np.zeros((self.solute.n_atoms, self.grid.n_bins), dtype=np.int64)
 
     def _single_frame(self) -> None:
-        edges_a = self.grid.edges_a
+        """Add this frame's counts; warns (once: the message is constant) when the box is too small for rmax."""
         box = self._ts.dimensions
-        if box is not None and edges_a[-1] > 0.5 * min(box[:3]):
-            # constant message: Python shows it once, not once per frame
+        if box is not None and self.grid.edges_a[-1] > 0.5 * min(box[:3]):
             warnings.warn(
                 f"rmax ({self.grid.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
                 "distances the outer shells are only partly sampled, so the bulk density and every FP "
@@ -143,43 +144,19 @@ class WaterFP(AnalysisBase):
                 RuntimeWarning,
                 stacklevel=2,
             )
-        pairs, distances = capped_distance(self.solute.positions, self.water_oxygens.positions,
-                                           max_cutoff=edges_a[-1], box=box)
-        one_bin_per_atom = np.arange(self.solute.n_atoms + 1)
-        histogram, _, _ = np.histogram2d(pairs[:, 0], distances, bins=(one_bin_per_atom, edges_a))
-        self.results.counts += histogram.astype(np.int64)
+        self.results.counts += count_waters_by_distance(self.solute.positions, self.water_oxygens.positions,
+                                                        self.grid, box)
 
     def _get_aggregator(self) -> ResultsGroup:
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        water_counts = WaterCounts(counts=self.results.counts, n_frames=self.n_frames,
-                                   solute_indices=self.solute.indices.copy(), grid=self.grid)
-        self.results.water_counts = water_counts
-        self.results.fp, self.results.g = fingerprint(water_counts, self.norm_tail_bins)
-        self.results.r_nm = self.grid.r_nm
+        self.results.hydration = hydration(self.results.counts, self.n_frames, self.grid, self.labels,
+                                           self.norm_tail_bins)
 
-    def fp_table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
-        """One row per solute atom: atom, FP. ``labels`` name the atoms (default: solute atom names)."""
-        return pd.DataFrame({"atom": self._atom_labels(labels), "FP": self.results.fp})
 
-    def profile_table(self, labels: Sequence[str] | None = None) -> pd.DataFrame:
-        """One row per (solute atom, r): atom, r_nm, n_r (water-O density, waters/nm^3), g_r.
-
-        ``labels`` name the atoms (default: solute atom names).
-        """
-        labels = self._atom_labels(labels)
-        r_nm = self.results.r_nm
-        return pd.DataFrame({
-            "atom": np.repeat(labels, len(r_nm)),
-            "r_nm": np.tile(r_nm, len(labels)),
-            "n_r": self.results.water_counts.density_nm3.ravel(),  # row by row: one atom after the other
-            "g_r": self.results.g.ravel(),
-        })
-
-    def _atom_labels(self, labels: Sequence[str] | None) -> list[str]:
-        if labels is None:
-            return list(self.solute.names)
-        if len(labels) != len(self.solute):
-            raise ValueError(f"{len(labels)} labels for {len(self.solute)} solute atoms.")
-        return list(labels)
+def measure_hydration(solute: AtomGroup, water_oxygens: AtomGroup, frames: range, grid: RadialGrid = RadialGrid(),
+                      tail_bins: int = NORM_TAIL_BINS_DEFAULT, labels: Sequence[str] | None = None) -> xr.Dataset:
+    """The :func:`hydration` of ``solute`` over ``frames`` of its trajectory."""
+    analysis = WaterFP(solute, water_oxygens, grid=grid, norm_tail_bins=tail_bins, labels=labels)
+    return analysis.run(start=frames.start, stop=frames.stop).results.hydration

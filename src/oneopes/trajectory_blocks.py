@@ -1,7 +1,9 @@
 """Trajectory blocks: consecutive runs of the same number of frames, each a ``range`` of frame indices."""
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+import xarray as xr
 from MDAnalysis import Universe
 
 from oneopes.errors import InputError
@@ -45,6 +47,19 @@ def time_span_ns(u: Universe, frames: range, dt_ps: float) -> tuple[float, float
 def complete_blocks(start: int, stop: int, length: int) -> list[range]:
     """The complete blocks of ``length`` frames in frames [start, stop); leftover frames at the end are skipped."""
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]
+
+
+def block_measurement(measurement: xr.Dataset, frames: range, time_ns: tuple[float, float]) -> xr.Dataset:
+    """What was measured over one block, labelled with the block's start and end time (ns) and frame count."""
+    start_ns, end_ns = time_ns
+    return measurement.assign_coords(t_start_ns=start_ns, t_end_ns=end_ns, n_frames=len(frames))
+
+
+def stack_blocks(blocks: Sequence[xr.Dataset]) -> xr.Dataset:
+    """Block measurements along a ``block`` dimension numbered from 0, with each block's mid time ``t_mid_ns``."""
+    stacked = xr.concat(blocks, dim="block", data_vars="all", coords="all", join="exact")
+    stacked = stacked.assign_coords(block=np.arange(len(blocks)))
+    return stacked.assign_coords(t_mid_ns=(stacked.t_start_ns + stacked.t_end_ns) / 2)
 
 
 @dataclass(frozen=True)

@@ -17,7 +17,8 @@ def random_universe(n_solute: int = 3, n_water: int = 200, n_frames: int = 5, se
 
 
 def universe_from_coordinates(coords: np.ndarray, box_a: float = BOX_A) -> mda.Universe:
-    """Universe with one frame per entry of ``coords`` (n_frames, n_atoms, 3), in a cubic box."""
+    """Universe with one frame per entry of ``coords`` (n_frames, n_atoms, 3), in a cubic box; atom i is named Ai."""
     u = mda.Universe.empty(coords.shape[1], trajectory=True)
+    u.add_TopologyAttr("names", [f"A{i}" for i in range(coords.shape[1])])
     u.load_new(coords, format=MemoryReader, dimensions=[box_a, box_a, box_a, 90.0, 90.0, 90.0])
     return u

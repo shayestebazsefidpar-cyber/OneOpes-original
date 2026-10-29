@@ -13,9 +13,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
+from MDAnalysis.core.groups import AtomGroup
 
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
@@ -23,24 +25,23 @@ from oneopes.convergence import (
     Tolerances,
     compare_blocks,
     first_convergence,
-    fp_per_block,
-    rdf_per_block,
     stable_in_a_row,
     summarize,
-    write_block_tables,
-    write_summary,
 )
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml, write_waterfp_files
+from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
+from oneopes.reports import fp_per_block, rdf_per_block, write_block_tables, write_hydration_files, write_summary
 from oneopes.system import select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
+    block_measurement,
     frame_step_ps,
     frame_time_ns,
     frames_per_block,
+    stack_blocks,
     time_span_ns,
 )
-from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -99,20 +100,20 @@ def log_progress(block: int, end_ns: float, stabilities: Sequence[StabilityResul
                 block, end_ns, s.fp_change, s.rdf_nrmsd, s.spearman_rho, s.passed, stable_in_a_row(stabilities)[-1])
 
 
-def plot_blocks(blocks: Sequence[WaterFP], block_times: Sequence[tuple[float, float]], outdir: Path) -> None:
+def plot_blocks(blocks: xr.Dataset, outdir: Path) -> None:
     """For every ligand atom, FP against time (fp_plots/) and g(r) of each block (rdf_plots/)."""
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
-    fp_df, rdf_df = fp_per_block(blocks, block_times), rdf_per_block(blocks)
+    fp_df, rdf_df = fp_per_block(blocks), rdf_per_block(blocks)
     for atom_name in fp_df["atom"].unique():
         plot_atom(atom_name, fp_df, rdf_df, outdir)
 
 
-def select_g1_g2_on_block(block: WaterFP, selection_dir: Path, fp_round_decimals: int) -> None:
+def select_g1_g2_on_block(ligand: AtomGroup, block: xr.Dataset, selection_dir: Path, fp_round_decimals: int) -> None:
     """Write the block's rdf.csv and fingerprints.csv, then its G1/G2 selection as g1_g2.yaml (if there is one)."""
-    write_waterfp_files(block, selection_dir)
+    write_hydration_files(block, selection_dir)
     try:
-        selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
+        selection = select_g1_g2(ligand, block.fp.values, fp_round_decimals)
     except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)
         return
@@ -197,7 +198,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
 
     u = load_universe()
     sel = select_system(u, ligand_selection, water_selection)
-    atom_names = list(u.atoms[sel.ligand_heavy].names)
+    ligand = u.atoms[sel.ligand_heavy]
+    atom_names = list(ligand.names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_description, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_description)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
@@ -208,25 +210,26 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    blocks, block_times, stabilities = [], [], []
+    measured, stabilities = [], []
     for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
-        waterfp = WaterFP(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], grid=grid,
-                          norm_tail_bins=norm_tail_bins)
-        blocks.append(waterfp.run(start=frames.start, stop=frames.stop))
-        block_times.append(time_span_ns(u, frames, dt_ps))
-        write_block_tables(outdir, blocks, block_times, tol)
-        stabilities = compare_blocks([block.results for block in blocks], tol)
-        log_progress(len(blocks) - 1, block_times[-1][1], stabilities)
+        hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], frames, grid,
+                                      norm_tail_bins)
+        measured.append(block_measurement(hydration, frames, time_span_ns(u, frames, dt_ps)))
+        blocks = stack_blocks(measured)
+        stabilities = compare_blocks(blocks, tol)
+        write_block_tables(outdir, blocks, stabilities)
+        log_progress(len(measured) - 1, float(blocks.t_end_ns[-1]), stabilities)
         if first_convergence(stabilities, tol.n_stable) is not None:
             break
-    if not blocks:
+    if not measured:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
-    summary = summarize(stabilities, block_times, block_ns, tol)
+    blocks = stack_blocks(measured)
+    summary = summarize(stabilities, blocks, block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
                   ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
-    plot_blocks(blocks, block_times, outdir)
+    plot_blocks(blocks, outdir)
     converged_block = summary.converged_block
     if converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
@@ -235,4 +238,4 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
 
     logger.info("DONE, converged at block %d (%s ns)", converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
-    select_g1_g2_on_block(blocks[converged_block], outdir / "selection", fp_round_decimals)
+    select_g1_g2_on_block(ligand, blocks.isel(block=converged_block), outdir / "selection", fp_round_decimals)

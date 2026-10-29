@@ -12,6 +12,7 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
@@ -21,22 +22,26 @@ from oneopes import __version__
 from oneopes.convergence import (
     DEFAULT_TOLERANCES,
     ConvergenceSummary,
+    StabilityResult,
     Tolerances,
     compare_blocks,
-    stack_blocks,
     summarize,
-    times_table,
-    write_block_tables,
-    write_summary,
 )
 from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
-from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, Contacts
+from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
-from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, FrameLayout, frame_layout
-from oneopes.waterfp import WaterFP
+from oneopes.reports import write_block_tables, write_summary
+from oneopes.trajectory_blocks import (
+    BLOCK_NS_DEFAULT,
+    FrameLayout,
+    block_measurement,
+    frame_layout,
+    stack_blocks,
+)
+from oneopes.waterfp import measure_hydration
 
 logger = logging.getLogger(__name__)
 
@@ -60,28 +65,14 @@ class AnalysisOptions:
     tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
 
 
-@dataclass(frozen=True)
-class FrameAnalysis:
-    """WaterFP and Contact/Bridge occupancy of the candidate atoms over one range of frames."""
-    waterfp: WaterFP
-    contacts: Contacts
-
-    def table(self) -> pd.DataFrame:
-        """One row per candidate atom, in order: FP, Contact_occupancy_5A, Bridge_occupancy."""
-        return pd.DataFrame({
-            "FP": self.waterfp.results.fp,
-            "Contact_occupancy_5A": self.contacts.results.contact_occupancy,
-            "Bridge_occupancy": self.contacts.results.bridge_occupancy,
-        })
-
-
-def analyse_frames(system: ProteinSystem, candidate_atoms: AtomGroup, frames: range) -> FrameAnalysis:
+def measure_frames(system: ProteinSystem, candidate_atoms: AtomGroup, labels: Sequence[str],
+                   frames: range) -> xr.Dataset:
+    """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
+    ``frames``, along ``atom`` (named by ``labels``)."""
     atoms = system.trajectory.atoms
     ligand, water = atoms[system.selection.ligand_heavy], atoms[system.selection.water_oxygens]
-    return FrameAnalysis(
-        waterfp=WaterFP(candidate_atoms, water).run(start=frames.start, stop=frames.stop),
-        contacts=Contacts(candidate_atoms, ligand, water).run(start=frames.start, stop=frames.stop),
-    )
+    return xr.merge([measure_hydration(candidate_atoms, water, frames, labels=labels),
+                     measure_contacts(candidate_atoms, ligand, water, frames, labels)])
 
 
 @dataclass(frozen=True)
@@ -92,9 +83,11 @@ class ProteinAnalysis:
     candidates: pd.DataFrame
     """The candidate pool (see :func:`select_candidates`), in the order of every per-atom result."""
     layout: FrameLayout
-    blocks: list[FrameAnalysis]
-    full: FrameAnalysis
-    """Over the whole analysed range."""
+    blocks: xr.Dataset
+    """The :func:`measure_frames` of each block, stacked by :func:`stack_blocks`."""
+    stabilities: list[StabilityResult]
+    full: xr.Dataset
+    """The :func:`measure_frames` of the whole analysed range."""
     sasa: np.ndarray
     summary: ConvergenceSummary
 
@@ -115,36 +108,45 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     logger.info("%s", layout.describe())
 
     candidate_atoms = system.trajectory.atoms[candidate_index]
-    blocks = [analyse_frames(system, candidate_atoms, frames) for frames in layout.blocks]
-    full = analyse_frames(system, candidate_atoms, layout.analysed)
-    stabilities = compare_blocks([block.waterfp.results for block in blocks], options.tolerances)
-    summary = summarize(stabilities, layout.block_times_ns, options.block_ns, options.tolerances)
+    labels = list(candidates["Atom"])
+    blocks = stack_blocks([block_measurement(measure_frames(system, candidate_atoms, labels, frames), frames, times)
+                           for frames, times in zip(layout.blocks, layout.block_times_ns, strict=True)])
+    full = measure_frames(system, candidate_atoms, labels, layout.analysed)
+    stabilities = compare_blocks(blocks, options.tolerances)
+    summary = summarize(stabilities, blocks, options.block_ns, options.tolerances)
     logger.info("first sustained convergence: %s ns", summary.converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           full=full, sasa=static_sasa(system, candidate_index), summary=summary)
+                           stabilities=stabilities, full=full, sasa=static_sasa(system, candidate_index),
+                           summary=summary)
 
 
-def contacts_per_block(contacts: Sequence[Contacts], times_ns: Sequence[tuple[float, float]],
-                       labels: Sequence[str]) -> pd.DataFrame:
-    """One row per (block, candidate atom): block, t_start_ns, t_end_ns, then the Contacts table."""
-    times = times_table(times_ns).drop(columns="t_mid_ns")
-    return times.merge(stack_blocks([block.table(labels) for block in contacts]), on="block")
+OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
+"""The occupancies' column names in the tables."""
+
+
+def contacts_per_block(blocks: xr.Dataset) -> pd.DataFrame:
+    """One row per (block, candidate atom): block, t_start_ns, t_end_ns, atom, the occupancies, n_frames."""
+    table = blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().reset_index().rename(columns=OCCUPANCY_COLUMNS)
+    return table[["block", "t_start_ns", "t_end_ns", "atom", *OCCUPANCY_COLUMNS.values(), "n_frames"]]
+
+
+def final_values(full: xr.Dataset) -> pd.DataFrame:
+    """One row per candidate atom, in order: FP, Contact_occupancy_5A, Bridge_occupancy."""
+    table = full[["fp", *OCCUPANCY_COLUMNS]].to_dataframe().reset_index(drop=True)
+    return table.rename(columns={"fp": "FP", **OCCUPANCY_COLUMNS})
 
 
 def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
     """Write the candidate pool, the block-wise tables, the convergence summary and the final per-atom table."""
     candidates, layout = analysis.candidates, analysis.layout
-    labels = list(candidates["Atom"])
     outdir.mkdir(parents=True, exist_ok=True)
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_block_tables(outdir, [block.waterfp for block in analysis.blocks], layout.block_times_ns,
-                       analysis.options.tolerances, labels)
-    contacts_per_block([block.contacts for block in analysis.blocks], layout.block_times_ns, labels).to_csv(
-        outdir / "contact_occupancy_per_block.csv", index=False)
+    write_block_tables(outdir, analysis.blocks, analysis.stabilities)
+    contacts_per_block(analysis.blocks).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     write_summary(outdir / "convergence_summary.json", analysis.summary,
                   trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
                   analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
-    table = build_final_table(candidates, analysis.full.table(), analysis.sasa)
+    table = build_final_table(candidates, final_values(analysis.full), analysis.sasa)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 

@@ -81,7 +81,7 @@ def test_final_table_has_every_candidate_once(analysis):
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     from oneopes.protein.contacts import Contacts
-    from oneopes.waterfp import WaterFP
+    from oneopes.waterfp import measure_hydration
 
     n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
     u, meta = _run(tmp_path, n_frames=n_frames)
@@ -89,7 +89,7 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     sel = select_system(u)
     labels = list(pd.read_csv(tmp_path / "candidate_atom_mapping.csv")["Atom"])
     idx = table.loc[labels, "Atom_index"].to_numpy()
-    fp_full = WaterFP(u.atoms[idx], u.atoms[sel.water_oxygens]).run(start=0, stop=n_frames).results.fp
+    fp_full = measure_hydration(u.atoms[idx], u.atoms[sel.water_oxygens], range(n_frames)).fp
     contacts = Contacts(u.atoms[idx], u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]).run().results
     np.testing.assert_allclose(table.loc[labels, "FP"], fp_full, rtol=1e-12)
     np.testing.assert_allclose(table.loc[labels, "Contact_occupancy_5A"], contacts.contact_occupancy)
@@ -169,7 +169,10 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     n = meta["n_candidate_atoms"]
     fp = pd.read_csv(out / "fp_values_per_block.csv")
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
-    assert len(pd.read_csv(out / "contact_occupancy_per_block.csv")) == n_blocks * n
+    contacts = pd.read_csv(out / "contact_occupancy_per_block.csv")
+    assert list(contacts.columns) == ["block", "t_start_ns", "t_end_ns", "atom", "Contact_occupancy_5A",
+                                      "Bridge_occupancy", "n_frames"]
+    assert len(contacts) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
     assert len(meta["frames"]["blocks"]) == n_blocks
     assert len(pd.read_csv(out / "rdf_profiles_per_block.csv")) == n_blocks * n * 2001

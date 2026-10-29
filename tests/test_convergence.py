@@ -1,11 +1,9 @@
 """Tests for the shared `convergence` module: one transition's stability, and convergence over a run."""
 import dataclasses
-import json
 
 import numpy as np
-import pandas as pd
 import pytest
-from MDAnalysis.analysis.results import Results
+import xarray as xr
 
 from oneopes.errors import InputError
 from oneopes.convergence import (
@@ -16,16 +14,11 @@ from oneopes.convergence import (
     check_stability,
     compare_blocks,
     first_convergence,
-    fp_ranks,
     nrmsd,
     stable_in_a_row,
     summarize,
-    transitions_table,
-    write_block_tables,
-    write_summary,
 )
-from water_systems import random_universe
-from oneopes.waterfp import WaterFP
+from oneopes.trajectory_blocks import block_measurement, stack_blocks
 
 TOL = DEFAULT_TOLERANCES
 
@@ -36,13 +29,26 @@ def _same_g(n_atoms):
 
 
 def _block(fp, g):
-    """A block's WaterFP results."""
-    return Results(fp=np.asarray(fp, dtype=float), g=np.asarray(g, dtype=float))
+    """A block's hydration: only the FP and g(r) the criteria look at."""
+    return xr.Dataset({"fp": ("atom", np.asarray(fp, dtype=float)),
+                       "g": (("atom", "r_nm"), np.asarray(g, dtype=float))})
+
+
+def _stack(blocks, block_ns=1.0, start_ns=0.0):
+    """The blocks as consecutive one-frame blocks of block_ns ns from start_ns."""
+    return stack_blocks([block_measurement(block, range(b, b + 1), (start_ns + b * block_ns,
+                                                                    start_ns + (b + 1) * block_ns))
+                         for b, block in enumerate(blocks)])
 
 
 def _fp_run(*fps):
-    """WaterFP results of consecutive blocks with the given FP values and identical g(r)."""
-    return [_block(fp, _same_g(len(fp))) for fp in fps]
+    """Consecutive blocks with the given FP values and identical g(r)."""
+    return _stack([_block(fp, _same_g(len(fp))) for fp in fps])
+
+
+def _n_blocks(n, block_ns=1.0):
+    """n consecutive blocks of block_ns ns from 0, all alike."""
+    return _stack([_block([-1.0], _same_g(1))] * n, block_ns)
 
 
 def _stabilities(passed):
@@ -140,71 +146,16 @@ def test_first_convergence_is_the_transition_completing_the_first_streak():
     assert first_convergence(stabilities[:5], 3) is None
 
 
-def test_transitions_table_rows_and_times():
-    """Six blocks of 2.5 ns from 12.5 ns: one row per block after the first."""
-    stabilities = _stabilities([False, True, True, True, False])
-    block_times = [(12.5 + 2.5 * b, 12.5 + 2.5 * (b + 1)) for b in range(6)]
-    table = transitions_table(stabilities, block_times)
-    assert list(table.columns) == [
-        "block", "t_start_ns", "t_end_ns", "t_mid_ns",
-        "fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rdf_pass", "spearman_pass", "passed",
-        "stable_in_a_row"]
-    assert list(table["block"]) == [1, 2, 3, 4, 5]
-    assert list(table["t_end_ns"]) == [17.5, 20.0, 22.5, 25.0, 27.5]
-    assert list(table["passed"]) == [False, True, True, True, False]
-    assert list(table["stable_in_a_row"]) == [0, 1, 2, 3, 0]
-
-
-def test_a_single_block_has_no_transitions_but_keeps_the_header(tmp_path):
-    transitions_table([], [(0.0, 5.0)]).to_csv(tmp_path / "metrics.csv", index=False)
-    assert (tmp_path / "metrics.csv").read_text().startswith("block,t_start_ns,t_end_ns,")
-    assert pd.read_csv(tmp_path / "metrics.csv").empty
-
-
 def test_summarize_converged_run():
     """Converged at transition 2->3 (block 3); of the two later transitions one failed."""
     stabilities = _stabilities([True, True, True, False, True])
-    block_times = [(2.0 * b, 2.0 * (b + 1)) for b in range(6)]
-    summary = summarize(stabilities, block_times, 2.0, TOL)
+    summary = summarize(stabilities, _n_blocks(6, block_ns=2.0), 2.0, TOL)
     assert summary == ConvergenceSummary(block_ns=2.0, tolerances=TOL, n_blocks=6, converged=True,
                                          converged_block=3, converged_ns=8.0, unstable_after_convergence=1,
                                          stable_in_a_row_at_end=1)
 
 
 def test_summarize_unconverged_and_single_block_runs():
-    summary = summarize(_stabilities([True, False]), [(0.0, 1.0)] * 3, 1.0, TOL)
+    summary = summarize(_stabilities([True, False]), _n_blocks(3), 1.0, TOL)
     assert (summary.converged, summary.converged_block, summary.converged_ns) == (False, None, None)
-    assert summarize([], [(0.0, 1.0)], 1.0, TOL).stable_in_a_row_at_end == 0
-
-
-def test_write_summary_adds_facts_to_the_summary(tmp_path):
-    summary = summarize(_stabilities([True] * 3), [(0.0, 1.0)] * 4, 1.0, TOL)
-    write_summary(tmp_path / "summary.json", summary, ligand_heavy_atoms=["C1", "O1"])
-    written = json.loads((tmp_path / "summary.json").read_text())
-    assert written["tolerances"] == dataclasses.asdict(TOL)
-    assert written["converged_block"] == 3 and written["ligand_heavy_atoms"] == ["C1", "O1"]
-
-
-def test_fp_rank_one_is_the_most_negative_fp():
-    fp = pd.Series({"x": -3.0, "y": -40.0, "z": 2.0})
-    assert fp_ranks(fp).to_dict() == {"x": 2, "y": 1, "z": 3}
-
-
-def test_write_block_tables(tmp_path):
-    """Five CSVs; wide tables keep the atoms' order (not alphabetical) and rank each block's FP."""
-    u = random_universe(n_frames=4)
-    blocks = [WaterFP(u.atoms[:3], u.atoms[3:]).run(start=i, stop=i + 1) for i in range(4)]
-    write_block_tables(tmp_path, blocks, [(i, i + 1.0) for i in range(4)], TOL, labels=["c", "a", "b"])
-
-    assert len(pd.read_csv(tmp_path / "fp_values_per_block.csv")) == 4 * 3
-    assert len(pd.read_csv(tmp_path / "convergence_metrics.csv")) == 3
-    assert pd.read_csv(tmp_path / "rdf_profiles_per_block.csv")["block"].nunique() == 4
-    fp = pd.read_csv(tmp_path / "fp_values_by_block_wide.csv", index_col="atom")
-    ranks = pd.read_csv(tmp_path / "fp_ranking_by_block_wide.csv", index_col="atom")
-    assert list(fp.index) == ["c", "a", "b"]
-    assert ranks.equals(fp.rank().astype(int))
-
-
-def test_fp_ranks_per_block_with_ties_in_atom_order():
-    fp = pd.DataFrame({0: [-1.0, -1.0, -5.0], 1: [0.0, -2.0, -1.0]}, index=["x", "y", "z"])
-    assert fp_ranks(fp).to_dict() == {0: {"x": 2, "y": 3, "z": 1}, 1: {"x": 3, "y": 1, "z": 2}}
+    assert summarize([], _n_blocks(1), 1.0, TOL).stable_in_a_row_at_end == 0

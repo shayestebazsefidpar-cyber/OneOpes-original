@@ -16,6 +16,7 @@ dependencies = [
     "cyclopts>=5.3.2",
     "pydantic>=2.14.1",
     "tabulate>=0.10.0",
+    "xarray>=2026.9.0",
 ]
 
 [project.optional-dependencies]
