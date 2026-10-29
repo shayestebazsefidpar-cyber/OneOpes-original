@@ -31,8 +31,8 @@ oneopes monitor --tpr prod.tpr --xtc prod.xtc --outdir outputs/convergence
 Override any threshold/setting via CLI flags (`--block-ns`, `--fp-rel-tol`,
 `--rdf-nrmsd-tol`, `--spearman-tol`, `--n-stable`, `--ligand-selection`,
 `--water-selection`, ...) - see `oneopes monitor
---help`, or set them once in `../configs/ligand_waterfp.yaml` and
-pass them through your own driver.
+--help`, or set them once in the `monitor` section of a config file
+(`oneopes --config my_system.yaml monitor`, see `../configs/example.yaml`).
 
 ## Next stage
 

@@ -44,8 +44,7 @@ a quick visual check.
 
 ```text
 ├── pyproject.toml              <- installable package (pip install -e .)
-├── configs/ligand_waterfp.yaml <- generic parameter template
-├── workflow.yaml                <- machine-readable stage manifest
+├── configs/example.yaml        <- settings for one system (oneopes --config ...)
 ├── docs/                        <- per-stage notes and METHOD_RATIONALE.md
 ├── tests/reference/             <- vendored upstream selection code (test reference)
 └── src/oneopes/
@@ -121,9 +120,10 @@ oneopes build-cv \
 # Stage 5 - optional visualization, see docs/render.md
 ```
 
-`configs/ligand_waterfp.yaml` is a generic parameter template (paths and
-thresholds, no results) you can copy per-system instead of retyping every
-flag.
+Instead of retyping flags, keep each system's settings in a YAML file with
+one section per command (start from `configs/example.yaml`) and run
+`oneopes --config my_system.yaml monitor`. A flag on the command line still
+overrides the file, and a misspelt setting is an error.
 
 ## 6. What each stage does
 

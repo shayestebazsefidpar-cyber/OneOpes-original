@@ -1,0 +1,32 @@
+# Settings of the oneopes commands for one system, used with
+#
+#     oneopes --config my_system.yaml <command>
+#
+# One section per command; keys are the command's options without the leading
+# dashes. List only what differs from the defaults (`oneopes <command> --help`
+# shows them): a flag given on the command line still wins over this file.
+# Copy this file per system, next to its outputs; it holds settings, not results.
+
+prepare-system:
+  ligand-gro: ligand.gro
+  ligand-top: ligand.top
+  outdir: build
+
+monitor:
+  tpr: build/prod.tpr
+  xtc: build/prod.xtc
+  outdir: outputs/convergence
+  ligand-selection: resname MOL
+  block-ns: 5.0
+  n-stable: 3
+
+build-cv:
+  g1-g2: outputs/convergence/selection/g1_g2.yaml
+  out: outputs/ligand_cv/plumed_fragment.dat
+
+protein:
+  complex: complex.pdb
+  topology: prod.tpr
+  trajectory: prod.xtc
+  output-dir: outputs/protein
+  candidate-cutoff-A: 7.0

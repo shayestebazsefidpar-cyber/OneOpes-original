@@ -2,8 +2,11 @@
 
 import logging
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Annotated
 
-from cyclopts import App
+from cyclopts import App, Parameter
+from cyclopts.config import Yaml
 
 from oneopes.ligand.g1_g2 import select
 from oneopes.ligand.monitor import monitor
@@ -18,8 +21,23 @@ for command in (prepare_system, monitor, select, build_cv, protein, add_legend):
     app.command(command)
 
 
+@app.meta.default
+def with_config(*tokens: Annotated[str, Parameter(show=False, allow_leading_hyphen=True)],
+                config: Path | None = None):
+    """Run a subcommand, taking its settings from ``config`` where the command line does not give them.
+
+    Parameters
+    ----------
+    config
+        YAML file with one section per subcommand, e.g. ``monitor: {block-ns: 2.0, n-stable: 4}``
+        (see configs/example.yaml).
+    """
+    app.config = () if config is None else Yaml(config, must_exist=True)
+    return app(tokens)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Run ``oneopes``, logging its progress (and other libraries' warnings) to stderr."""
     logging.basicConfig(format="[%(module)s] %(message)s", level=logging.WARNING)
     logging.getLogger("oneopes").setLevel(logging.INFO)
-    app(argv)
+    app.meta(argv)
