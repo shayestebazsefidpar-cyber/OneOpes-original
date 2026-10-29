@@ -54,26 +54,23 @@ def select_candidates(u, selection: SystemSelection, cutoff_A: float = CANDIDATE
         raise ValueError(f"cutoff_A must be a finite number > 0, got {cutoff_A!r}.")
     if len(selection.protein_heavy) == 0:
         raise SystemDefinitionError("The MDAnalysis 'protein' selection is empty.")
-    prot = u.atoms[selection.protein_heavy]
-    lig = u.atoms[selection.ligand_heavy]
-    min_dist = distance_array(prot.positions, lig.positions, box=_box(u)).min(axis=1)
-    keep = min_dist <= cutoff_A
-    rows = []
-    for atom, dmin in zip(prot[keep], min_dist[keep]):
-        chain = "" if chain_ids is None else chain_ids[atom.index]
-        rows.append({
-            "Atom": atom_label(atom),
-            "Atom_index": int(atom.index),
-            "Atom_serial_pdb": int(atom.index) + 1,
-            "Atom_name": atom.name,
-            "Residue_name": atom.resname,
-            "Residue_number": int(atom.resid),
-            "Chain_ID": chain,
-            "Min_distance_to_ligand_A": float(dmin),
-        })
-    if not rows:
+    protein = u.atoms[selection.protein_heavy]
+    ligand = u.atoms[selection.ligand_heavy]
+    min_distance = distance_array(protein.positions, ligand.positions, box=_box(u)).min(axis=1)
+    near = min_distance <= cutoff_A
+    if not near.any():
         raise SystemDefinitionError(f"No protein heavy atom lies within {cutoff_A} A of the ligand.")
-    return pd.DataFrame(rows)
+    atoms = protein[near]
+    return pd.DataFrame({
+        "Atom": [atom_label(atom) for atom in atoms],
+        "Atom_index": atoms.indices,
+        "Atom_serial_pdb": atoms.indices + 1,
+        "Atom_name": atoms.names,
+        "Residue_name": atoms.resnames,
+        "Residue_number": atoms.resids,
+        "Chain_ID": "" if chain_ids is None else chain_ids[atoms.indices],
+        "Min_distance_to_ligand_A": min_distance[near],
+    })
 
 
 def validate_same_atoms(reference, other, what: str, indices=None) -> None:

@@ -55,9 +55,13 @@ class RadialGrid:
 
 @dataclass(frozen=True, eq=False)
 class WaterCounts:
-    counts: np.ndarray          # (n_atoms, grid.n_bins) int64: water O counts per bin, summed over frames
-    n_frames: int               # frames contributing to counts
-    solute_indices: np.ndarray  # (n_atoms,) global atom indices; row i of counts <-> solute_indices[i]
+    """Water-oxygen counts per radial bin around each solute atom, summed over frames."""
+    counts: np.ndarray
+    """(n_atoms, grid.n_bins) int64."""
+    n_frames: int
+    """Frames contributing to ``counts``."""
+    solute_indices: np.ndarray
+    """(n_atoms,) atom indices in the universe; row i of ``counts`` is atom ``solute_indices[i]``."""
     grid: RadialGrid
 
     @property
