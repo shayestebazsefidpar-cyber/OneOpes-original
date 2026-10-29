@@ -29,6 +29,9 @@ dev = [
     "ruff>=0.17.3",
     "scipy-stubs>=1.17.1.5",
 ]
+notebooks = [
+    "marimo>=0.25.2",
+]
 # stage 5 rendering needs a PyMOL or Chimera install, invoked by path
 # (pymol -cq .../render_selected_atoms.py -- ...), not via console_scripts -
 # see docs/render.md. Nothing extra to pip-install here. The funnel
@@ -54,6 +57,9 @@ ignore = [
     "N802", "N803", "N806", "N815",  # unit suffixes such as cutoff_A, and the published names G1 / G2
     "N813",  # import MDAnalysis as mda, MDAnalysis' own convention
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/*" = ["B018"]  # a marimo cell displays its last expression
 
 [tool.ruff.lint.flake8-bugbear]
 # Frozen option dataclasses: safe defaults of other option dataclasses.

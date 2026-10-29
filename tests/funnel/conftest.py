@@ -51,9 +51,11 @@ class RefSystem:
 
 @pytest.fixture(scope="session", params=REF_DIRS, ids=lambda d: "/".join(d.rstrip("/").split("/")[-3:]))
 def ref(request):
-    BSS = pytest.importorskip("BioSimSpace")
+    pytest.importorskip("BioSimSpace")
+    from oneopes.funnel.bss import read_system
+
     top = os.path.join(request.param, "top.top")
     gros = sorted(glob.glob(os.path.join(request.param, "npt*.gro")))
     if not (os.path.exists(top) and gros):
         pytest.skip(f"validation system (top.top + npt*.gro) not found in {request.param}")
-    return RefSystem(system=BSS.IO.readMolecules([top, gros[0]]), directory=request.param)
+    return RefSystem(system=read_system(top, gros[0]), directory=request.param)

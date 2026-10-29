@@ -41,6 +41,15 @@ Every analysis command writes `run_metadata.json` (input hashes, options, versio
 
 Why the method works as it does: [docs/METHOD_RATIONALE.md](docs/METHOD_RATIONALE.md).
 
+## Notebooks
+
+[marimo](https://marimo.io) notebooks for interactive work (`pip install -e ".[notebooks]"`,
+then `marimo edit notebooks/<name>.py`):
+
+- `explore_run.py`: open a `blocks.nc` and look at its summary, FP over time, block comparisons
+  and g(r) per block.
+- `funnel_check.py`: rebuild a system's funnel axis with BioSimSpace (needs BioSimSpace).
+
 ## Code layout
 
 `src/oneopes/`: shared core (`system`, `waterfp`, `trajectory_blocks`, `convergence`,
