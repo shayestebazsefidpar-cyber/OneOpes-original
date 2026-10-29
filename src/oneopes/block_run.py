@@ -5,6 +5,7 @@ Its attributes are the settings it was made with (the :class:`BlockOptions` and
 the convergence summary is derived from it, not stored.
 """
 
+import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -62,8 +63,14 @@ def run_summary(run: xr.Dataset) -> ConvergenceSummary:
 
 
 def run_facts(run: xr.Dataset) -> dict:
-    """The attributes of a run other than its settings, as plain Python values."""
-    return {name: np.asarray(value).tolist() for name, value in run.attrs.items() if name not in SETTINGS}
+    """The attributes of a run other than its settings and metadata, as plain Python values."""
+    return {name: np.asarray(value).tolist() for name, value in run.attrs.items()
+            if name not in [*SETTINGS, "metadata"]}
+
+
+def run_metadata(run: xr.Dataset) -> dict:
+    """The metadata stored with a run (see :func:`oneopes.reports.write_run`): versions, inputs and options."""
+    return json.loads(run.attrs["metadata"])
 
 
 def run_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:

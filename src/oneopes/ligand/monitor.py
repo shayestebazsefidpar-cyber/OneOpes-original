@@ -4,6 +4,7 @@ import os
 import time
 import signal
 from collections.abc import Callable, Iterator
+from dataclasses import asdict
 from itertools import count
 from pathlib import Path
 from typing import Annotated
@@ -21,6 +22,7 @@ from oneopes.block_run import BlockOptions, block_run, run_block, run_summary
 from oneopes.convergence import converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import write_selection
+from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, select_system
 from oneopes.trajectory_blocks import block_of, frame_step_ps, frame_time_ns, frames_per_block, label_block
@@ -185,8 +187,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
+    options = {"system": asdict(system), "hydration": asdict(hydration), "blocks": asdict(blocks),
+               "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds, "fp_round_decimals": fp_round_decimals}
+    metadata = provenance({"tpr": tpr, "xtc": xtc}) | {
+        "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
-    write_run(outdir, run)
+    write_run(outdir, run, metadata)
     summary = run_summary(run)
     plot_blocks(run, outdir)
     if summary.converged_block is None:

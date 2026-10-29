@@ -8,9 +8,10 @@ import pytest
 
 from cyclopts import ValidationError
 
-from oneopes.block_run import BlockOptions, load_run
+from oneopes.block_run import BlockOptions, load_run, run_metadata
 from oneopes.cli import app, main
-from oneopes.protein.analysis import AnalysisOptions, json_value, run_analysis, run_metadata, write_outputs
+from oneopes.protein.analysis import AnalysisOptions, analysis_details, run_analysis, write_outputs
+from oneopes.provenance import to_json
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.final_table import FINAL_COLUMNS
 from oneopes.protein.inputs import protein_system
@@ -43,7 +44,7 @@ def _run(tmp_path, options=AnalysisOptions(blocks=BlockOptions(block_ns=BLOCK_NS
     u_traj = _trajectory(_system(), **traj_kw)
     analysis = run_analysis(protein_system(u_traj, _system()), options)
     write_outputs(tmp_path, analysis)
-    return u_traj, run_metadata(analysis)
+    return u_traj, analysis_details(analysis)
 
 
 @pytest.fixture
@@ -54,7 +55,7 @@ def analysis(tmp_path):
 
 def test_no_zone_funnel_or_plumed_anywhere_in_a_run(analysis):
     _u, meta, out = analysis
-    text = json.dumps(meta, default=json_value).lower()
+    text = to_json(meta).lower()
     assert not any(word in text for word in ("zone", "funnel", "projection", "deep", "entrance", "plumed"))
     assert not list(out.glob("*funnel*")) and not list(out.glob("*zone*"))
     table = pd.read_csv(out / "final_per_atom_table.csv", keep_default_na=False)
@@ -212,7 +213,10 @@ def test_cli_end_to_end_from_files(tmp_path):
     assert set(table["Chain_ID"]) == {"B"}  # the chain written in the complex file
     meta_text = (out / "run_metadata.json").read_text()
     assert str(tmp_path) not in meta_text
-    assert json.loads(meta_text)["candidate_cutoff_A"] == 7.0  # default
+    meta = json.loads(meta_text)
+    assert meta["candidate_cutoff_A"] == 7.0  # default
+    assert set(meta["inputs"]) == {"complex", "topology", "trajectory"} and "versions" in meta
+    assert run_metadata(run) == meta
 
 
 @pytest.mark.parametrize("cutoff", [7.0, 10.0])

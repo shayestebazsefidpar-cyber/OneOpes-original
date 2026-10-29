@@ -7,7 +7,7 @@ import pandas as pd
 import xarray as xr
 
 from ligand_systems import ligand_in_water
-from oneopes.block_run import load_run, run_facts, run_summary
+from oneopes.block_run import load_run, run_facts, run_metadata, run_summary
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
 from oneopes.ligand.monitor import plot_atom
@@ -49,6 +49,8 @@ def test_stops_at_convergence_and_selects_g1_g2_on_the_converged_block(tmp_path)
           "--outdir", str(again), "--fp-round-decimals", "3"])
     for name in ("g1_g2.yaml", "fingerprints.csv", "rdf.csv"):
         assert (again / name).read_text() == (outdir / "selection" / name).read_text(), name
+    metadata = json.loads((again / "run_metadata.json").read_text())
+    assert (metadata["block"], metadata["inputs"]["run"]["file"]) == (2, "blocks.nc")
 
 
 def test_select_block_picks_any_block_of_a_saved_run(tmp_path):
@@ -71,6 +73,11 @@ def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     run = load_run(outdir / "blocks.nc")
     assert run.sizes["block"] == 5 and run_facts(run)["trajectory_end_ns"] == summary["trajectory_end_ns"]
     assert asdict(run_summary(run)) == {name: summary[name] for name in asdict(run_summary(run))}
+    metadata = json.loads((outdir / "run_metadata.json").read_text())
+    assert run_metadata(run) == metadata
+    assert {role: entry["file"] for role, entry in metadata["inputs"].items()} == {"tpr": "top.pdb", "xtc": "traj.xtc"}
+    assert metadata["options"]["blocks"]["tolerances"]["fp_rel_tol"] == 0
+    assert "metadata" not in summary
     assert not (outdir / "selection").exists()
 
 

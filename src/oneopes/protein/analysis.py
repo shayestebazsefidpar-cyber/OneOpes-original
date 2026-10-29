@@ -1,12 +1,8 @@
 """Protein-side WaterFP, contacts and SASA around a bound ligand (``oneopes protein``)."""
 
-import hashlib
-import json
 import logging
-import platform
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from importlib import metadata
 from pathlib import Path
 from typing import Annotated
 
@@ -18,7 +14,6 @@ from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 from MDAnalysis import AtomGroup, Universe
 
-from oneopes import __version__
 from oneopes.block_run import BlockOptions, block_run, run_summary
 from oneopes.errors import InputError
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
@@ -26,6 +21,7 @@ from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, me
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
+from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions
 from oneopes.trajectory_blocks import FrameLayout, FrameWindow, frame_layout, label_block
@@ -109,13 +105,13 @@ def final_values(full: xr.Dataset) -> pd.DataFrame:
     return table.rename(columns={"fp": "FP", **OCCUPANCY_COLUMNS})
 
 
-def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
-    """Write the candidate pool, the block run (blocks.nc, block-wise tables, convergence summary) with
-    the contacts per block, and the final per-atom table."""
+def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping | None = None) -> None:
+    """Write the candidate pool, the block run (blocks.nc, block-wise tables, convergence summary, and
+    with ``metadata`` run_metadata.json) with the contacts per block, and the final per-atom table."""
     candidates = analysis.candidates
     outdir.mkdir(parents=True, exist_ok=True)
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_run(outdir, analysis.blocks)
+    write_run(outdir, analysis.blocks, metadata)
     contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
     table = build_final_table(candidates, final_values(analysis.full), analysis.sasa)
@@ -123,8 +119,8 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
 
-def run_metadata(analysis: ProteinAnalysis) -> dict:
-    """What the run used: cutoffs, selections, frame layout, options and package versions."""
+def analysis_details(analysis: ProteinAnalysis) -> dict:
+    """What the analysis used: cutoffs, selections, frame layout and options."""
     sel = analysis.system.selection
     return {
         "candidate_cutoff_A": analysis.options.candidate_cutoff_A,
@@ -135,29 +131,7 @@ def run_metadata(analysis: ProteinAnalysis) -> dict:
         "water_selection": sel.water_selection,
         "frames": asdict(analysis.layout),
         "options": asdict(analysis.options),
-        "versions": {"python": platform.python_version(), "oneopes": __version__}
-                    | {package: installed_version(package)
-                       for package in ("numpy", "pandas", "scipy", "MDAnalysis", "freesasa")},
     }
-
-
-def installed_version(package: str) -> str:
-    try:
-        return metadata.version(package)
-    except metadata.PackageNotFoundError:
-        return "unknown"
-
-
-def json_value(value: range | np.number) -> list[int] | float:
-    """JSON stand-in for the values ``json`` cannot write: a range as [start, stop], numpy numbers as floats."""
-    return [value.start, value.stop] if isinstance(value, range) else float(value)
-
-
-def file_record(path: Path) -> dict:
-    """File name, SHA-256 and size of an input file."""
-    with path.open("rb") as fh:
-        sha256 = hashlib.file_digest(fh, "sha256").hexdigest()
-    return {"file": path.name, "sha256": sha256, "bytes": path.stat().st_size}
 
 
 def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: ExistingFile, output_dir: Path,
@@ -191,8 +165,6 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
 
     system = protein_system(u_traj, u_complex, complex_file, options.system)
     analysis = run_analysis(system, options)
-    write_outputs(output_dir, analysis)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
-    meta = run_metadata(analysis) | {"inputs": {name: file_record(path) for name, path in inputs.items()}}
-    (output_dir / "run_metadata.json").write_text(json.dumps(meta, indent=2, default=json_value))
+    write_outputs(output_dir, analysis, provenance(inputs) | analysis_details(analysis))
     logger.info("%d candidates -> %s", len(analysis.candidates), output_dir / "final_per_atom_table.csv")

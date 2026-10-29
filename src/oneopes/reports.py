@@ -5,6 +5,7 @@
 """
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import xarray as xr
 
 from oneopes.block_run import run_facts, run_summary, save_run
 from oneopes.convergence import TRANSITION_VARIABLES
+from oneopes.provenance import to_json
 
 
 def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
@@ -45,8 +47,20 @@ def write_summary(path: Path, blocks: xr.Dataset) -> None:
     path.write_text(json.dumps(asdict(run_summary(blocks)) | run_facts(blocks), indent=2))
 
 
-def write_run(outdir: Path, blocks: xr.Dataset) -> None:
-    """Write a block run to ``outdir``: blocks.nc, the block-wise CSVs and convergence_summary.json."""
+def write_run_metadata(outdir: Path, metadata: Mapping) -> None:
+    """Write run_metadata.json: what a command used (see :func:`oneopes.provenance.provenance`)."""
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "run_metadata.json").write_text(to_json(metadata))
+
+
+def write_run(outdir: Path, blocks: xr.Dataset, metadata: Mapping | None = None) -> None:
+    """Write a block run to ``outdir``: blocks.nc, the block-wise CSVs and convergence_summary.json.
+
+    With ``metadata``, also run_metadata.json, and the same JSON as the run's ``metadata`` attribute.
+    """
+    if metadata is not None:
+        blocks = blocks.assign_attrs(metadata=to_json(metadata))
+        write_run_metadata(outdir, metadata)
     save_run(blocks, outdir / "blocks.nc")
     write_block_tables(outdir, blocks)
     write_summary(outdir / "convergence_summary.json", blocks)

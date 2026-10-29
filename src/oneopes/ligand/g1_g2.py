@@ -1,5 +1,6 @@
 """G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP (``oneopes select``)."""
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +17,8 @@ from scipy.sparse.csgraph import shortest_path
 
 from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
-from oneopes.reports import write_hydration_files
+from oneopes.provenance import provenance
+from oneopes.reports import write_hydration_files, write_run_metadata
 from oneopes.system import SystemOptions, select_system
 from oneopes.trajectory_blocks import FrameWindow
 from oneopes.waterfp import HydrationOptions, measure_hydration
@@ -182,6 +184,11 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     measurement = measure_hydration(ligand, water, frames, hydration)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
                 frames.start, frames.stop - 1, measurement.fp.sortby(measurement.fp).to_series().to_string())
+    options = {"system": asdict(system), "window": asdict(window), "hydration": asdict(hydration),
+               "fp_round_decimals": fp_round_decimals}
+    write_run_metadata(outdir, provenance({"tpr": tpr, "xtc": xtc}) | {
+        "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "frames": frames,
+        "options": options})
     write_selection(ligand, measurement, outdir, fp_round_decimals)
 
 
@@ -204,4 +211,6 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
         Decimals FP is rounded to when comparing atoms.
     """
     hydration = run_block(load_run(run), block)
+    write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
+        "block": int(hydration.block), "fp_round_decimals": fp_round_decimals})
     write_selection(ligand_atoms(mda.Universe(str(tpr)), hydration), hydration, outdir, fp_round_decimals)

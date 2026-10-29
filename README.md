@@ -348,7 +348,7 @@ names (water/hydrogen naming may differ between formats).
 
 | File | Content |
 |---|---|
-| `blocks.nc` | the whole block run as one xarray Dataset (NetCDF): per block and atom FP, g(r), density, bulk and the occupancies, each block's comparison with the one before, and the settings and time ranges as attributes; load it with `oneopes.block_run.load_run` |
+| `blocks.nc` | the whole block run as one xarray Dataset (NetCDF): per block and atom FP, g(r), density, bulk and the occupancies, each block's comparison with the one before, and the settings, time ranges and the run metadata as attributes; load it with `oneopes.block_run.load_run` |
 | `candidate_atom_mapping.csv` | the candidate pool |
 | `fp_values_per_block.csv`, `rdf_profiles_per_block.csv` | FP (with the block times) and g(r) per block and atom |
 | `contact_occupancy_per_block.csv` | Contact / Bridge per block and atom |
@@ -357,7 +357,7 @@ names (water/hydrogen naming may differ between formats).
 | `convergence_summary.json` | block size, tolerances, number of blocks, `converged_block`/`converged_ns`, unstable transitions after convergence, trajectory and analysed time range |
 | `final_per_atom_table.csv` | one row per candidate, sorted by `FP_Rank` |
 | `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |
-| `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, versions |
+| `run_metadata.json` | inputs (file names, sha256), options, frames/blocks, versions; `monitor`, `select` and `select-block` write one too |
 
 Final table columns: `FP_Rank, Atom, Atom_index, Atom_serial, Atom_name,
 Residue_name, Residue_number, Chain_ID, Min_distance_to_ligand_A, FP,

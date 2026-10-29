@@ -15,7 +15,8 @@ converged enough to stop early or to trust for the next stage.
 - **Outputs** (written to `--outdir`, default `outputs/convergence` -
   git-ignored): `blocks.nc` (the whole block run, rewritten after every
   block), per-block FP/RDF CSVs, a convergence-metrics CSV, plots,
-  `convergence_summary.json`, and on convergence the G1/G2
+  `convergence_summary.json`, `run_metadata.json` (input file hashes,
+  options and package versions, written when the run ends), and on convergence the G1/G2
   selection in `selection/`
 
 ## Usage

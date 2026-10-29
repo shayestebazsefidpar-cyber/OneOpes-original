@@ -1,4 +1,6 @@
 """G1/G2 result types, their YAML file, and the `oneopes select` command on a synthetic system."""
+import json
+
 import MDAnalysis as mda
 import numpy as np
 import pandas as pd
@@ -101,3 +103,6 @@ def test_select_command_writes_waterfp_and_g1_g2(tmp_path):
     ligand = mda.Universe(top).select_atoms("resname MOL")
     expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy())
     assert SelectionResult.model_validate(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected
+    metadata = json.loads((outdir / "run_metadata.json").read_text())
+    assert (metadata["frames"], metadata["ligand_selection"]) == ([0, 3], "resname MOL")
+    assert set(metadata["inputs"]) == {"tpr", "xtc"}
