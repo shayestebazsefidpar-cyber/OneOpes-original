@@ -8,7 +8,6 @@ import sys
 import time
 from dataclasses import asdict
 from itertools import islice
-from pathlib import Path
 
 import MDAnalysis as mda
 import pandas as pd
@@ -20,7 +19,8 @@ from oneopes.block_run import convergence_summary, facts_of, load_run, metadata_
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
 from oneopes.ligand import monitor as monitor_module
-from oneopes.ligand.monitor import blocks_as_written, mdrun_running, stop_mdrun
+from oneopes.errors import InputError
+from oneopes.ligand.monitor import blocks_as_written, mdrun_running, stop_mdrun, wait_for_frames
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -115,12 +115,36 @@ def fake_mdrun():
     process.wait()
 
 
-def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it(fake_mdrun):
+def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it(tmp_path, fake_mdrun):
     """The last frame may be half-written, so a block is complete once a later frame exists."""
+    (tmp_path / "prod.xtc").touch()
     u = GrowingTrajectory(2, 3, 4, 5, 7)
-    blocks = blocks_as_written(u, Path("prod.xtc"), 2, fake_mdrun, poll_seconds=0)
+    blocks = blocks_as_written(u, tmp_path / "prod.xtc", 2, fake_mdrun, poll_seconds=0)
     assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
         (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
+
+
+def test_a_trajectory_mdrun_has_not_created_yet_is_waited_for(tmp_path, fake_mdrun, monkeypatch):
+    """Just after mdrun starts, the trajectory may not exist; here it appears at the first poll."""
+    xtc = tmp_path / "prod.xtc"
+    monkeypatch.setattr(monitor_module.time, "sleep", lambda _seconds: xtc.touch())
+    u = GrowingTrajectory(3)
+    wait_for_frames(u, xtc, 2, fake_mdrun, poll_seconds=0)
+    assert len(u.trajectory) == 3
+
+
+def test_a_trajectory_that_no_mdrun_will_write_is_an_error(tmp_path):
+    with pytest.raises(InputError, match="does not exist, and no mdrun is running"):
+        wait_for_frames(GrowingTrajectory(), tmp_path / "prod.xtc", 2, None, poll_seconds=0)
+
+
+def test_without_a_pid_the_trajectory_must_exist(tmp_path, caplog):
+    top, _ = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["monitor", "--tpr", top, "--xtc", str(tmp_path / "missing.xtc"), "--outdir", str(tmp_path / "out")])
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == [f"error: {tmp_path / 'missing.xtc'} does not exist; to follow an mdrun that will write it, "
+                      "give its pid."]
 
 
 def test_an_ended_mdrun_is_not_running_even_before_it_is_reaped():
@@ -182,6 +206,7 @@ def test_only_an_mdrun_process_is_stopped():
         other.wait()
 
 
-def test_once_mdrun_has_stopped_every_frame_is_complete():
+def test_once_mdrun_has_stopped_every_frame_is_complete(tmp_path):
+    (tmp_path / "prod.xtc").touch()
     u = GrowingTrajectory(4, 4, 4)
-    assert list(blocks_as_written(u, Path("prod.xtc"), 2, None, poll_seconds=0)) == [range(2), range(2, 4)]
+    assert list(blocks_as_written(u, tmp_path / "prod.xtc", 2, None, poll_seconds=0)) == [range(2), range(2, 4)]

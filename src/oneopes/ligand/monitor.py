@@ -49,12 +49,16 @@ def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid:
                     poll_seconds: float) -> None:
     """Reread ``trajectory`` into ``u`` until it has ``n_frames`` complete frames or mdrun has stopped.
 
-    An open trajectory does not see frames written later, hence the rereading.
+    An open trajectory does not see frames written later, hence the rereading. A just-started mdrun
+    may not have created the trajectory yet; raises InputError if it stops without creating it.
     """
     while True:
-        u.load_new(str(trajectory))
-        if n_complete_frames(u, mdrun_pid) >= n_frames or not mdrun_running(mdrun_pid):
-            return
+        if trajectory.exists():
+            u.load_new(str(trajectory))
+            if n_complete_frames(u, mdrun_pid) >= n_frames or not mdrun_running(mdrun_pid):
+                return
+        elif not mdrun_running(mdrun_pid):
+            raise InputError(f"{trajectory} does not exist, and no mdrun is running to write it.")
         time.sleep(poll_seconds)
 
 
@@ -120,7 +124,7 @@ def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hyd
 
 
 def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),
-            xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
+            xtc: Path = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
             system_options: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
             hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
             block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
@@ -138,7 +142,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     tpr
         Topology of the run (with bonds, for the G1/G2 selection).
     xtc
-        Trajectory mdrun is writing, or a finished one.
+        Trajectory mdrun is writing (it may not exist yet), or a finished one.
     outdir
         Directory for blocks.nc, the tables, plots and selection.
     poll_seconds
@@ -148,7 +152,9 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     """
     if mdrun_pid is not None and not mdrun_running(mdrun_pid):
         raise InputError(f"pid {mdrun_pid} is not a running gmx mdrun; for a finished run, leave the pid out.")
-    u = load_universe(tpr, xtc)
+    if not xtc.exists() and mdrun_pid is None:
+        raise InputError(f"{xtc} does not exist; to follow an mdrun that will write it, give its pid.")
+    u = load_universe(tpr, xtc) if xtc.exists() else load_universe(tpr)
     sel = select_system(u, system_options)
     ligand = sel.ligand(u)
     logger.info("%d ligand heavy atoms (%s): %s", len(ligand), sel.ligand_selection, list(ligand.names))

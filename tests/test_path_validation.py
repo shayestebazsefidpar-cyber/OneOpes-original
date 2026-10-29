@@ -6,6 +6,7 @@ import pytest
 from cyclopts import ValidationError
 
 from oneopes.cli import app
+from oneopes.errors import InputError
 
 
 def run(tokens):
@@ -22,15 +23,16 @@ def test_build_cv_missing_g1_g2_file_raises_clear_error(tmp_path):
     assert not out_path.exists()
 
 
-@pytest.mark.parametrize("missing", ["tpr", "xtc"])
-def test_monitor_missing_input_raises_before_creating_outdir(tmp_path, monkeypatch, missing):
+@pytest.mark.parametrize("missing, error", [("tpr", ValidationError), ("xtc", InputError)])
+def test_monitor_missing_input_raises_before_creating_outdir(tmp_path, monkeypatch, missing, error):
+    """A missing xtc is checked by the monitor itself: with an mdrun pid, it may not exist yet."""
     present = tmp_path / "present"
     present.write_text("only existence is checked before this point")
     outdir = tmp_path / "outputs" / "convergence"
     files = {"tpr": str(present), "xtc": str(present), missing: f"does_not_exist.{missing}"}
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ValidationError, match=f"does_not_exist.{missing}"):
+    with pytest.raises(error, match=f"does_not_exist.{missing}"):
         run(["monitor", "--tpr", files["tpr"], "--xtc", files["xtc"], "--outdir", str(outdir)])
 
     assert not outdir.exists()
