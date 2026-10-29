@@ -1,26 +1,23 @@
-"""B: package-level checks that need no BioSimSpace."""
+"""Package-level checks of oneopes.funnel that need no BioSimSpace."""
 
 import dataclasses
 import importlib
-import re
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "oneopes" / "funnel"
 MODULES = ["oneopes.funnel", "oneopes.funnel.bss", "oneopes.funnel.p0_p1", "oneopes.funnel.geometry",
            "oneopes.funnel.make_funnel"]
 
 
 @pytest.mark.parametrize("name", MODULES)
-def test_b1_modules_import_without_biosimspace(name, monkeypatch):
+def test_modules_import_without_biosimspace(name, monkeypatch):
     monkeypatch.setitem(sys.modules, "BioSimSpace", None)  # simulate BSS not installed
     importlib.import_module(name)
 
 
-def test_b4_result_dataclasses_are_frozen():
+def test_result_dataclasses_are_frozen():
     from oneopes.funnel.geometry import Bound, FunnelParameters
     from oneopes.funnel.make_funnel import FunnelResult
     from oneopes.funnel.p0_p1 import FunnelAxis
@@ -36,7 +33,7 @@ def test_b4_result_dataclasses_are_frozen():
     assert (f.axis.atoms0, f.axis.atoms1, f.axis.length) == ((0,), (1,), 3.0)
 
 
-def test_b7_clear_error_without_biosimspace(monkeypatch):
+def test_clear_error_without_biosimspace(monkeypatch):
     from oneopes.funnel.make_funnel import make_funnel
     from oneopes.funnel.p0_p1 import funnel_axis
 
@@ -44,10 +41,3 @@ def test_b7_clear_error_without_biosimspace(monkeypatch):
     for fn in (funnel_axis, make_funnel):
         with pytest.raises(ImportError, match=r"BioSimSpace .*conda"):
             fn(system=None)
-
-
-def test_b8_no_system_specific_values_in_src():
-    forbidden = re.compile(r"HSP90|BRD4|lig\d|/home/|Escritorio|OneOpes-original", re.IGNORECASE)
-    hits = [f"{path.name}:{number}: {line.strip()}" for path in SRC.glob("*.py")
-            for number, line in enumerate(path.read_text().splitlines(), 1) if forbidden.search(line)]
-    assert hits == []

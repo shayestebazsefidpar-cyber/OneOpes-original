@@ -38,5 +38,6 @@ venv/
 # with `oneopes prepare-system` belong under outputs/ (already ignored
 # above), not this tree.
 
-# pytest
+# pytest and coverage
 .pytest_cache/
+.coverage

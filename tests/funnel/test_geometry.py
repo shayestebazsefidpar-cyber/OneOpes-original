@@ -13,9 +13,6 @@ P1 = np.array([1.5, 0.8, 11.0])
 AXIS = FunnelAxis(atoms0=(0,), atoms1=(1,), p0=P0, p1=P1)
 
 
-# --------------------------------------------------------------------------
-# Funnel CV parameters / radius (public Funnel API)
-# --------------------------------------------------------------------------
 @pytest.fixture
 def default_cv():
     pytest.importorskip("BioSimSpace")
@@ -78,9 +75,6 @@ def test_parameters_are_nm_whatever_the_input_unit():
     )
 
 
-# --------------------------------------------------------------------------
-# funnel_wall_points
-# --------------------------------------------------------------------------
 def _axial_radial(points, p0, p1):
     unit = (p1 - p0) / np.linalg.norm(p1 - p0)
     rel = points - p0

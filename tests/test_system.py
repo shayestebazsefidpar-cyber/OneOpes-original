@@ -8,7 +8,7 @@ from oneopes.system import SystemDefinitionError, SystemOptions, select_system
 MASSES = {"C": 12.011, "O": 15.999, "H": 1.008, "Na": 22.99, "X": 0.0}
 
 
-def ligand_in_water(ligand: list[tuple[str, str]], n_water: int = 3, ligand_resname: str = "MOL",
+def ligand_in_water_universe(ligand: list[tuple[str, str]], n_water: int = 3, ligand_resname: str = "MOL",
                     water_resname: str = "SOL", water_names: tuple[str, ...] = ("OW", "HW1", "HW2")) -> mda.Universe:
     """One ligand residue of (name, element) atoms, then ``n_water`` waters, plus a sodium ion."""
     water = [(name, name[0] if name[0] in "OH" else "X") for name in water_names]
@@ -26,8 +26,8 @@ def ligand_in_water(ligand: list[tuple[str, str]], n_water: int = 3, ligand_resn
 LIGAND = [("C1", "C"), ("H1", "H"), ("O1", "O"), ("H2", "H"), ("C2", "C")]
 
 
-def test_ligand_in_water_without_protein():
-    u = ligand_in_water(LIGAND)
+def test_ligand_in_water_universe_without_protein():
+    u = ligand_in_water_universe(LIGAND)
     sel = select_system(u)
     assert list(sel.ligand(u).names) == ["C1", "O1", "C2"]
     assert sel.protein_heavy.size == 0 and sel.ligand_selection == "resname MOL"
@@ -35,19 +35,19 @@ def test_ligand_in_water_without_protein():
 
 
 def test_heavy_atoms_are_the_ones_a_name_rule_would_pick_for_an_ordinary_ligand():
-    u = ligand_in_water(LIGAND)
+    u = ligand_in_water_universe(LIGAND)
     assert np.array_equal(select_system(u).ligand_heavy, u.select_atoms("resname MOL and not name H*").indices)
 
 
 def test_virtual_sites_are_not_heavy_atoms():
-    u = ligand_in_water([*LIGAND, ("LP1", "X")], water_names=("OW", "HW1", "HW2", "MW"))
+    u = ligand_in_water_universe([*LIGAND, ("LP1", "X")], water_names=("OW", "HW1", "HW2", "MW"))
     sel = select_system(u)
     assert list(sel.ligand(u).names) == ["C1", "O1", "C2"]
     assert list(sel.water(u).names) == ["OW"] * 3
 
 
 def test_without_elements_mass_repartitioned_hydrogens_are_still_not_heavy():
-    u = ligand_in_water(LIGAND)
+    u = ligand_in_water_universe(LIGAND)
     u.del_TopologyAttr("elements")
     u.atoms.masses = np.where(u.atoms.masses == MASSES["H"], 3.024, u.atoms.masses)
     sel = select_system(u)
@@ -56,7 +56,7 @@ def test_without_elements_mass_repartitioned_hydrogens_are_still_not_heavy():
 
 
 def test_explicit_selections_override_detection():
-    u = ligand_in_water(LIGAND, water_resname="XWT", water_names=("O", "H1", "H2"))
+    u = ligand_in_water_universe(LIGAND, water_resname="XWT", water_names=("O", "H1", "H2"))
     with pytest.raises(SystemDefinitionError, match="water"):
         select_system(u)
     sel = select_system(u, SystemOptions(ligand_selection="resname MOL and name C*", water_selection="resname XWT"))
@@ -66,10 +66,10 @@ def test_explicit_selections_override_detection():
 
 def test_water_without_oxygens_is_an_error():
     with pytest.raises(SystemDefinitionError, match="'resname SOL and name HW1' contains no oxygen atoms"):
-        select_system(ligand_in_water(LIGAND), SystemOptions(ligand_selection="resname MOL",
+        select_system(ligand_in_water_universe(LIGAND), SystemOptions(ligand_selection="resname MOL",
                                                              water_selection="resname SOL and name HW1"))
 
 
 def test_ligand_without_heavy_atoms_is_an_error():
     with pytest.raises(SystemDefinitionError, match="no heavy atoms"):
-        select_system(ligand_in_water(LIGAND), SystemOptions(ligand_selection="resname MOL and name H*"))
+        select_system(ligand_in_water_universe(LIGAND), SystemOptions(ligand_selection="resname MOL and name H*"))

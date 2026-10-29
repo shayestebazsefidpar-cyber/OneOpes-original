@@ -11,8 +11,9 @@ from oneopes.reports import (
     write_hydration_files,
     write_summary,
 )
-from oneopes.trajectory_blocks import Block, stack_blocks
+from oneopes.trajectory_blocks import stack_blocks
 from oneopes.waterfp import measure_hydration
+from synthetic_blocks import one_frame_blocks
 from water_systems import random_universe
 
 TOL = DEFAULT_TOLERANCES
@@ -23,9 +24,8 @@ def _measured_blocks(n_blocks, labels=None, block_ns=1.0, start_ns=0.0):
     """Hydration of three solute atoms in one-frame blocks of block_ns ns from start_ns."""
     u = random_universe(n_frames=n_blocks)
     solute, water = u.atoms[:3], u.atoms[3:]
-    blocks = [Block(range(b, b + 1), start_ns + b * block_ns, start_ns + (b + 1) * block_ns) for b in range(n_blocks)]
     return stack_blocks([block.label(measure_hydration(solute, water, block.frames, labels=labels))
-                         for block in blocks])
+                         for block in one_frame_blocks(n_blocks, block_ns, start_ns)])
 
 
 def _write_block_tables(outdir, blocks):

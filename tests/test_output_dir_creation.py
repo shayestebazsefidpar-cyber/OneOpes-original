@@ -1,14 +1,4 @@
-"""
-Regression tests for a real bug caught during manual end-to-end testing
-against a real ligand-in-water system: several CLI scripts wrote to `--out`/`--dst`
-without first creating the parent directory, crashing with
-`OSError: Cannot save file into a non-existent directory`. Each script was
-fixed to `os.makedirs(os.path.dirname(...) or ".", exist_ok=True)` before
-writing. These tests assert that fix holds by writing into a nested,
-not-yet-existing output directory - regressing to the old behavior would
-make every test here fail with the original OSError/FileNotFoundError.
-write_g1_g2_yaml() is covered in test_g1_g2_selection.py.
-"""
+"""Commands that write a file (--out, --dst) create its missing parent directories."""
 import yaml
 from PIL import Image
 

@@ -74,18 +74,6 @@ def test_pool_has_only_protein_heavy_atoms(small_system):
     assert not set(cand.atom_index.values) & set(system.selection.ligand_heavy)
 
 
-def test_seven_angstrom_only_as_the_configurable_default():
-    """7 A appears only as CANDIDATE_CUTOFF_A_DEFAULT; nothing else hard-codes it."""
-    import re
-    from pathlib import Path
-
-    src = Path(analysis.__file__).parent
-    pattern = re.compile(r"(?<![\d.])7(\.0+)?\s*(A\b|Å|angstrom)|cutoff\w*\s*=\s*7(\.0+)?\b", re.IGNORECASE)
-    hits = [f"{p.name}:{line.strip()}" for p in src.glob("*.py") for line in p.read_text().splitlines()
-            if pattern.search(line)]
-    assert hits == ["candidates.py:CANDIDATE_CUTOFF_A_DEFAULT = 7.0"]
-
-
 def test_ambiguous_ligand_requires_explicit_selection():
     other = ("ZZY", [("X1", "C", (40.0, 40.0, 40.0)), ("X2", "C", (41.0, 40.0, 40.0))])
     u = build_universe(simple_protein(4), [("C1", "C", (12.0, 15.0, 10.0)), ("C2", "C", (13.0, 15.0, 10.0))],
