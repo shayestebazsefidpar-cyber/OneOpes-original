@@ -1,51 +1,12 @@
 # Tests
 
-Automated unit/regression tests, using synthetic data only - no real
-system, ligand, or scientific result appears here.
-
-Run with:
 ```bash
-pip install -e ".[dev]"
-pytest
+pip install -e ".[dev]" && pytest
 ```
 
-## What's covered here
+Synthetic data only; each file's docstring says what it covers. `tests/reference/` holds the
+vendored WaterFP selection code the G1/G2 rules are checked against.
 
-- `test_waterfp.py` - the shared `oneopes.waterfp` module: radial grid geometry
-  (bin/edge counts, shell-volume monotonicity), water counting on small
-  synthetic universes (a water lands in the bin of its distance, waters
-  beyond rmax are ignored, frame ranges add up, parallel = serial), and the
-  FP integral (a uniform bulk profile gives FP=0; a depleted shell gives a
-  negative FP).
-- `test_system.py` - ligand, water oxygen and heavy-atom detection without
-  a protein (hydrogens, virtual sites, explicit selections).
-- `test_g1_g2_selection.py` - the G1/G2 result types and YAML file, the
-  selection rules on hand-made chains, and `oneopes select` end to end on a
-  synthetic ligand in water (`ligand_systems.py`).
-- `test_g1_g2_reference.py` - `select_g1_g2` picks the same atoms as the
-  vendored WaterFP notebook code on hundreds of random ligands.
-- `test_monitor_convergence.py` - `oneopes monitor` end to end on the same
-  synthetic ligand: stopping at convergence and selecting G1/G2 on the
-  converged block, or reading every block without converging.
-- `test_build_ligand_cv_consumer.py` - `oneopes build-cv` reading
-  `g1_g2.yaml`: valid input gives the expected serials, and a malformed file
-  (missing G1/G2, or an atom entry missing `serial`) is rejected clearly.
-- `test_output_dir_creation.py` - **regression tests for a real bug**
-  caught during manual end-to-end testing against a real ligand-in-water system:
-  several scripts didn't create their output directory before writing,
-  crashing with `OSError`/`FileNotFoundError` the first time anyone ran
-  them into a fresh `outputs/` tree. Fixed in `build_ligand_cv.py` and
-  `add_legend.py`; `write_g1_g2_yaml` is covered in
-  `test_g1_g2_selection.py`.
-- `test_add_legend.py` - `oneopes add-legend`: entries from `g1_g2.yaml` or
-  typed by hand, malformed entries rejected, the legend drawn on the render.
-
-## What's intentionally NOT covered by automated tests
-
-- Following a live mdrun: waiting for new frames and sending SIGTERM need a
-  running GROMACS process (the monitor tests read a finished trajectory).
-- GROMACS itself: `test_prepare_system.py` runs `oneopes prepare-system`
-  with `echo` in place of gmx, checking the commands and their order only.
-- The PyMOL and Chimera render scripts, which run inside those programs.
-- Results on real systems: real trajectories don't belong in this
-  repository (see the top-level README's "code only" policy).
+Not covered: following a live mdrun (waiting for frames, SIGTERM), GROMACS itself
+(`prepare-system` runs with `echo` in place of gmx), the PyMOL/Chimera render scripts, and
+the BioSimSpace tests when BioSimSpace is not installed.
