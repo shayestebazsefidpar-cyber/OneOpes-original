@@ -46,12 +46,12 @@ def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):
     system = protein_system(u, u)
     sel = system.selection
     cand = select_candidates(system)
-    chosen = set(cand["Atom_index"])
+    chosen = set(cand.atom_index.values)
     for i in sel.protein_heavy:
         d = _min_dist(u, sel, i)
         assert (i in chosen) == (d <= CANDIDATE_CUTOFF_A_DEFAULT), (i, d)
     assert 0 < len(chosen) < len(sel.protein_heavy)
-    expected = [_min_dist(u, sel, i) for i in cand["Atom_index"]]
+    expected = [_min_dist(u, sel, i) for i in cand.atom_index.values]
     np.testing.assert_allclose(cand["Min_distance_to_ligand_A"], expected, atol=1e-4)
 
 
@@ -60,7 +60,7 @@ def test_cutoff_is_a_parameter(small_system):
     nearest = min(_min_dist(small_system, system.selection, i) for i in system.selection.protein_heavy)
     small = select_candidates(system, cutoff_A=nearest + 1.0)
     large = select_candidates(system, cutoff_A=nearest + 8.0)
-    assert set(small["Atom_index"]) < set(large["Atom_index"])
+    assert set(small.atom_index.values) < set(large.atom_index.values)
     assert (small["Min_distance_to_ligand_A"] <= nearest + 1.0).all()
 
 
@@ -68,10 +68,10 @@ def test_pool_has_only_protein_heavy_atoms(small_system):
     u = small_system
     system = protein_system(u, u)
     cand = select_candidates(system, cutoff_A=50.0)
-    atoms = u.atoms[cand["Atom_index"].to_numpy()]
+    atoms = u.atoms[cand.atom_index.values]
     assert set(atoms.resnames) == {"ALA"}
     assert "H" not in set(atoms.elements) and (atoms.masses >= 1.5).all()
-    assert not set(cand["Atom_index"]) & set(system.selection.ligand_heavy)
+    assert not set(cand.atom_index.values) & set(system.selection.ligand_heavy)
 
 
 def test_seven_angstrom_only_as_the_configurable_default():
@@ -113,7 +113,7 @@ def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
     """With a GROMACS .tpr, MDAnalysis puts molecule-type names (e.g. "Protein") in chainIDs."""
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
     cand = select_candidates(protein_system(small_system, small_system), 10.0)
-    assert set(cand["Chain_ID"]) == {""}
+    assert set(cand.Chain_ID.values) == {""}
 
 
 def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
@@ -124,10 +124,10 @@ def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
     complex_file = mda.Universe(str(tmp_path / "complex.pdb"))
     cand = select_candidates(protein_system(small_system, small_system, complex_file), 10.0)
-    assert set(cand["Chain_ID"]) == {"K"}
+    assert set(cand.Chain_ID.values) == {"K"}
 
 
 def test_blank_chain_ids_in_structure_stay_empty(small_system):
     small_system.atoms.chainIDs = [" "] * len(small_system.atoms)
     cand = select_candidates(protein_system(small_system, small_system, small_system), 10.0)
-    assert set(cand["Chain_ID"]) == {""}
+    assert set(cand.Chain_ID.values) == {""}

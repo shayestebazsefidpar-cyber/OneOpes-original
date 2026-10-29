@@ -6,7 +6,7 @@ atom in the complex structure is <= the cutoff (minimum image when the structure
 has a box). The pool is computed once and never changes.
 """
 
-import pandas as pd
+import numpy as np
 import xarray as xr
 from MDAnalysis.core.groups import Atom
 from MDAnalysis.lib.distances import distance_array
@@ -22,13 +22,15 @@ def atom_label(atom: Atom) -> str:
     return f"{atom.resname}{atom.resid}_{atom.name}_id{atom.index + 1}"
 
 
-def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_A_DEFAULT) -> pd.DataFrame:
+def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_A_DEFAULT) -> xr.Dataset:
     """Protein heavy atoms within ``cutoff_A`` of any ligand heavy atom in the complex structure.
 
-    ``Atom_serial`` is the atom's 1-based number in the topology (``Atom_index`` + 1), as GROMACS
-    counts atoms. ``Chain_ID`` comes only from the complex file's chain IDs (empty when
-    unknown), never from the topology's chain field. Distances use the minimum image when the
-    structure has a box.
+    A Dataset of coordinates only, along ``atom`` (named by :func:`atom_label`): ``atom_index``,
+    ``Atom_serial`` (the 1-based number in the topology, as GROMACS counts atoms), ``Atom_name``,
+    ``Residue_name``, ``Residue_number``, ``Chain_ID`` and ``Min_distance_to_ligand_A``; measurements
+    of the candidates take them over. ``Chain_ID`` comes only from the complex file's chain IDs
+    (empty when unknown), never from the topology's chain field. Distances use the minimum image
+    when the structure has a box.
     """
     u = system.complex
     protein, ligand = system.selection.protein(u), system.selection.ligand(u)
@@ -37,19 +39,14 @@ def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_
     if not near.any():
         raise SystemDefinitionError(f"No protein heavy atom lies within {cutoff_A} A of the ligand.")
     atoms = protein[near]
-    return pd.DataFrame({
-        "Atom": [atom_label(atom) for atom in atoms],
-        "Atom_index": atoms.indices,
-        "Atom_serial": atoms.indices + 1,
-        "Atom_name": atoms.names,
-        "Residue_name": atoms.resnames,
-        "Residue_number": atoms.resids,
-        "Chain_ID": "" if system.chain_ids is None else system.chain_ids[atoms.indices],
-        "Min_distance_to_ligand_A": min_distance[near],
+    chain_ids = np.full(len(atoms), "", dtype=object) if system.chain_ids is None else system.chain_ids[atoms.indices]
+    return xr.Dataset(coords={
+        "atom": [atom_label(atom) for atom in atoms],
+        "atom_index": ("atom", atoms.indices),
+        "Atom_serial": ("atom", atoms.indices + 1),
+        "Atom_name": ("atom", atoms.names),
+        "Residue_name": ("atom", atoms.resnames),
+        "Residue_number": ("atom", atoms.resids),
+        "Chain_ID": ("atom", chain_ids),
+        "Min_distance_to_ligand_A": ("atom", min_distance[near]),
     })
-
-
-def candidate_details(candidates: pd.DataFrame) -> xr.Dataset:
-    """The columns of :func:`select_candidates` along ``atom``, named by the ``Atom`` label, to attach to
-    measurements as coordinates; ``Atom_index`` is left out (measurements carry it as ``atom_index``)."""
-    return xr.Dataset.from_dataframe(candidates.drop(columns="Atom_index").set_index("Atom").rename_axis("atom"))

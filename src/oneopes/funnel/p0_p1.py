@@ -20,11 +20,15 @@ MIN_AXIS_LENGTH_A = 1e-6
 
 @dataclass(frozen=True)
 class P0P1Result:
-    """The makeFunnel atom selections and the P0/P1 points derived from them (A)."""
+    """The makeFunnel atom selections and the P0/P1 points derived from them (A).
 
-    atoms0: list[int]
+    Frozen: the fields cannot be reassigned, and the atom selections are tuples; the P0/P1 arrays
+    are not read-only, so do not modify them in place.
+    """
+
+    atoms0: tuple[int, ...]
     """0-based system indices of the P0 (funnel origin) atoms."""
-    atoms1: list[int]
+    atoms1: tuple[int, ...]
     """0-based system indices of the P1 (inflection side) atoms."""
     p0: np.ndarray
     """Average position of ``atoms0``."""
@@ -67,5 +71,5 @@ def make_p0_p1(
     )
     positions0 = np.array([atom_position_A(system, i, property_map) for i in atoms0])
     positions1 = np.array([atom_position_A(system, i, property_map) for i in atoms1])
-    return P0P1Result(atoms0=[int(i) for i in atoms0], atoms1=[int(i) for i in atoms1],
+    return P0P1Result(atoms0=tuple(int(i) for i in atoms0), atoms1=tuple(int(i) for i in atoms1),
                       p0=positions0.mean(axis=0), p1=positions1.mean(axis=0))

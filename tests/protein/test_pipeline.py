@@ -76,8 +76,8 @@ def test_final_table_has_every_candidate_once(analysis):
     table = pd.read_csv(out / "final_per_atom_table.csv", keep_default_na=False)
     expected = select_candidates(protein_system(u, u), CANDIDATE_CUTOFF_A_DEFAULT)
     assert list(table.columns) == FINAL_COLUMNS
-    assert len(table) == len(expected) == meta["n_candidate_atoms"]
-    assert set(table["Atom_index"]) == set(expected["Atom_index"])
+    assert len(table) == expected.sizes["atom"] == meta["n_candidate_atoms"]
+    assert set(table["Atom_index"]) == set(expected.atom_index.values)
     assert list(table["FP_Rank"]) == list(range(1, len(table) + 1)) and table["FP"].is_monotonic_increasing
 
 
@@ -230,14 +230,14 @@ def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     expected = select_candidates(protein_system(u_complex, u_complex), cutoff)
     assert meta["candidate_cutoff_A"] == cutoff
-    assert set(table["Atom_index"]) == set(expected["Atom_index"]) and len(table) == len(expected)
+    assert set(table["Atom_index"]) == set(expected.atom_index.values) and len(table) == expected.sizes["atom"]
     assert table["Min_distance_to_ligand_A"].max() <= cutoff
 
 
 def test_10_A_pool_is_a_superset_of_the_7_A_pool(small_system):
     system = protein_system(small_system, small_system)
-    a7 = set(select_candidates(system, 7.0)["Atom_index"])
-    a10 = set(select_candidates(system, 10.0)["Atom_index"])
+    a7 = set(select_candidates(system, 7.0).atom_index.values)
+    a10 = set(select_candidates(system, 10.0).atom_index.values)
     assert a7 < a10
 
 

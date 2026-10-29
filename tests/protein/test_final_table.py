@@ -1,9 +1,7 @@
 """Final table on synthetic per-atom results."""
 
-import pandas as pd
 import xarray as xr
 
-from oneopes.protein.candidates import candidate_details
 from oneopes.protein.final_table import FINAL_COLUMNS, build_final_table, final_table_markdown
 
 REQUIRED = [
@@ -14,17 +12,16 @@ REQUIRED = [
 
 def _full():
     """The full-range Dataset of three candidates: their values, SASA, and details as coordinates."""
-    cand = pd.DataFrame({
-        "Atom": ["GLY3_CA_id8", "SER4_OG_id15", "TRP9_NE1_id60"],
-        "Atom_index": [7, 14, 59], "Atom_serial": [8, 15, 60],
-        "Atom_name": ["CA", "OG", "NE1"], "Residue_name": ["GLY", "SER", "TRP"],
-        "Residue_number": [3, 4, 9], "Chain_ID": ["", "", ""],
-        "Min_distance_to_ligand_A": [6.1, 2.9, 8.8],
-    })
-    full = xr.Dataset({"fp": ("atom", [-5.0, -21.0, -0.7]), "contact_occupancy": ("atom", [0.2, 1.0, 0.0]),
+    details = {
+        "atom": ["GLY3_CA_id8", "SER4_OG_id15", "TRP9_NE1_id60"],
+        "atom_index": ("atom", [7, 14, 59]), "Atom_serial": ("atom", [8, 15, 60]),
+        "Atom_name": ("atom", ["CA", "OG", "NE1"]), "Residue_name": ("atom", ["GLY", "SER", "TRP"]),
+        "Residue_number": ("atom", [3, 4, 9]), "Chain_ID": ("atom", ["", "", ""]),
+        "Min_distance_to_ligand_A": ("atom", [6.1, 2.9, 8.8]),
+    }
+    return xr.Dataset({"fp": ("atom", [-5.0, -21.0, -0.7]), "contact_occupancy": ("atom", [0.2, 1.0, 0.0]),
                        "bridge_occupancy": ("atom", [0.1, 0.4, 0.0]), "sasa": ("atom", [3.0, 11.5, 25.0])},
-                      coords={"atom": cand["Atom"], "atom_index": ("atom", cand["Atom_index"])})
-    return full.assign_coords(candidate_details(cand).data_vars)
+                      coords=details)
 
 
 def test_exact_required_columns_and_no_zone():

@@ -10,7 +10,7 @@ from oneopes.funnel.p0_p1 import P0P1Result
 PROJECTIONS_NM = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 4.5]
 P0 = np.array([1.0, 2.0, 3.0])
 P1 = np.array([1.5, 0.8, 11.0])
-P0P1 = P0P1Result(atoms0=[0], atoms1=[1], p0=P0, p1=P1)
+P0P1 = P0P1Result(atoms0=(0,), atoms1=(1,), p0=P0, p1=P1)
 
 
 # --------------------------------------------------------------------------

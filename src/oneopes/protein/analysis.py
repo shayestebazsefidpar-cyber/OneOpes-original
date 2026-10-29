@@ -6,16 +6,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
-import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 
 from oneopes.block_run import BlockOptions, block_run, run_summary
-from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, candidate_details, select_candidates
+from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
-from oneopes.protein.final_table import build_final_table, final_table_markdown
+from oneopes.protein.final_table import TABLE_NAMES, build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
 from oneopes.protein.sasa import static_sasa
 from oneopes.provenance import provenance
@@ -39,16 +38,16 @@ class AnalysisOptions:
     blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
 
 
-def measure_frames(system: ProteinSystem, candidates: pd.DataFrame, frames: range,
+def measure_frames(system: ProteinSystem, candidates: xr.Dataset, frames: range,
                    hydration: HydrationOptions) -> xr.Dataset:
     """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
     ``frames``, along ``atom`` (named by their ``Atom`` label), with their details as coordinates."""
     u = system.trajectory
-    candidate_atoms, labels = u.atoms[candidates["Atom_index"].to_numpy()], list(candidates["Atom"])
+    candidate_atoms, labels = u.atoms[candidates.atom_index.values], list(candidates.atom.values)
     ligand, water = system.selection.ligand(u), system.selection.water(u)
     measured = xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
                          measure_contacts(candidate_atoms, ligand, water, frames, labels)])
-    return measured.assign_coords(candidate_details(candidates).data_vars)
+    return measured.assign_coords(candidates.coords)
 
 
 @dataclass(frozen=True)
@@ -56,8 +55,8 @@ class ProteinAnalysis:
     """Everything one protein analysis computed."""
     system: ProteinSystem
     options: AnalysisOptions
-    candidates: pd.DataFrame
-    """The candidate pool (see :func:`select_candidates`), in the order of every per-atom result."""
+    candidates: xr.Dataset
+    """The candidate pool (see :func:`select_candidates`), whose details every per-atom result carries."""
     layout: FrameLayout
     blocks: xr.Dataset
     """The :func:`block_run` of the :func:`measure_frames` of each block, with the frame layout's times."""
@@ -75,7 +74,7 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_selection,
                 len(sel.ligand_heavy), sel.water_selection, len(sel.water_oxygens))
     candidates = select_candidates(system, options.candidate_cutoff_A)
-    logger.info("%d candidate protein heavy atoms within %s A", len(candidates), options.candidate_cutoff_A)
+    logger.info("%d candidate protein heavy atoms within %s A", candidates.sizes["atom"], options.candidate_cutoff_A)
     layout = frame_layout(system.trajectory, options.blocks.block_ns, options.window)
     logger.info("%s", layout.describe())
 
@@ -100,7 +99,8 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str
     with ``metadata`` run_metadata.json) with the contacts per block, and the final per-atom table."""
     candidates = analysis.candidates
     outdir.mkdir(parents=True, exist_ok=True)
-    candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
+    candidate_table = candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
+    candidate_table.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
     write_run(outdir, analysis.blocks, metadata)
     contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
@@ -116,7 +116,7 @@ def analysis_details(analysis: ProteinAnalysis) -> dict[str, Any]:
         "candidate_cutoff_A": analysis.options.candidate_cutoff_A,
         "contact_cutoff_A": CONTACT_CUTOFF_A,
         "bridge_water_cutoff_A": BRIDGE_WATER_CUTOFF_A,
-        "n_candidate_atoms": len(analysis.candidates),
+        "n_candidate_atoms": analysis.candidates.sizes["atom"],
         "ligand_selection": sel.ligand_selection,
         "water_selection": sel.water_selection,
         "frames": asdict(analysis.layout),
@@ -150,4 +150,4 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     analysis = run_analysis(system, options)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
     write_outputs(output_dir, analysis, provenance(inputs) | analysis_details(analysis))
-    logger.info("%d candidates -> %s", len(analysis.candidates), output_dir / "final_per_atom_table.csv")
+    logger.info("%d candidates -> %s", analysis.candidates.sizes["atom"], output_dir / "final_per_atom_table.csv")

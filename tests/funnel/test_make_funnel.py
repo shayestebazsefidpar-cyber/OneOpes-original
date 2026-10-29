@@ -29,7 +29,7 @@ def test_c7_cv_is_the_bss_funnel_built_from_makefunnel(funnel, bss_reference):
     assert isinstance(funnel.cv, Funnel)
     assert funnel.cv.getAtoms0() == list(atoms0)
     assert funnel.cv.getAtoms1() == list(atoms1)
-    assert (funnel.p0p1.atoms0, funnel.p0p1.atoms1) == (list(atoms0), list(atoms1))
+    assert (funnel.p0p1.atoms0, funnel.p0p1.atoms1) == (tuple(atoms0), tuple(atoms1))
 
 
 def test_c8_default_parameters_equal_bss_defaults(funnel, bss_reference):
@@ -52,7 +52,7 @@ def test_c9_funnel_kwargs_reach_bss_unchanged(ref):
         "upper_bound": Bound(Length(3.7, "nanometer"), force_constant=20000),
     }
     f = make_funnel(ref.system, **kwargs)
-    reference = Funnel(f.p0p1.atoms0, f.p0p1.atoms1, **kwargs)
+    reference = Funnel(list(f.p0p1.atoms0), list(f.p0p1.atoms1), **kwargs)
     assert f.parameters == funnel_parameters(reference)
 
 

@@ -13,7 +13,7 @@ from oneopes.funnel.p0_p1 import P0P1Result
 # B: unit tests (no BioSimSpace)
 # --------------------------------------------------------------------------
 def test_b3_axis_runs_from_p0_to_p1():
-    r = P0P1Result(atoms0=[3, 4], atoms1=[6, 7], p0=np.array([1.0, 0.0, 0.0]), p1=np.array([1.0, 0.0, 8.0]))
+    r = P0P1Result(atoms0=(3, 4), atoms1=(6, 7), p0=np.array([1.0, 0.0, 0.0]), p1=np.array([1.0, 0.0, 8.0]))
     np.testing.assert_allclose(r.axis, [0.0, 0.0, 1.0], atol=1e-12)
     assert r.axis_length == pytest.approx(8.0, abs=1e-12)
 
@@ -21,7 +21,7 @@ def test_b3_axis_runs_from_p0_to_p1():
 @pytest.mark.parametrize("p1", [[1.0, 2.0, 3.0], [np.nan, 0.0, 0.0]])
 def test_b3_p0_and_p1_must_be_distinct_points(p1):
     with pytest.raises(ValueError, match="distinct points"):
-        P0P1Result(atoms0=[0], atoms1=[1], p0=np.array([1.0, 2.0, 3.0]), p1=np.array(p1))
+        P0P1Result(atoms0=(0,), atoms1=(1,), p0=np.array([1.0, 2.0, 3.0]), p1=np.array(p1))
 
 
 # --------------------------------------------------------------------------
@@ -42,8 +42,8 @@ def ours(ref):
 
 
 def test_c1_c2_atoms_equal_bss_makefunnel(ours, bss_funnel_atoms):
-    assert ours.atoms0 == list(bss_funnel_atoms[0])
-    assert ours.atoms1 == list(bss_funnel_atoms[1])
+    assert ours.atoms0 == tuple(bss_funnel_atoms[0])
+    assert ours.atoms1 == tuple(bss_funnel_atoms[1])
 
 
 def test_c3_arguments_pass_through_to_makefunnel(ref):
@@ -60,7 +60,7 @@ def test_c3_arguments_pass_through_to_makefunnel(ref):
     ):
         expected0, expected1 = makeFunnel(system, **kwargs)
         r = make_p0_p1(system, **kwargs)
-        assert (r.atoms0, r.atoms1) == (list(expected0), list(expected1)), kwargs
+        assert (r.atoms0, r.atoms1) == (tuple(expected0), tuple(expected1)), kwargs
 
 
 def test_c4_c5_p0_p1_derived_from_bss_selected_atoms(ref, ours, bss_funnel_atoms):

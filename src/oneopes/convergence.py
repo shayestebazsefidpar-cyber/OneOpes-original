@@ -10,7 +10,7 @@ The run has converged at the block completing the first ``n_stable`` stable tran
 Blocks are the stacked block measurements of :func:`oneopes.trajectory_blocks.stack_blocks`.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import accumulate
 
@@ -57,7 +57,7 @@ def atom_ranks(fp: xr.DataArray) -> xr.DataArray:
                           kwargs={"axis": -1})
 
 
-def stable_in_a_row(passed: Sequence[bool]) -> list[int]:
+def stable_in_a_row(passed: Iterable[bool]) -> list[int]:
     """For each transition, how many stable transitions in a row end there."""
     counts = accumulate(passed, lambda count, stable: count + 1 if stable else 0, initial=0)
     return list(counts)[1:]

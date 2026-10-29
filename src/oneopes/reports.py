@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import pandas as pd
 import xarray as xr
@@ -18,7 +18,10 @@ from oneopes.convergence import TRANSITION_VARIABLES
 from oneopes.provenance import to_json
 
 
-def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+FpTable = TypeVar("FpTable", pd.DataFrame, pd.Series)
+
+
+def fp_ranks(fp: FpTable) -> FpTable:
     """Rank of each atom's FP (per column): 1 = most negative; ties keep the atoms' order."""
     return fp.rank(method="first").astype(int)
 

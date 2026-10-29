@@ -14,7 +14,7 @@ from MDAnalysis.core.groups import AtomGroup
 
 from oneopes.block_run import load_run, run_block
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import SelectionResult, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
 from oneopes.provenance import provenance
 from oneopes.reports import write_hydration_files, write_run_metadata
 from oneopes.system import SystemOptions, load_universe, select_system
@@ -36,14 +36,13 @@ def ligand_atoms(u: mda.Universe, hydration: xr.Dataset) -> AtomGroup:
     return u.atoms[indices]
 
 
-def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_round_decimals: int) -> SelectionResult:
+def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_round_decimals: int) -> None:
     """Write rdf.csv and fingerprints.csv of the ligand's ``hydration`` to ``outdir``, then its G1/G2
     selection as g1_g2.yaml; raises InputError when there is no selection (after writing the CSVs)."""
     write_hydration_files(hydration, outdir)
     selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
     logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)
-    return selection
 
 
 def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,

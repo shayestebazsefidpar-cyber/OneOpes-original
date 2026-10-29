@@ -80,7 +80,7 @@ class FrameLayout:
     """Frames in the whole trajectory."""
     dt_ps: float
     analysed: range
-    blocks: list[Block]
+    blocks: tuple[Block, ...]
     trajectory_start_ns: float
     trajectory_end_ns: float
     """Time of the trajectory's last frame."""
@@ -136,7 +136,7 @@ def frame_layout(u: Universe, block_ns: float, window: FrameWindow = FrameWindow
         n_frames=n_frames,
         dt_ps=dt_ps,
         analysed=analysed,
-        blocks=[Block.of(u, frames, dt_ps) for frames in block_frames],
+        blocks=tuple(Block.of(u, frames, dt_ps) for frames in block_frames),
         trajectory_start_ns=frame_time_ns(u, 0),
         trajectory_end_ns=frame_time_ns(u, n_frames - 1),
         analysis_start_ns=frame_time_ns(u, analysed.start),
