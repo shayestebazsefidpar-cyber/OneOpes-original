@@ -15,10 +15,11 @@ from oneopes.ligand.select import select, select_block
 from oneopes.ligand.setup import prepare_system
 from oneopes.protein.analysis import protein
 from oneopes.render.add_legend import add_legend
+from oneopes.render.pymol_script import render_script
 
 app = App(name="oneopes", help="Hydration and funnel collective variables for OneOPES, from unbiased MD.",
           result_action="return_value")
-for command in (prepare_system, monitor, select, select_block, build_cv, protein, add_legend):
+for command in (prepare_system, monitor, select, select_block, build_cv, protein, render_script, add_legend):
     app.command(command)
 
 

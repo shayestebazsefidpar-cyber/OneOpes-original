@@ -1,17 +1,15 @@
 # Stage 5 - render (optional)
 
-Draws the G1/G2 atoms on the bound complex: protein as a transparent cartoon, ligand as sticks,
-G1 red and G2 blue spheres. The render scripts in `src/oneopes/render/` run inside PyMOL or
-legacy UCSF Chimera, so they take the atom names as arguments.
+Draws the G1/G2 atoms on the bound complex: protein as a transparent cartoon, ligand as yellow
+sticks, G1 red and G2 blue spheres. `oneopes render-script` writes a PyMOL script with the atoms
+of `g1_g2.yaml`; PyMOL renders it; `oneopes add-legend` adds a legend in the same colours.
 
 ```bash
-pymol -cq render_selected_atoms.py -- --pdb complex.pdb --ligand-resname MOL \
-    --g1-atoms A1,A2 --g2-atoms A3,A4 --out-raw raw.png
-# or: chimera --nogui --silent --script "render_selected_atoms_chimera.py pdb=complex.pdb \
-#     ligand_resname=MOL g1_atoms=A1,A2 g2_atoms=A3,A4 out_raw=raw.png"
-
-oneopes add-legend --src raw.png --dst selected_atoms.png --g1-g2 g1_g2.yaml \
+oneopes render-script --g1-g2 g1_g2.yaml --complex complex.pdb --ligand-resname MOL --out render.py
+pymol -cq render.py                       # writes selected_atoms_raw.png (--image)
+oneopes add-legend --src selected_atoms_raw.png --dst selected_atoms.png --g1-g2 g1_g2.yaml \
     --caption "grey = protein pocket, yellow = ligand"
 ```
 
-`--g1-g2` labels the G1/G2 entries; `--entry "title:detail:r,g,b"` adds more.
+The complex must use the ligand atom names of `g1_g2.yaml`. `--entry "title:detail:r,g,b"` adds
+more legend entries.

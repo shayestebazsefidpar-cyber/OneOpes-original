@@ -9,14 +9,9 @@ from matplotlib.lines import Line2D
 
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import G1G2Selection, read_g1_g2_yaml
+from oneopes.render import G1_RGB, G2_RGB, Rgb
 
 logger = logging.getLogger(__name__)
-
-Rgb = tuple[int, int, int]
-G1_RGB: Rgb = (220, 20, 20)
-"""G1 (anti-bulk) is red in the renders."""
-G2_RGB: Rgb = (30, 60, 220)
-"""G2 (bulk) is blue in the renders."""
 
 
 def parse_entry(spec: str) -> tuple[str, Rgb]:
@@ -38,7 +33,7 @@ def add_legend(*, src: ExistingFile, dst: Path, g1_g2: ExistingFile | None = Non
                title: str = "Selected atoms", caption: str = "", font_size: float = 8, dpi: int = 300) -> None:
     """Add a legend to a raw render of the selected atoms and save the annotated figure.
 
-    The raw render comes from render_selected_atoms.py (PyMOL) or render_selected_atoms_chimera.py.
+    The raw render is the image of the script `oneopes render-script` writes.
     Example: --g1-g2 g1_g2.yaml, or --entry "Anti-bulk (G1):ATOM1, ATOM2:220,20,20" --entry "...".
 
     Parameters

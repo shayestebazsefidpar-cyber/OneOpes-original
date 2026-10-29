@@ -6,7 +6,8 @@ from matplotlib.image import imread, imsave
 from oneopes.cli import main
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import G1G2Selection, write_g1_g2_yaml
-from oneopes.render.add_legend import G1_RGB, G2_RGB, parse_entry, selection_entries
+from oneopes.render import G1_RGB, G2_RGB
+from oneopes.render.add_legend import parse_entry, selection_entries
 
 SELECTION = G1G2Selection.model_validate({
     "G1": [{"name": "C1", "serial": 1}, {"name": "O4", "serial": 4}],

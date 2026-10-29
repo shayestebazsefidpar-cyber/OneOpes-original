@@ -13,7 +13,7 @@ Code only: no systems or results are kept here. Write outputs under `outputs/` (
 pip install -e ".[dev]"   # then: pytest
 ```
 
-Also needed: GROMACS on `PATH` (stage 1); PyMOL or Chimera only for the renders;
+Also needed: GROMACS on `PATH` (stage 1); PyMOL only for the renders;
 BioSimSpace (conda) only for `oneopes.funnel`.
 
 ## Run
@@ -36,7 +36,7 @@ Every analysis command writes `run_metadata.json` (input hashes, options, versio
 | `monitor` | WaterFP per block until converged; stop mdrun; select G1/G2 | [ligand_monitor.md](docs/ligand_monitor.md) |
 | `select`, `select-block` | G1/G2 over a frame window, or from a block of `blocks.nc` | [g1_g2.md](docs/g1_g2.md) |
 | `build-cv` | PLUMED fragment for G1/G2 (review before use) | [plumed_cv.md](docs/plumed_cv.md) |
-| `add-legend` | legend on a render of G1/G2 | [render.md](docs/render.md) |
+| `render-script`, `add-legend` | PyMOL script that renders G1/G2 on the complex; legend on the render | [render.md](docs/render.md) |
 | `protein` | WaterFP, contacts and SASA of protein atoms near the ligand | [protein.md](docs/protein.md) |
 
 Why the method works as it does: [docs/METHOD_RATIONALE.md](docs/METHOD_RATIONALE.md).
