@@ -17,7 +17,7 @@ from oneopes.block_run import BlockOptions, block_run, chosen_block, convergence
 from oneopes.convergence import converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.select import write_selection
-from oneopes.plots import fp_figure, g_figure
+from oneopes.plots import write_charts
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, SystemSelection, load_universe, select_system
@@ -94,22 +94,6 @@ def log_progress(run: xr.Dataset) -> None:
                 latest.block, latest.t_end_ns, latest.fp_change, latest.rdf_nrmsd, latest.spearman_rho,
                 bool(latest.passed), latest.stable_in_a_row)
 
-
-def plot_blocks(run: xr.Dataset, outdir: Path) -> None:
-    """For every ligand atom, FP against time (fp_plots/) and g(r) of each block (rdf_plots/)."""
-    (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
-    (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
-    for atom_name in run.atom.values:
-        plot_atom(str(atom_name), run, outdir)
-
-
-def plot_atom(atom_name: str, run: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
-    """Save one atom's FP against time and its g(r) per block in existing fp_plots/ and rdf_plots/; return the paths."""
-    fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
-    rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
-    fp_figure(run, atom_name).savefig(fp_plot_path, dpi=150)
-    g_figure(run, atom_name).savefig(rdf_plot_path, dpi=150)
-    return fp_plot_path, rdf_plot_path
 
 
 def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration_options: HydrationOptions,
@@ -188,7 +172,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
     write_run(outdir, run, metadata)
     summary = convergence_summary(run)
-    plot_blocks(run, outdir)
+    write_charts(run, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
                     trajectory_end_ns, summary.n_blocks)

@@ -1,4 +1,4 @@
-"""The ligand convergence monitor: its plots, and `oneopes monitor` end to end on a synthetic ligand in water."""
+"""The ligand convergence monitor: `oneopes monitor` end to end on a synthetic ligand in water, and following mdrun."""
 import json
 import os
 import signal
@@ -12,13 +12,12 @@ from pathlib import Path
 import MDAnalysis as mda
 import pandas as pd
 import psutil
-import xarray as xr
 
 from ligand_systems import ligand_in_water
 from oneopes.block_run import convergence_summary, facts_of, load_run, metadata_of
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
-from oneopes.ligand.monitor import blocks_as_written, plot_atom, process_alive, stop_mdrun
+from oneopes.ligand.monitor import blocks_as_written, process_alive, stop_mdrun
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -43,7 +42,7 @@ def test_stops_at_convergence_and_selects_g1_g2_on_the_converged_block(tmp_path)
     assert summary["ligand_heavy_atoms"] == [f"C{i}" for i in range(6)]
     assert set(pd.read_csv(outdir / "fp_values_per_block.csv")["block"]) == {0, 1, 2}
     assert len(pd.read_csv(outdir / "convergence_metrics.csv")) == 2
-    assert len(list((outdir / "fp_plots").glob("*.png"))) == 6
+    assert (outdir / "fp_vs_time.png").exists() and (outdir / "g_per_block.png").exists()
 
     fingerprints = pd.read_csv(outdir / "selection" / "fingerprints.csv")
     block_2 = pd.read_csv(outdir / "fp_values_per_block.csv").query("block == 2")
@@ -88,24 +87,6 @@ def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     assert metadata["options"]["block_options"]["tolerances"]["fp_rel_tol"] == 0
     assert "metadata" not in summary
     assert not (outdir / "selection").exists()
-
-
-def test_plot_atom_writes_expected_files(tmp_path):
-    (tmp_path / "fp_plots").mkdir()
-    (tmp_path / "rdf_plots").mkdir()
-
-    blocks = xr.Dataset(
-        {"fp": (("block", "atom"), [[-10.0], [-10.1]]),
-         "g": (("block", "atom", "r_nm"), [[[0.0, 1.0]], [[0.0, 1.0]]])},
-        coords={"block": [0, 1], "atom": ["A"], "r_nm": [0.1, 0.2], "t_mid_ns": ("block", [2.5, 7.5])},
-    )
-
-    fp_plot_path, rdf_plot_path = plot_atom("A", blocks, tmp_path)
-
-    assert fp_plot_path == tmp_path / "fp_plots" / "FP_vs_time_A.png"
-    assert rdf_plot_path == tmp_path / "rdf_plots" / "RDF_per_block_A.png"
-    assert (tmp_path / "fp_plots" / "FP_vs_time_A.png").exists()
-    assert (tmp_path / "rdf_plots" / "RDF_per_block_A.png").exists()
 
 
 class GrowingTrajectory:

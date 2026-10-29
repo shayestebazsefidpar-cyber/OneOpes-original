@@ -16,7 +16,8 @@ Writes to `--outdir`:
 
 - `blocks.nc`: the whole run as one xarray Dataset, rewritten after every block
   (`oneopes.block_run.load_run`);
-- per-block CSVs of FP and g(r), `convergence_metrics.csv`, `convergence_summary.json`, plots;
+- per-block CSVs of FP and g(r), `convergence_metrics.csv`, `convergence_summary.json`;
+- `fp_vs_time.png` and `g_per_block.png`, one panel per ligand atom, when the run ends;
 - `run_metadata.json` when the run ends;
 - on convergence, `selection/` with `rdf.csv`, `fingerprints.csv` and `g1_g2.yaml`.
 
