@@ -29,8 +29,11 @@ build-cv:
   g1-g2: outputs/convergence/selection/g1_g2.yaml
   out: outputs/ligand_cv/plumed_fragment.dat
 
-add-legend:
+render:
   g1-g2: outputs/convergence/selection/g1_g2.yaml
+  complex: complex.pdb
+  ligand-resname: MOL
+  out: outputs/figures/selected_atoms.png
 
 protein:
   complex: complex.pdb

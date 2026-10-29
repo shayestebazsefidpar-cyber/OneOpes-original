@@ -38,7 +38,7 @@ def test_a_misspelt_setting_is_an_error(tmp_path):
     assert not (tmp_path / "out.dat").exists()
 
 
-def test_the_example_config_has_one_section_per_command():
+def test_every_example_section_is_a_command():
     assert set(yaml.safe_load(EXAMPLE.read_text())) <= set(app)
 
 

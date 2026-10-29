@@ -34,8 +34,8 @@ dev = [
 notebooks = [
     "marimo>=0.25.2",
 ]
-# Not pip-installable: PyMOL runs the render script `oneopes render-script` writes (docs/render.md),
-# and oneopes.funnel needs BioSimSpace, which is conda-only.
+# Not pip-installable: PyMOL, which `oneopes render` runs (docs/render.md), and BioSimSpace, which
+# oneopes.funnel needs (conda-only).
 
 [project.scripts]
 oneopes = "oneopes.cli:main"

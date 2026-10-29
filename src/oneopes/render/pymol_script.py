@@ -1,22 +1,17 @@
-"""A PyMOL script that renders the G1/G2 atoms on the bound complex (``oneopes render-script``).
+"""The PyMOL script that renders the G1/G2 atoms on the bound complex, and running it.
 
 The script uses PyMOL's Python API, not a .pml command file: some PyMOL builds fail to parse
 ``set name, value`` lines in .pml files, and skip the setting with only a traceback.
 """
-import logging
+import subprocess
 from pathlib import Path
-from typing import Annotated
 
-from cyclopts import Parameter
-from cyclopts.types import ExistingFile
-
-from oneopes.ligand.g1_g2 import AtomRef, read_g1_g2_yaml
-from oneopes.render import G1_RGB, G2_RGB, Rgb
-
-logger = logging.getLogger(__name__)
+from oneopes.errors import InputError
+from oneopes.ligand.g1_g2 import AtomRef, G1G2Selection
+from oneopes.render import G1_RGB, G2_RGB, RENDER_DPI, RENDER_SIZE, Rgb
 
 SCRIPT_TEMPLATE = """\
-# Render of the G1/G2 atoms, written by `oneopes render-script`. Run with: pymol -cq {script}
+# Render of the G1/G2 atoms, written by `oneopes render`. Run again with: pymol -cq <this file>
 from pymol import cmd
 
 cmd.reinitialize()
@@ -67,7 +62,7 @@ cmd.orient("ligand")
 cmd.zoom("ligand or pocket", buffer=3.0)
 cmd.turn("y", 20)
 cmd.turn("x", -10)
-cmd.png({image!r}, width=2400, height=1800, dpi=300, ray=1)
+cmd.png({image!r}, width={width}, height={height}, dpi={dpi}, ray=1)
 """
 
 
@@ -81,36 +76,24 @@ def pymol_names(atoms: tuple[AtomRef, ...]) -> str:
     return "+".join(atom.name for atom in atoms)
 
 
-def render_script(*, g1_g2: ExistingFile, complex_file: Annotated[ExistingFile, Parameter(name="--complex")],
-                  ligand_resname: str, out: Path, image: Path = Path("selected_atoms_raw.png"),
-                  pocket_cutoff_A: Annotated[float, Parameter(name="--pocket-cutoff-A")] = 5.0) -> None:
-    """Write a PyMOL script that renders the G1/G2 atoms on the bound complex.
-
-    The protein is a transparent cartoon, the ligand yellow sticks, and the G1/G2 atoms red and blue
-    spheres, the colours `oneopes add-legend` uses. Run the script with `pymol -cq <out>`.
-
-    Parameters
-    ----------
-    g1_g2
-        g1_g2.yaml written by `oneopes select` or `oneopes monitor`.
-    complex_file
-        Bound protein-ligand structure, with the ligand atom names of g1_g2.yaml.
-    ligand_resname
-        Residue name of the ligand in the complex.
-    out
-        The PyMOL Python script to write, e.g. render.py.
-    image
-        The PNG the script renders, for `oneopes add-legend --src`. The script holds absolute paths, so it
-        runs from any directory.
-    pocket_cutoff_A
-        Protein residues within this distance (A) of the ligand are drawn as thin sticks.
-    """
-    selection = read_g1_g2_yaml(g1_g2)
-    script = SCRIPT_TEMPLATE.format(
-        script=out.name, complex_file=str(complex_file.resolve()), ligand_resname=ligand_resname,
-        pocket_cutoff_A=pocket_cutoff_A, g1_color=pymol_color(G1_RGB), g2_color=pymol_color(G2_RGB),
-        g1_names=pymol_names(selection.G1), g2_names=pymol_names(selection.G2), image=str(image.resolve()),
+def pymol_script(selection: G1G2Selection, complex_file: Path, ligand_resname: str, image: Path,
+                 pocket_cutoff_A: float) -> str:
+    """The script rendering ``selection`` on the complex into ``image``; with absolute paths, it runs anywhere."""
+    width, height = RENDER_SIZE
+    return SCRIPT_TEMPLATE.format(
+        complex_file=str(complex_file.resolve()), ligand_resname=ligand_resname, pocket_cutoff_A=pocket_cutoff_A,
+        g1_color=pymol_color(G1_RGB), g2_color=pymol_color(G2_RGB),
+        g1_names=pymol_names(selection.G1), g2_names=pymol_names(selection.G2),
+        image=str(image.resolve()), width=width, height=height, dpi=RENDER_DPI,
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(script)
-    logger.info("wrote %s; render with: pymol -cq %s", out, out)
+
+
+def run_pymol(pymol: str, script: Path, image: Path) -> None:
+    """Run ``script`` in PyMOL; raises InputError, with the end of PyMOL's output, unless it wrote ``image``."""
+    try:
+        result = subprocess.run([pymol, "-cq", str(script)], capture_output=True, text=True)
+    except FileNotFoundError:
+        raise InputError(f"PyMOL not found as {pymol!r}; pass its path with --pymol.") from None
+    if not image.exists():
+        output = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
+        raise InputError(f"PyMOL did not write {image.name}; the end of its output:\n{output}")

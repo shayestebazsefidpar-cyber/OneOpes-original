@@ -12,7 +12,7 @@ G2 = [{"name": "X3", "serial": 11}, {"name": "X4", "serial": 2}]
 def _build_cv(tmp_path, g1_g2_data, *options):
     g1_g2_path = tmp_path / "g1_g2.yaml"
     g1_g2_path.write_text(yaml.safe_dump(g1_g2_data))
-    out_path = tmp_path / "plumed_fragment.dat"
+    out_path = tmp_path / "ligand_cv" / "plumed_fragment.dat"
     main(["build-cv", "--g1-g2", str(g1_g2_path), "--out", str(out_path), *options])
     return out_path
 

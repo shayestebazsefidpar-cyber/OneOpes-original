@@ -36,7 +36,7 @@ Every analysis command writes `run_metadata.json` (input hashes, options, versio
 | `monitor` | WaterFP per block until converged; stop mdrun; select G1/G2 | [ligand_monitor.md](docs/ligand_monitor.md) |
 | `select`, `select-block` | G1/G2 over a frame window, or from a block of `blocks.nc` | [g1_g2.md](docs/g1_g2.md) |
 | `build-cv` | PLUMED fragment for G1/G2 (review before use) | [plumed_cv.md](docs/plumed_cv.md) |
-| `render-script`, `add-legend` | PyMOL script that renders G1/G2 on the complex; legend on the render | [render.md](docs/render.md) |
+| `render` | figure of G1/G2 on the bound complex (PyMOL), with a legend | [render.md](docs/render.md) |
 | `protein` | WaterFP, contacts and SASA of protein atoms near the ligand | [protein.md](docs/protein.md) |
 
 Why the method works as it does: [docs/METHOD_RATIONALE.md](docs/METHOD_RATIONALE.md).
