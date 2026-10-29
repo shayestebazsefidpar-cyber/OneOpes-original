@@ -4,9 +4,11 @@ import shlex
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Annotated, Literal, get_args
 
+from cyclopts import Parameter
 from cyclopts.types import ExistingFile
+from cyclopts.validators import Number
 
 from oneopes.errors import InputError
 
@@ -27,6 +29,7 @@ def run_command(cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
 def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir: Path, mdp_dir: Path = MDP_DIR,
                    box_distance_nm: float = 1.2, box_type: str = "cubic", water_model: str = "spc216",
                    ion_conc: float = 0.0, pname: str = "NA", nname: str = "CL", gmx: str = "gmx",
+                   maxwarn: Annotated[int, Parameter(validator=Number(gte=0))] = 0,
                    start_from: Step = "box") -> None:
     """Build and equilibrate a ligand-in-water GROMACS system for the unbiased run the monitor follows.
 
@@ -50,6 +53,9 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
         Ion concentration (mol/L) for genion, on top of neutralization.
     gmx
         gmx executable.
+    maxwarn
+        GROMACS warnings grompp may ignore for EM, NVT and NPT. ions.tpr always allows the one
+        warning of a not yet neutral system.
     start_from
         Resume from this step instead of the beginning.
     """
@@ -62,9 +68,9 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     if not (outdir / "prod.mdp").exists():
         shutil.copy(mdp_dir / "prod.mdp", outdir / "prod.mdp")
 
-    def grompp(mdp: str, structure: list[str], tpr: str) -> list[str]:
+    def grompp(mdp: str, structure: list[str], tpr: str, allowed_warnings: int = maxwarn) -> list[str]:
         return [gmx, "grompp", "-f", str(mdp_dir / mdp), "-c", *structure, "-p", "system.top", "-o", tpr,
-                "-maxwarn", "1"]
+                "-maxwarn", str(allowed_warnings)]
 
     genion = [gmx, "genion", "-s", "ions.tpr", "-o", "ligand_ions.gro", "-p", "system.top",
               "-pname", pname, "-nname", nname, "-neutral"] + (["-conc", str(ion_conc)] if ion_conc > 0 else [])
@@ -73,7 +79,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
                 "-c", "-d", str(box_distance_nm), "-bt", box_type],
         "solvate": [gmx, "solvate", "-cp", "ligand_box.gro", "-cs", water_model, "-o", "ligand_solv.gro",
                     "-p", "system.top"],
-        "ions_tpr": grompp("ions.mdp", ["ligand_solv.gro"], "ions.tpr"),
+        "ions_tpr": grompp("ions.mdp", ["ligand_solv.gro"], "ions.tpr", allowed_warnings=1),
         "genion": genion,
         "em_tpr": grompp("em.mdp", ["ligand_ions.gro"], "em.tpr"),
         "em_run": [gmx, "mdrun", "-deffnm", "em", "-v"],

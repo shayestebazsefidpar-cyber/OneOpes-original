@@ -9,7 +9,7 @@ and the same 3-point water model as the rest of your project.
 ```bash
 oneopes prepare-system --ligand-gro ligand.gro --ligand-top ligand.top --outdir outputs/lig_system
 cd outputs/lig_system
-gmx grompp -f prod.mdp -c npt.gro -t npt.cpt -p system.top -o prod.tpr -maxwarn 1
+gmx grompp -f prod.mdp -c npt.gro -t npt.cpt -p system.top -o prod.tpr
 gmx mdrun -deffnm prod -v &
 oneopes monitor $! --tpr prod.tpr --xtc prod.xtc
 ```
@@ -18,6 +18,8 @@ oneopes monitor $! --tpr prod.tpr --xtc prod.xtc
   `prod.mdp` is copied to `--outdir`. Its 100 ns length is only a ceiling: the monitor
   usually stops the run much earlier.
 - `--start-from nvt_tpr` (or any step) resumes a partial build.
+- grompp warnings stop the build, except the expected net-charge warning before adding ions.
+  `--maxwarn N` lets EM/NVT/NPT through N warnings you have checked.
 - Position restraints: make `posre_lig.itp` with `gmx genrestr` on the **ligand topology
   alone**. Run on a larger system, it gets global atom indices and restrains the wrong atoms.
 - Stop mdrun with SIGTERM, never SIGKILL: killing a GPU run can break the CUDA driver for the

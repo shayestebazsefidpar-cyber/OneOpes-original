@@ -33,6 +33,15 @@ def test_resumes_from_a_step(tmp_path, caplog, start_from, expected):
     assert [command[0] for command in gmx_commands(tmp_path, caplog, "--start-from", start_from)] == expected
 
 
+def test_only_ions_tpr_allows_a_warning_unless_asked(tmp_path, caplog):
+    allowed = {command[command.index("-o") + 1]: command[command.index("-maxwarn") + 1]
+               for command in gmx_commands(tmp_path, caplog) if command[0] == "grompp"}
+    assert allowed == {"ions.tpr": "1", "em.tpr": "0", "nvt.tpr": "0", "npt.tpr": "0"}
+    caplog.clear()
+    npt = gmx_commands(tmp_path, caplog, "--maxwarn", "2", "--start-from", "npt_tpr")[0]
+    assert npt[npt.index("-maxwarn") + 1] == "2"
+
+
 def test_ion_concentration_is_passed_to_genion(tmp_path, caplog):
     genion = gmx_commands(tmp_path, caplog, "--ion-conc", "0.15", "--start-from", "genion")[0]
     assert genion[0] == "genion" and genion[-2:] == ["-conc", "0.15"]
