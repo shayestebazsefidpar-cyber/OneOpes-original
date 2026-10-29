@@ -1,5 +1,6 @@
 """The ligand convergence monitor: `oneopes monitor` end to end on a synthetic ligand in water, and following mdrun."""
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -12,12 +13,14 @@ from pathlib import Path
 import MDAnalysis as mda
 import pandas as pd
 import psutil
+import pytest
 
 from ligand_systems import ligand_in_water
 from oneopes.block_run import convergence_summary, facts_of, load_run, metadata_of
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
-from oneopes.ligand.monitor import blocks_as_written, process_alive, stop_mdrun
+from oneopes.ligand import monitor as monitor_module
+from oneopes.ligand.monitor import blocks_as_written, mdrun_running, stop_mdrun
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -100,27 +103,69 @@ class GrowingTrajectory:
         self.trajectory = range(next(self.lengths))
 
 
-def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it():
+SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
+
+
+@pytest.fixture
+def fake_mdrun():
+    """A running process with mdrun on its command line."""
+    process = subprocess.Popen([*SLEEPER, "mdrun"])
+    yield process.pid
+    process.kill()
+    process.wait()
+
+
+def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it(fake_mdrun):
     """The last frame may be half-written, so a block is complete once a later frame exists."""
     u = GrowingTrajectory(2, 3, 4, 5, 7)
-    blocks = blocks_as_written(u, Path("prod.xtc"), 2, os.getpid(), poll_seconds=0)
+    blocks = blocks_as_written(u, Path("prod.xtc"), 2, fake_mdrun, poll_seconds=0)
     assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
         (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
 
 
-SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
-
-
-def test_an_ended_process_is_not_running_even_before_it_is_reaped():
-    child = subprocess.Popen([sys.executable, "-c", "pass"])
+def test_an_ended_mdrun_is_not_running_even_before_it_is_reaped():
+    child = subprocess.Popen([sys.executable, "-c", "pass", "mdrun"])
     try:
         for _ in range(200):
             if psutil.Process(child.pid).status() == psutil.STATUS_ZOMBIE:
                 break
             time.sleep(0.05)
-        assert not process_alive(child.pid)
+        assert not mdrun_running(child.pid)
     finally:
         child.wait()
+
+
+def test_mdrun_is_recognised_by_its_program_name():
+    named = subprocess.Popen(["/opt/gromacs/bin/mdrun_mpi", *SLEEPER[1:]], executable=sys.executable)
+    other = subprocess.Popen(SLEEPER)
+    try:
+        assert mdrun_running(named.pid) and not mdrun_running(other.pid)
+    finally:
+        for process in (named, other):
+            process.kill()
+            process.wait()
+
+
+def test_a_pid_that_is_not_mdrun_stops_the_monitor_before_it_starts(tmp_path, caplog):
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["monitor", str(os.getpid()), "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out")])
+    assert not (tmp_path / "out").exists()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == [f"error: pid {os.getpid()} is not a running gmx mdrun; for a finished run, leave the pid out."]
+
+
+def test_mdrun_is_stopped_before_the_reports_are_written(tmp_path, monkeypatch):
+    stopped = []
+
+    def failing_charts(*_):
+        raise RuntimeError("charts failed")
+
+    monkeypatch.setattr(monitor_module, "stop_mdrun", stopped.append)
+    monkeypatch.setattr(monitor_module, "write_charts", failing_charts)
+    with pytest.raises(RuntimeError, match="charts failed"):
+        run_monitor(tmp_path, *ALWAYS_STABLE, "--n-stable", "2")
+    assert stopped == [None]
 
 
 def test_only_an_mdrun_process_is_stopped():

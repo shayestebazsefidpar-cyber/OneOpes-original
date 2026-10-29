@@ -27,20 +27,22 @@ from oneopes.waterfp import HydrationOptions, measure_hydration
 logger = logging.getLogger(__name__)
 
 
-def process_alive(pid: int | None) -> bool:
-    """Whether process ``pid`` is running; a zombie has ended."""
+def mdrun_running(pid: int | None) -> bool:
+    """Whether ``pid`` is a running mdrun: not ended (a zombie has), and not a reused PID of another program."""
     if pid is None:
         return False
     try:
-        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
+        process = psutil.Process(pid)
+        return process.status() != psutil.STATUS_ZOMBIE and any("mdrun" in Path(part).name
+                                                                for part in process.cmdline())
+    except psutil.Error:
         return False
 
 
 def n_complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
     """Frames fully written: while mdrun runs, all but the last, which it may still be writing."""
     n_frames = len(u.trajectory)
-    return n_frames - 1 if process_alive(mdrun_pid) else n_frames
+    return n_frames - 1 if mdrun_running(mdrun_pid) else n_frames
 
 
 def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid: int | None,
@@ -51,7 +53,7 @@ def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid:
     """
     while True:
         u.load_new(str(trajectory))
-        if n_complete_frames(u, mdrun_pid) >= n_frames or not process_alive(mdrun_pid):
+        if n_complete_frames(u, mdrun_pid) >= n_frames or not mdrun_running(mdrun_pid):
             return
         time.sleep(poll_seconds)
 
@@ -68,19 +70,12 @@ def blocks_as_written(u: mda.Universe, trajectory: Path, block_length: int, mdru
 
 
 def stop_mdrun(pid: int | None) -> None:
-    """Send SIGTERM to mdrun if it is still running (never SIGKILL: see docs/ligand_setup.md).
-
-    Checks the command line first, since the PID may have been reused by another program.
-    """
-    if pid is None or not process_alive(pid):
+    """Send SIGTERM to mdrun if it is still running (never SIGKILL: see docs/ligand_setup.md)."""
+    if pid is None or not mdrun_running(pid):
         return
+    logger.info("sending SIGTERM to mdrun pid %d", pid)
     try:
-        process = psutil.Process(pid)
-        if "mdrun" not in process.cmdline():
-            logger.warning("pid %d is %s, not gmx mdrun: not stopping it", pid, process.name())
-            return
-        logger.info("sending SIGTERM to mdrun pid %d", pid)
-        process.terminate()
+        psutil.Process(pid).terminate()
     except psutil.Error as e:
         logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
@@ -151,6 +146,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     fp_round_decimals
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
     """
+    if mdrun_pid is not None and not mdrun_running(mdrun_pid):
+        raise InputError(f"pid {mdrun_pid} is not a running gmx mdrun; for a finished run, leave the pid out.")
     u = load_universe(tpr, xtc)
     sel = select_system(u, system_options)
     ligand = sel.ligand(u)
@@ -161,9 +158,13 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
 
     outdir.mkdir(parents=True, exist_ok=True)
     run = follow_until_converged(u, xtc, sel, hydration_options, block_options, outdir, mdrun_pid, poll_seconds)
+    summary = convergence_summary(run)
+    if summary.converged_block is not None:
+        logger.info("converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
+        stop_mdrun(mdrun_pid)
 
     u.load_new(str(xtc))
-    trajectory_end_ns = frame_time_ns(u, -1)
+    trajectory_end_ns = frame_time_ns(u, n_complete_frames(u, mdrun_pid) - 1)
     options = {"system_options": system_options, "hydration_options": hydration_options,
                "block_options": block_options, "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds,
                "fp_round_decimals": fp_round_decimals}
@@ -171,15 +172,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
     write_run(outdir, run, metadata)
-    summary = convergence_summary(run)
     write_charts(run, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
                     trajectory_end_ns, summary.n_blocks)
         return
 
-    logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
-    stop_mdrun(mdrun_pid)
     try:
         write_selection(ligand, chosen_block(run), outdir / "selection", fp_round_decimals)
     except InputError as e:
