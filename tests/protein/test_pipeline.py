@@ -39,7 +39,7 @@ def _trajectory(u, n_frames=N_FRAMES, noise=0.3, dt_ps=DT_PS, t0_ps=0.0):
     return u
 
 
-def _run(tmp_path, options=AnalysisOptions(blocks=BlockOptions(block_ns=BLOCK_NS)), **traj_kw):
+def _run(tmp_path, options=AnalysisOptions(block_options=BlockOptions(block_ns=BLOCK_NS)), **traj_kw):
     """Run the analysis on the synthetic system; return the trajectory universe and the run metadata."""
     u_traj = _trajectory(_system(), **traj_kw)
     analysis = run_analysis(protein_system(u_traj, _system()), options)
@@ -225,7 +225,7 @@ def test_cli_end_to_end_from_files(tmp_path):
 @pytest.mark.parametrize("cutoff", [7.0, 10.0])
 def test_explicit_cutoff_selects_exactly_that_pool(tmp_path, cutoff):
     u_complex = _system()
-    options = AnalysisOptions(candidate_cutoff_A=cutoff, blocks=BlockOptions(block_ns=BLOCK_NS))
+    options = AnalysisOptions(candidate_cutoff_A=cutoff, block_options=BlockOptions(block_ns=BLOCK_NS))
     _u_traj, meta = _run(tmp_path, options, n_frames=4)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv")
     expected = select_candidates(protein_system(u_complex, u_complex), cutoff)

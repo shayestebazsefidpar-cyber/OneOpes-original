@@ -22,25 +22,25 @@ def fp_ranks(fp: FpTable) -> FpTable:
     return fp.rank(method="first").astype(int)
 
 
-def fp_by_block(blocks: xr.Dataset) -> pd.DataFrame:
+def fp_by_block(run: xr.Dataset) -> pd.DataFrame:
     """FP with one row per atom and one column per block."""
-    return blocks.fp.reset_coords(drop=True).transpose("atom", "block").to_pandas()
+    return run.fp.reset_coords(drop=True).transpose("atom", "block").to_pandas()
 
 
-def write_block_tables(outdir: Path, blocks: xr.Dataset) -> None:
+def write_block_tables(outdir: Path, run: xr.Dataset) -> None:
     """Write the block-wise CSVs: FP, g(r) and FP rank per block, and the transitions (convergence_metrics.csv)."""
-    blocks.fp.to_dataframe(name="FP").to_csv(outdir / "fp_values_per_block.csv")
-    blocks.g.reset_coords(drop=True).to_dataframe(name="g_r").to_csv(outdir / "rdf_profiles_per_block.csv")
-    fp_wide = fp_by_block(blocks)
+    run.fp.to_dataframe(name="FP").to_csv(outdir / "fp_values_per_block.csv")
+    run.g.reset_coords(drop=True).to_dataframe(name="g_r").to_csv(outdir / "rdf_profiles_per_block.csv")
+    fp_wide = fp_by_block(run)
     fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
-    transitions = blocks[TRANSITION_VARIABLES].isel(block=slice(1, None))
+    transitions = run[TRANSITION_VARIABLES].isel(block=slice(1, None))
     transitions.to_dataframe().to_csv(outdir / "convergence_metrics.csv")
 
 
-def write_summary(path: Path, blocks: xr.Dataset) -> None:
+def write_summary(path: Path, run: xr.Dataset) -> None:
     """Write the run's convergence summary and its facts as one indented JSON object."""
-    path.write_text(json.dumps(asdict(run_summary(blocks)) | run_facts(blocks), indent=2))
+    path.write_text(json.dumps(asdict(run_summary(run)) | run_facts(run), indent=2))
 
 
 def write_run_metadata(outdir: Path, metadata: Mapping[str, Any]) -> None:
@@ -49,14 +49,14 @@ def write_run_metadata(outdir: Path, metadata: Mapping[str, Any]) -> None:
     (outdir / "run_metadata.json").write_text(to_json(metadata))
 
 
-def write_run(outdir: Path, blocks: xr.Dataset, metadata: Mapping[str, Any] | None = None) -> None:
+def write_run(outdir: Path, run: xr.Dataset, metadata: Mapping[str, Any] | None = None) -> None:
     """Write blocks.nc, the block-wise CSVs, convergence_summary.json and, with ``metadata``, run_metadata.json."""
     if metadata is not None:
-        blocks = blocks.assign_attrs(metadata=to_json(metadata))
+        run = run.assign_attrs(metadata=to_json(metadata))
         write_run_metadata(outdir, metadata)
-    save_run(blocks, outdir / "blocks.nc")
-    write_block_tables(outdir, blocks)
-    write_summary(outdir / "convergence_summary.json", blocks)
+    save_run(run, outdir / "blocks.nc")
+    write_block_tables(outdir, run)
+    write_summary(outdir / "convergence_summary.json", run)
 
 
 def write_hydration_files(hydration: xr.Dataset, outdir: Path) -> None:

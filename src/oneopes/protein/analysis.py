@@ -32,19 +32,19 @@ class AnalysisOptions:
     candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
         CANDIDATE_CUTOFF_A_DEFAULT)
     """Largest distance (A) from the ligand of a candidate protein atom."""
-    system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions()
+    system_options: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions()
     window: Annotated[FrameWindow, Parameter(name="*")] = FrameWindow()
-    hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions()
-    blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
+    hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions()
+    block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
 
 
 def measure_frames(system: ProteinSystem, candidates: xr.Dataset, frames: range,
-                   hydration: HydrationOptions) -> xr.Dataset:
+                   hydration_options: HydrationOptions) -> xr.Dataset:
     """Hydration and contacts of the candidates over ``frames``, with the candidates' coordinates."""
     u = system.trajectory
     candidate_atoms, labels = u.atoms[candidates.atom_index.values], list(candidates.atom.values)
     ligand, water = system.selection.ligand(u), system.selection.water(u)
-    measured = xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
+    measured = xr.merge([measure_hydration(candidate_atoms, water, frames, hydration_options, labels),
                          measure_contacts(candidate_atoms, ligand, water, frames, labels)])
     return measured.assign_coords(candidates.coords)
 
@@ -56,7 +56,7 @@ class ProteinAnalysis:
     options: AnalysisOptions
     candidates: xr.Dataset
     layout: FrameLayout
-    blocks: xr.Dataset
+    run: xr.Dataset
     """The block run, one measurement per block."""
     full: xr.Dataset
     """The measurement of the whole analysed range, with the static ``sasa`` (A^2) of each atom."""
@@ -69,19 +69,18 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
                 len(sel.ligand_heavy), sel.water_selection, len(sel.water_oxygens))
     candidates = select_candidates(system, options.candidate_cutoff_A)
     logger.info("%d candidate protein heavy atoms within %s A", candidates.sizes["atom"], options.candidate_cutoff_A)
-    layout = frame_layout(system.trajectory, options.blocks.block_ns, options.window)
+    layout = frame_layout(system.trajectory, options.block_options.block_ns, options.window)
     logger.info("%s", layout.describe())
 
-    measured = [block.label(measure_frames(system, candidates, block.frames, options.hydration))
+    measured = [block.label(measure_frames(system, candidates, block.frames, options.hydration_options))
                 for block in layout.blocks]
-    blocks = block_run(measured, options.blocks, options.hydration,
-                       trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
-                       analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
-    full = measure_frames(system, candidates, layout.analysed, options.hydration)
+    run = block_run(measured, options.block_options, options.hydration_options,
+                    trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
+                    analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
+    full = measure_frames(system, candidates, layout.analysed, options.hydration_options)
     full = full.assign(sasa=("atom", static_sasa(system, full.atom_index.values)))
-    logger.info("first sustained convergence: %s ns", run_summary(blocks).converged_ns)
-    return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           full=full)
+    logger.info("first sustained convergence: %s ns", run_summary(run).converged_ns)
+    return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, run=run, full=full)
 
 
 OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
@@ -94,8 +93,8 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str
     outdir.mkdir(parents=True, exist_ok=True)
     candidate_table = candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
     candidate_table.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_run(outdir, analysis.blocks, metadata)
-    contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
+    write_run(outdir, analysis.run, metadata)
+    contacts = analysis.run[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
     table = build_final_table(analysis.full)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
@@ -137,7 +136,7 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
         Directory for blocks.nc, the tables, the final per-atom table and run_metadata.json.
     """
     system = protein_system(load_universe(topology, trajectory), load_universe(topology, complex),
-                            load_universe(complex), options.system)
+                            load_universe(complex), options.system_options)
     analysis = run_analysis(system, options)
     inputs = {"complex": complex, "topology": topology, "trajectory": trajectory}
     write_outputs(output_dir, analysis, provenance(inputs) | analysis_details(analysis))

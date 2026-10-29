@@ -1,7 +1,7 @@
 """WaterFP, the hydration fingerprint of an atom (publication 10.1063/5.0287856, github.com/valeriorizzi/WaterFP).
 
 For each atom, water oxygens are counted in thin spherical shells around it over the analysed frames
-(:class:`WaterFP`), and :func:`hydration` turns the counts into the water structure around the atom:
+(:class:`WaterFP`), and :func:`hydration_from_counts` turns the counts into the water structure around the atom:
 its water density n(r), the bulk density, g(r) = n(r) / bulk, and the fingerprint
 FP = ∫ -2π·bulk·(g ln g - g + 1)·r² dr, which is 0 for bulk-like water and more negative the more
 the water around the atom differs from bulk.
@@ -91,8 +91,8 @@ def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: Radia
     return histogram.astype(np.int64)
 
 
-def hydration(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
-              options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
+def hydration_from_counts(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
+                          options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
     """Density n(r) (waters/nm^3), bulk density, g(r) and FP of each atom, from its counts summed over ``n_frames``.
 
     Raises InputError when an atom has no water in the bulk tail.
@@ -113,7 +113,7 @@ def hydration(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
 
 
 class WaterFP(AnalysisBase):
-    """Water oxygens per radial bin around each solute atom; ``results.hydration`` is the :func:`hydration` Dataset.
+    """Water oxygens per radial bin around each solute atom; see ``results.counts`` and ``results.hydration``.
 
     Counts add up across frames, so ``run(backend="multiprocessing")`` works.
     """
@@ -156,13 +156,13 @@ class WaterFP(AnalysisBase):
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        measured = hydration(self.results.counts, self.n_frames, self.labels, self.options)
+        measured = hydration_from_counts(self.results.counts, self.n_frames, self.labels, self.options)
         self.results.hydration = measured.assign_coords(atom_index=("atom", self.solute.indices))
 
 
 def measure_hydration(solute: AtomGroup, water_oxygens: AtomGroup, frames: range,
                       options: HydrationOptions = HydrationOptions(),
                       labels: Sequence[str] | None = None) -> xr.Dataset:
-    """The :func:`hydration` of ``solute`` over ``frames`` of its trajectory."""
+    """The hydration of each ``solute`` atom over ``frames`` of its trajectory."""
     analysis = WaterFP(solute, water_oxygens, options=options, labels=labels)
     return analysis.run(start=frames.start, stop=frames.stop).results.hydration

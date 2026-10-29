@@ -41,9 +41,9 @@ def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_r
 
 
 def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
-           system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
+           system_options: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
            window: Annotated[FrameWindow, Parameter(name="*")] = FrameWindow(),
-           hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
+           hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
@@ -61,19 +61,19 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
         Decimals FP is rounded to when comparing atoms.
     """
     u = load_universe(tpr, xtc)
-    sel = select_system(u, system)
+    sel = select_system(u, system_options)
     ligand, water = sel.ligand(u), sel.water(u)
 
     frames = window.frames(len(u.trajectory))
-    measurement = measure_hydration(ligand, water, frames, hydration)
+    hydration = measure_hydration(ligand, water, frames, hydration_options)
     logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
-                frames.start, frames.stop - 1, measurement.fp.sortby(measurement.fp).to_series().to_string())
-    options = {"system": asdict(system), "window": asdict(window), "hydration": asdict(hydration),
+                frames.start, frames.stop - 1, hydration.fp.sortby(hydration.fp).to_series().to_string())
+    options = {"system": asdict(system_options), "window": asdict(window), "hydration": asdict(hydration_options),
                "fp_round_decimals": fp_round_decimals}
     write_run_metadata(outdir, provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "frames": frames,
         "options": options})
-    write_selection(ligand, measurement, outdir, fp_round_decimals)
+    write_selection(ligand, hydration, outdir, fp_round_decimals)
 
 
 def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: int | None = None,

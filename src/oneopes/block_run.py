@@ -28,21 +28,21 @@ class BlockOptions:
     tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
 
 
-def settings(blocks: BlockOptions, hydration: HydrationOptions) -> dict[str, float]:
+def settings(block_options: BlockOptions, hydration_options: HydrationOptions) -> dict[str, float]:
     """The options a run is made with, as flat attributes."""
-    return {"block_ns": blocks.block_ns, **asdict(blocks.tolerances), **asdict(hydration.grid),
-            "norm_tail_bins": hydration.norm_tail_bins}
+    return {"block_ns": block_options.block_ns, **asdict(block_options.tolerances),
+            **asdict(hydration_options.grid), "norm_tail_bins": hydration_options.norm_tail_bins}
 
 
 SETTINGS = list(settings(BlockOptions(), HydrationOptions()))
 """The attributes holding the settings of a run."""
 
 
-def block_run(measured: Sequence[xr.Dataset], blocks: BlockOptions, hydration: HydrationOptions,
+def block_run(measured: Sequence[xr.Dataset], block_options: BlockOptions, hydration_options: HydrationOptions,
               **facts: str | float | list[str]) -> xr.Dataset:
     """The measured blocks, stacked and compared, with the settings and ``facts`` as attributes."""
-    compared = compare_blocks(stack_blocks(measured), blocks.tolerances)
-    return compared.assign_attrs(**settings(blocks, hydration), **facts)
+    compared = compare_blocks(stack_blocks(measured), block_options.tolerances)
+    return compared.assign_attrs(**settings(block_options, hydration_options), **facts)
 
 
 def run_block_options(run: xr.Dataset) -> BlockOptions:

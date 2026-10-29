@@ -65,10 +65,10 @@ class Block:
         return measurement.assign_coords(t_start_ns=self.start_ns, t_end_ns=self.end_ns, n_frames=len(self.frames))
 
 
-def stack_blocks(blocks: Sequence[xr.Dataset]) -> xr.Dataset:
+def stack_blocks(measured: Sequence[xr.Dataset]) -> xr.Dataset:
     """Block measurements along a ``block`` dimension numbered from 0, with each block's mid time ``t_mid_ns``."""
-    stacked = xr.concat(blocks, dim="block", data_vars="all", coords=BLOCK_COORDS, join="exact")
-    stacked = stacked.assign_coords(block=np.arange(len(blocks)))
+    stacked = xr.concat(measured, dim="block", data_vars="all", coords=BLOCK_COORDS, join="exact")
+    stacked = stacked.assign_coords(block=np.arange(len(measured)))
     return stacked.assign_coords(t_mid_ns=(stacked.t_start_ns + stacked.t_end_ns) / 2)
 
 

@@ -89,30 +89,30 @@ def stop_mdrun(pid: int | None) -> None:
         logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
 
-def log_progress(blocks: xr.Dataset) -> None:
+def log_progress(run: xr.Dataset) -> None:
     """Log the latest transition of a block run."""
-    if blocks.sizes["block"] < 2:
+    if run.sizes["block"] < 2:
         return
-    latest = blocks.isel(block=-1)
+    latest = run.isel(block=-1)
     logger.info("block %d (t=%.1f ns): max|dFP/FP|=%.3f max_nRMSD_RDF=%.3f spearman=%.3f stable=%s streak=%d",
                 latest.block, latest.t_end_ns, latest.fp_change, latest.rdf_nrmsd, latest.spearman_rho,
                 bool(latest.passed), latest.stable_in_a_row)
 
 
-def plot_blocks(blocks: xr.Dataset, outdir: Path) -> None:
+def plot_blocks(run: xr.Dataset, outdir: Path) -> None:
     """For every ligand atom, FP against time (fp_plots/) and g(r) of each block (rdf_plots/)."""
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
-    for atom_name in blocks.atom.values:
-        plot_atom(str(atom_name), blocks, outdir)
+    for atom_name in run.atom.values:
+        plot_atom(str(atom_name), run, outdir)
 
 
-def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
+def plot_atom(atom_name: str, run: xr.Dataset, outdir: Path) -> tuple[Path, Path]:
     """Save one atom's FP against time and its g(r) per block in existing fp_plots/ and rdf_plots/; return the paths."""
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
     rdf_plot_path = outdir / "rdf_plots" / f"RDF_per_block_{atom_name}.png"
-    atom = blocks.sel(atom=atom_name)
+    atom = run.sel(atom=atom_name)
 
     fig, ax = plt.subplots(figsize=(5, 3.5))
     atom.fp.plot.line(x="t_mid_ns", marker="o", ax=ax)
@@ -135,8 +135,8 @@ def save_figure(fig: Figure, path: Path) -> None:
     plt.close(fig)
 
 
-def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration: HydrationOptions,
-                           blocks: BlockOptions, outdir: Path, mdrun_pid: int | None,
+def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration_options: HydrationOptions,
+                           block_options: BlockOptions, outdir: Path, mdrun_pid: int | None,
                            poll_seconds: float) -> xr.Dataset:
     """Measure, compare and write each block as mdrun writes it, until convergence or until mdrun stops.
 
@@ -145,18 +145,18 @@ def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hyd
     ligand, water = sel.ligand(u), sel.water(u)
     wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
     dt_ps = frame_step_ps(u, complete_frames(u, mdrun_pid))
-    block_length = frames_per_block(blocks.block_ns, dt_ps)
-    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, blocks.block_ns)
+    block_length = frames_per_block(block_options.block_ns, dt_ps)
+    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_options.block_ns)
 
     measured, run = [], None
     for frames in completed_blocks(u, xtc, block_length, mdrun_pid, poll_seconds):
         block = Block.of(u, frames, dt_ps)
-        measured.append(block.label(measure_hydration(ligand, water, block.frames, hydration)))
-        run = block_run(measured, blocks, hydration, ligand_selection=sel.ligand_selection,
+        measured.append(block.label(measure_hydration(ligand, water, block.frames, hydration_options)))
+        run = block_run(measured, block_options, hydration_options, ligand_selection=sel.ligand_selection,
                         ligand_heavy_atoms=list(ligand.names))
         write_run(outdir, run)
         log_progress(run)
-        if converged_block(run, blocks.tolerances.n_stable) is not None:
+        if converged_block(run, block_options.tolerances.n_stable) is not None:
             break
     if run is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
@@ -165,9 +165,9 @@ def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hyd
 
 def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),
             xtc: ExistingFile = Path("prod.xtc"), outdir: Path = Path("outputs/convergence"),
-            system: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
-            hydration: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
-            blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
+            system_options: Annotated[SystemOptions, Parameter(name="*")] = SystemOptions(),
+            hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
+            block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
             poll_seconds: Annotated[float, Parameter(validator=Number(gt=0))] = 30,
             fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
@@ -191,19 +191,20 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
     """
     u = load_universe(tpr, xtc)
-    sel = select_system(u, system)
+    sel = select_system(u, system_options)
     ligand = sel.ligand(u)
     logger.info("%d ligand heavy atoms (%s): %s", len(ligand), sel.ligand_selection, list(ligand.names))
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_selection)
     logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
-                hydration.grid.rmax_nm, hydration.grid.n_bins, hydration.norm_tail_bins)
+                hydration_options.grid.rmax_nm, hydration_options.grid.n_bins, hydration_options.norm_tail_bins)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    run = follow_until_converged(u, xtc, sel, hydration, blocks, outdir, mdrun_pid, poll_seconds)
+    run = follow_until_converged(u, xtc, sel, hydration_options, block_options, outdir, mdrun_pid, poll_seconds)
 
     u.load_new(str(xtc))
     trajectory_end_ns = frame_time_ns(u, -1)
-    options = {"system": asdict(system), "hydration": asdict(hydration), "blocks": asdict(blocks),
+    options = {"system": asdict(system_options), "hydration": asdict(hydration_options),
+               "blocks": asdict(block_options),
                "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds, "fp_round_decimals": fp_round_decimals}
     metadata = provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
