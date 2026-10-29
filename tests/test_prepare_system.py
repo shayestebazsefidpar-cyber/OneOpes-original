@@ -10,14 +10,18 @@ from oneopes.ligand.setup import MDP_DIR
 ALL_STEPS = ["editconf", "solvate", "grompp", "genion", "grompp", "mdrun", "grompp", "mdrun", "grompp", "mdrun"]
 
 
-def gmx_commands(tmp_path, caplog, *options: str) -> list[list[str]]:
-    """Run prepare-system with `--gmx echo`; return each gmx command it logged, without the gmx executable."""
+def prepare_system(tmp_path, gmx: str, *options: str) -> None:
     gro, top = tmp_path / "ligand.gro", tmp_path / "ligand.top"
     gro.touch()
     top.write_text("; topology\n")
-    caplog.set_level(logging.INFO, logger="oneopes")
     main(["prepare-system", "--ligand-gro", str(gro), "--ligand-top", str(top), "--outdir", str(tmp_path / "out"),
-          "--gmx", "echo", *options])
+          "--gmx", gmx, *options])
+
+
+def gmx_commands(tmp_path, caplog, *options: str) -> list[list[str]]:
+    """Run prepare-system with `--gmx echo`; return each gmx command it logged, without the gmx executable."""
+    caplog.set_level(logging.INFO, logger="oneopes")
+    prepare_system(tmp_path, "echo", *options)
     shown = [message.removeprefix("$ ") for message in caplog.messages if message.startswith("$ ")]
     return [shlex.split(command.split(" | ")[-1])[1:] for command in shown]
 
@@ -45,3 +49,20 @@ def test_only_ions_tpr_allows_a_warning_unless_asked(tmp_path, caplog):
 def test_ion_concentration_is_passed_to_genion(tmp_path, caplog):
     genion = gmx_commands(tmp_path, caplog, "--ion-conc", "0.15", "--start-from", "genion")[0]
     assert genion[0] == "genion" and genion[-2:] == ["-conc", "0.15"]
+
+
+def errors(caplog) -> list[str]:
+    return [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
+
+
+def test_a_failed_step_is_one_line_naming_where_to_resume(tmp_path, caplog):
+    with pytest.raises(SystemExit):
+        prepare_system(tmp_path, "false", "--start-from", "em_tpr")
+    assert errors(caplog) == ["error: false grompp failed at step em_tpr (exit 1; see its output above). "
+                              "Fix it and rerun with --start-from em_tpr."]
+
+
+def test_a_missing_gmx_is_one_line(tmp_path, caplog):
+    with pytest.raises(SystemExit):
+        prepare_system(tmp_path, str(tmp_path / "no_gmx"))
+    assert len(errors(caplog)) == 1 and errors(caplog)[0].endswith("not found; pass the gmx executable with --gmx.")

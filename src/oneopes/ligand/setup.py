@@ -19,11 +19,20 @@ STEPS = get_args(Step)
 MDP_DIR = Path(__file__).parent / "mdp"
 
 
-def run_command(cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
-    """Run ``cmd`` in ``cwd``, logging it first; ``stdin`` answers its prompt (as ``echo stdin | cmd``)."""
+def run_step(step: Step, cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
+    """Run the gmx command of ``step`` in ``cwd``, logging it first; ``stdin`` answers its prompt.
+
+    Raises InputError, naming the step to resume from, when gmx is missing or the command fails.
+    """
     shown = shlex.join(cmd) if stdin is None else f"echo {stdin} | {shlex.join(cmd)}"
     logger.info("$ %s", shown)
-    subprocess.run(cmd, cwd=cwd, check=True, input=None if stdin is None else f"{stdin}\n", text=True)
+    try:
+        subprocess.run(cmd, cwd=cwd, check=True, input=None if stdin is None else f"{stdin}\n", text=True)
+    except FileNotFoundError:
+        raise InputError(f"{cmd[0]!r} not found; pass the gmx executable with --gmx.") from None
+    except subprocess.CalledProcessError as failure:
+        raise InputError(f"{shlex.join(cmd[:2])} failed at step {step} (exit {failure.returncode}; see its output "
+                         f"above). Fix it and rerun with --start-from {step}.") from None
 
 
 def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir: Path, mdp_dir: Path = MDP_DIR,
@@ -100,7 +109,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
         "npt_run": [gmx, "mdrun", "-deffnm", "npt", "-v"],
     }
     for step in STEPS[STEPS.index(start_from):]:
-        run_command(commands[step], cwd=outdir, stdin="SOL" if step == "genion" else None)
+        run_step(step, commands[step], cwd=outdir, stdin="SOL" if step == "genion" else None)
 
     logger.info("done. NPT output: %s; next: grompp+mdrun production with %s, "
                 "then hand the mdrun PID to oneopes monitor", outdir / "npt.gro", outdir / "prod.mdp")
