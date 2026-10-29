@@ -7,6 +7,7 @@ has a box). The pool is computed once and never changes.
 """
 
 import pandas as pd
+import xarray as xr
 from MDAnalysis.core.groups import Atom
 from MDAnalysis.lib.distances import distance_array
 
@@ -47,3 +48,9 @@ def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_
         "Chain_ID": "" if system.chain_ids is None else system.chain_ids[atoms.indices],
         "Min_distance_to_ligand_A": min_distance[near],
     })
+
+
+def candidate_details(candidates: pd.DataFrame) -> xr.Dataset:
+    """The columns of :func:`select_candidates` along ``atom``, named by the ``Atom`` label, to attach to
+    measurements as coordinates; ``Atom_index`` is left out (measurements carry it as ``atom_index``)."""
+    return xr.Dataset.from_dataframe(candidates.drop(columns="Atom_index").set_index("Atom").rename_axis("atom"))

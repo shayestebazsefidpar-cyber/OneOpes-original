@@ -23,7 +23,8 @@ same atoms, with the same protein and ligand heavy-atom names.
 
 - `final_per_atom_table.csv` (and `.md`): one row per candidate, sorted by `FP_Rank`
   (1 = most negative FP), with FP, Contact and Bridge over the whole range, and SASA.
-- `blocks.nc` and the per-block CSVs (FP, g(r), contacts, ranks), `convergence_metrics.csv`,
+- `blocks.nc` and the per-block CSVs (FP, g(r), contacts, ranks; each atom with its residue,
+  chain and distance to the ligand), `convergence_metrics.csv`,
   `convergence_summary.json` (`converged_ns` is the end of the block completing the stable run).
 - `candidate_atom_mapping.csv`, `run_metadata.json`.
 

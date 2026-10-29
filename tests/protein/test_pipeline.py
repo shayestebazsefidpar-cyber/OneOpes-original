@@ -173,7 +173,8 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
     contacts = pd.read_csv(out / "contact_occupancy_per_block.csv")
     assert list(contacts.columns) == ["block", "atom", "Contact_occupancy_5A", "Bridge_occupancy", "atom_index",
-                                      "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
+                                      "Atom_serial", "Atom_name", "Residue_name", "Residue_number", "Chain_ID",
+                                      "Min_distance_to_ligand_A", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
     assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
     assert len(meta["frames"]["blocks"]) == n_blocks
@@ -204,6 +205,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     run = load_run(out / "blocks.nc")
     assert (run.attrs["rmax_nm"], run.attrs["norm_tail_bins"], run.attrs["block_ns"]) == (1.5, 300, BLOCK_NS)
     assert run.r_nm.max() < 1.5
+    assert {"Residue_name", "Residue_number", "Chain_ID"} <= set(run.coords)
     for name in ("blocks.nc", "candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
                  "convergence_summary.json", "final_per_atom_table.csv",

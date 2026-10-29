@@ -6,8 +6,8 @@ static. Block-wise convergence is reported separately (convergence_metrics.csv),
 time span and the time of first sustained convergence are in convergence_summary.json.
 """
 
-import numpy as np
 import pandas as pd
+import xarray as xr
 
 from oneopes.reports import fp_ranks
 
@@ -28,12 +28,16 @@ FINAL_COLUMNS = [
 ]
 
 
-def build_final_table(candidates: pd.DataFrame, values: pd.DataFrame, sasa: np.ndarray) -> pd.DataFrame:
-    """The candidates with their values (FP, Contact_occupancy_5A, Bridge_occupancy) and SASA, ranked by FP.
+TABLE_NAMES = {"atom": "Atom", "atom_index": "Atom_index", "fp": "FP", "contact_occupancy": "Contact_occupancy_5A",
+               "bridge_occupancy": "Bridge_occupancy", "sasa": "SASA_A2"}
+"""The table's column for each name of the full-range Dataset; its candidate details keep their names."""
 
-    ``values`` and ``sasa`` are in ``candidates`` row order.
-    """
-    table = candidates.join(values).assign(SASA_A2=sasa)
+
+def build_final_table(full: xr.Dataset) -> pd.DataFrame:
+    """One row per candidate atom of the full-range Dataset, ranked by FP: its candidate details
+    (coordinates, see :func:`~oneopes.protein.candidates.candidate_details`), FP, occupancies and SASA."""
+    table = full[["fp", "contact_occupancy", "bridge_occupancy", "sasa"]].to_dataframe().reset_index()
+    table = table.rename(columns=TABLE_NAMES)
     table["FP_Rank"] = fp_ranks(table["FP"])
     return table[FINAL_COLUMNS].sort_values("FP_Rank").reset_index(drop=True)
 

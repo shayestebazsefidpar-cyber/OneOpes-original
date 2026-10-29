@@ -1,21 +1,19 @@
 """Protein-side WaterFP, contacts and SASA around a bound ligand (``oneopes protein``)."""
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated
 
-import numpy as np
 import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
-from MDAnalysis import AtomGroup
 
 from oneopes.block_run import BlockOptions, block_run, run_summary
-from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
+from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, candidate_details, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.inputs import ProteinSystem, protein_system
@@ -41,14 +39,16 @@ class AnalysisOptions:
     blocks: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions()
 
 
-def measure_frames(system: ProteinSystem, candidate_atoms: AtomGroup, labels: Sequence[str], frames: range,
+def measure_frames(system: ProteinSystem, candidates: pd.DataFrame, frames: range,
                    hydration: HydrationOptions) -> xr.Dataset:
     """Hydration (:func:`measure_hydration`) and contacts (:func:`measure_contacts`) of the candidates over
-    ``frames``, along ``atom`` (named by ``labels``)."""
+    ``frames``, along ``atom`` (named by their ``Atom`` label), with their details as coordinates."""
     atoms = system.trajectory.atoms
+    candidate_atoms, labels = atoms[candidates["Atom_index"].to_numpy()], list(candidates["Atom"])
     ligand, water = atoms[system.selection.ligand_heavy], atoms[system.selection.water_oxygens]
-    return xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
-                     measure_contacts(candidate_atoms, ligand, water, frames, labels)])
+    measured = xr.merge([measure_hydration(candidate_atoms, water, frames, hydration, labels),
+                         measure_contacts(candidate_atoms, ligand, water, frames, labels)])
+    return measured.assign_coords(candidate_details(candidates).data_vars)
 
 
 @dataclass(frozen=True)
@@ -62,8 +62,7 @@ class ProteinAnalysis:
     blocks: xr.Dataset
     """The :func:`block_run` of the :func:`measure_frames` of each block, with the frame layout's times."""
     full: xr.Dataset
-    """The :func:`measure_frames` of the whole analysed range."""
-    sasa: np.ndarray
+    """The :func:`measure_frames` of the whole analysed range, with the static ``sasa`` (A^2) of each atom."""
 
 
 def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnalysis:
@@ -76,32 +75,24 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
     logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_selection,
                 len(sel.ligand_heavy), sel.water_selection, len(sel.water_oxygens))
     candidates = select_candidates(system, options.candidate_cutoff_A)
-    candidate_index = candidates["Atom_index"].to_numpy()
     logger.info("%d candidate protein heavy atoms within %s A", len(candidates), options.candidate_cutoff_A)
     layout = frame_layout(system.trajectory, options.blocks.block_ns, options.window)
     logger.info("%s", layout.describe())
 
-    candidate_atoms = system.trajectory.atoms[candidate_index]
-    labels = list(candidates["Atom"])
-    measured = [label_block(measure_frames(system, candidate_atoms, labels, block.frames, options.hydration), block)
+    measured = [label_block(measure_frames(system, candidates, block.frames, options.hydration), block)
                 for block in layout.blocks]
     blocks = block_run(measured, options.blocks, options.hydration,
                        trajectory_start_ns=layout.trajectory_start_ns, trajectory_end_ns=layout.trajectory_end_ns,
                        analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
-    full = measure_frames(system, candidate_atoms, labels, layout.analysed, options.hydration)
+    full = measure_frames(system, candidates, layout.analysed, options.hydration)
+    full = full.assign(sasa=("atom", static_sasa(system, full.atom_index.values)))
     logger.info("first sustained convergence: %s ns", run_summary(blocks).converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           full=full, sasa=static_sasa(system, candidate_index))
+                           full=full)
 
 
 OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
-"""The occupancies' column names in the tables."""
-
-
-def final_values(full: xr.Dataset) -> pd.DataFrame:
-    """One row per candidate atom, in order: FP, Contact_occupancy_5A, Bridge_occupancy."""
-    table = full[["fp", *OCCUPANCY_COLUMNS]].to_dataframe().reset_index(drop=True)
-    return table.rename(columns={"fp": "FP", **OCCUPANCY_COLUMNS})
+"""The occupancies' column names in the per-block table."""
 
 
 def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping | None = None) -> None:
@@ -113,7 +104,7 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping | N
     write_run(outdir, analysis.blocks, metadata)
     contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
-    table = build_final_table(candidates, final_values(analysis.full), analysis.sasa)
+    table = build_final_table(analysis.full)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
