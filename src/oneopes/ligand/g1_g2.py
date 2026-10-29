@@ -54,7 +54,12 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
     scale = 10 ** fp_round_decimals
     g1 = anti_bulk_pair(np.rint(fp * scale).astype(int), round(SAME_FP_WITHIN * scale), separation)
     g2 = bulk_pair(separation)
-    return SelectionResult(G1=tuple(map(AtomRef.of, atoms[list(g1)])), G2=tuple(map(AtomRef.of, atoms[list(g2)])))
+    return SelectionResult(G1=atom_refs(atoms, g1), G2=atom_refs(atoms, g2))
+
+
+def atom_refs(atoms: AtomGroup, pair: tuple[int, int]) -> tuple[AtomRef, AtomRef]:
+    """The AtomRefs of a pair of positions in ``atoms``."""
+    return AtomRef.of(atoms[pair[0]]), AtomRef.of(atoms[pair[1]])
 
 
 def bond_separation(atoms: AtomGroup) -> np.ndarray:
@@ -160,7 +165,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     try:
         sel = select_system(u, ligand_selection, water_selection)
     except SystemDefinitionError as e:
-        raise SystemExit(f"[select] {e}")
+        raise SystemExit(f"[select] {e}") from e
     ligand, water = u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]
 
     waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=norm_tail_bins)
@@ -173,6 +178,6 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     try:
         selection = select_g1_g2(ligand, waterfp.results.fp, fp_round_decimals)
     except ValueError as e:
-        raise SystemExit(f"[select] no G1/G2 selection: {e}")
+        raise SystemExit(f"[select] no G1/G2 selection: {e}") from e
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
     logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)

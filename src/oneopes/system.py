@@ -18,8 +18,12 @@ from MDAnalysis import AtomGroup, Universe
 
 HEAVY_ATOM_MIN_MASS = 1.5
 
-KNOWN_WATER_RESNAMES = ("WAT", "SOL", "HOH", "TIP3", "TIP3P", "TIP4", "TIP4P", "TIP5", "TIP5P", "T3P", "T4P", "SPC", "SPCE")
-KNOWN_ION_RESNAMES = ("NA", "CL", "NA+", "CL-", "SOD", "CLA", "K", "K+", "POT", "MG", "MG2+", "ZN", "ZN2+", "CA", "CA2+", "CAL")
+KNOWN_WATER_RESNAMES = (
+    "WAT", "SOL", "HOH", "TIP3", "TIP3P", "TIP4", "TIP4P", "TIP5", "TIP5P", "T3P", "T4P", "SPC", "SPCE",
+)
+KNOWN_ION_RESNAMES = (
+    "NA", "CL", "NA+", "CL-", "SOD", "CLA", "K", "K+", "POT", "MG", "MG2+", "ZN", "ZN2+", "CA", "CA2+", "CAL",
+)
 
 
 class SystemDefinitionError(ValueError):

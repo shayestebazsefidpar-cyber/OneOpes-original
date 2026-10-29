@@ -90,7 +90,7 @@ def fingerprint(counts: WaterCounts,
         )
     g = density / bulk
     integrand = -2 * np.pi * bulk * (xlogy(g, g) - g + 1) * counts.grid.r_nm ** 2  # xlogy(0, 0) = 0
-    fp = np.trapezoid(integrand, dx=counts.grid.binwidth_nm, axis=1)
+    fp = np.asarray(np.trapezoid(integrand, dx=counts.grid.binwidth_nm, axis=1))
     return fp, g
 
 
@@ -108,7 +108,7 @@ class WaterFP(AnalysisBase):
     _analysis_algorithm_is_parallelizable = True
 
     @classmethod
-    def get_supported_backends(cls) -> tuple[str, ...]:
+    def get_supported_backends(cls) -> tuple[str, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
         return ("serial", "multiprocessing", "dask")
 
     def __init__(self, solute: AtomGroup, water_oxygens: AtomGroup, *, grid: RadialGrid = RadialGrid(),
@@ -132,6 +132,7 @@ class WaterFP(AnalysisBase):
                 "distances the outer shells are only partly sampled, so the bulk density and every FP "
                 "are biased. Use a larger box or a smaller rmax.",
                 RuntimeWarning,
+                stacklevel=2,
             )
         pairs, distances = capped_distance(self.solute.positions, self.water_oxygens.positions,
                                            max_cutoff=edges_a[-1], box=box)

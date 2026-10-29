@@ -43,14 +43,15 @@ from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 logger = logging.getLogger(__name__)
 
 
-def process_alive(pid):
+def process_alive(pid: int | None) -> bool:
+    """Whether process ``pid`` is running (False without a pid)."""
     if pid is None:
         return False
     try:
         os.kill(pid, 0)
-        return True
     except OSError:
         return False
+    return True
 
 
 def wait_for_frames(load_universe, n_frames: int, mdrun_pid: int | None, poll_seconds: float) -> mda.Universe:
@@ -78,7 +79,7 @@ def completed_blocks(load_universe: Callable[[], mda.Universe], block_length: in
 
 def stop_mdrun(pid: int | None) -> None:
     """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md)."""
-    if not process_alive(pid):
+    if pid is None or not process_alive(pid):
         return
     logger.info("sending SIGTERM to mdrun pid %d", pid)
     try:
@@ -194,7 +195,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     try:
         sel = select_system(u, ligand_selection, water_selection)
     except SystemDefinitionError as e:
-        raise SystemExit(f"[monitor] {e}")
+        raise SystemExit(f"[monitor] {e}") from e
     atom_names = list(u.atoms[sel.ligand_heavy].names)
     logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_description, atom_names)
     logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_description)
@@ -205,7 +206,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
         block_length = frames_per_block(block_ns, dt_ps)
     except ValueError as e:
-        raise SystemExit(f"[monitor] {e}")
+        raise SystemExit(f"[monitor] {e}") from e
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
@@ -228,11 +229,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
                   ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
     plot_blocks(blocks, block_times, outdir)
-    if not summary.converged:
+    converged_block = summary.converged_block
+    if converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
                     trajectory_end_ns, summary.n_blocks)
         return
 
-    logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
+    logger.info("DONE, converged at block %d (%s ns)", converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
-    select_g1_g2_on_block(blocks[summary.converged_block], outdir / "selection", fp_round_decimals)
+    select_g1_g2_on_block(blocks[converged_block], outdir / "selection", fp_round_decimals)

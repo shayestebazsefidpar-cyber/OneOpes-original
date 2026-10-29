@@ -25,7 +25,7 @@ def frames_per_block(block_ns: float, dt_ps: float) -> int:
     """Frames in a ``block_ns`` block; raises ValueError unless that is a whole, positive number of frames."""
     if not (block_ns > 0 and np.isfinite(block_ns)):
         raise ValueError(f"block_ns must be > 0, got {block_ns}.")
-    n = int(round(block_ns * 1000.0 / dt_ps))
+    n = round(block_ns * 1000.0 / dt_ps)
     if n < 1 or not np.isclose(n * dt_ps, block_ns * 1000.0, rtol=0, atol=1e-6 * max(1.0, block_ns * 1000.0)):
         raise ValueError(f"block_ns={block_ns} is not a whole number of {dt_ps} ps frames.")
     return n
@@ -75,7 +75,8 @@ class FrameLayout:
 
     def describe(self) -> str:
         """The layout in one line, for the log."""
-        return (f"{self.n_frames} frames of {self.dt_ps} ps ({self.trajectory_start_ns:g}-{self.trajectory_end_ns:g} ns); "
+        return (f"{self.n_frames} frames of {self.dt_ps} ps "
+                f"({self.trajectory_start_ns:g}-{self.trajectory_end_ns:g} ns); "
                 f"analysed frames {self.analysed.start}-{self.analysed.stop - 1} ({self.analysis_time_ns:g} ns) "
                 f"in {len(self.blocks)} blocks of {len(self.blocks[0])} frames, {self.tail_frames} left over")
 

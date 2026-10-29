@@ -23,8 +23,8 @@ Conventions
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 
@@ -34,7 +34,7 @@ ALPHA_CARBON_NAME = "CA"
 def require_biosimspace():
     """Import BioSimSpace or fail with an actionable message."""
     try:
-        import BioSimSpace
+        import BioSimSpace  # pyright: ignore[reportMissingImports]
     except ImportError as err:
         raise ImportError(
             "oneopes.funnel needs BioSimSpace (conda-only, e.g. the 'biosimspace' "
@@ -105,7 +105,7 @@ def make_p0_p1(
     ``makeFunnel(system, protein, ligand, alpha_carbon_name, property_map)``.
     """
     require_biosimspace()
-    from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel
+    from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel  # pyright: ignore[reportMissingImports]
 
     property_map = property_map or {}
     atoms0, atoms1 = makeFunnel(

@@ -84,8 +84,9 @@ def make_funnel(
         ``upper_bound``, ``hill_width``, ``grid``) - BSS types and defaults.
     """
     require_biosimspace()
-    from BioSimSpace.Metadynamics.CollectiveVariable import Funnel
+    from BioSimSpace.Metadynamics.CollectiveVariable import Funnel  # pyright: ignore[reportMissingImports]
 
-    p0p1 = make_p0_p1(system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name, property_map=property_map)
+    p0p1 = make_p0_p1(system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name,
+                      property_map=property_map)
     cv = Funnel(p0p1.atoms0, p0p1.atoms1, **funnel_kwargs)
     return FunnelResult(p0p1=p0p1, cv=cv, parameters=funnel_parameters(cv))

@@ -1,6 +1,6 @@
 """A legend on a raw render of the selected atoms (``oneopes add-legend``)."""
 import logging
-import os
+from pathlib import Path
 
 from cyclopts.types import ExistingFile
 from PIL import Image, ImageDraw, ImageFont
@@ -32,7 +32,7 @@ def load_fonts(title_size, body_size):
     return ImageFont.load_default(), ImageFont.load_default()
 
 
-def add_legend(*, src: ExistingFile, dst: str, entry: list[str], title: str = "Selected atoms", caption: str = "",
+def add_legend(*, src: ExistingFile, dst: Path, entry: list[str], title: str = "Selected atoms", caption: str = "",
                title_font_size: int = 34, body_font_size: int = 30) -> None:
     """Add a legend to a raw render of the selected atoms and save the annotated figure.
 
@@ -52,15 +52,15 @@ def add_legend(*, src: ExistingFile, dst: str, entry: list[str], title: str = "S
 
     img = Image.open(src).convert("RGB")
     draw = ImageDraw.Draw(img)
-    W, H = img.size
+    width, height = img.size
 
     font_title, font_body = load_fonts(title_font_size, body_font_size)
 
     pad = 24
-    sw = 28  # swatch size
+    swatch = 28
     box_w = 560
     box_h = pad * 2 + 40 + len(entries) * 50 + 10
-    x0, y0 = W - box_w - 40, 40
+    x0, y0 = width - box_w - 40, 40
     x1, y1 = x0 + box_w, y0 + box_h
 
     draw.rectangle([x0, y0, x1, y1], fill=(255, 255, 255), outline=(60, 60, 60), width=2)
@@ -68,13 +68,13 @@ def add_legend(*, src: ExistingFile, dst: str, entry: list[str], title: str = "S
 
     ty = y0 + pad + 50
     for label, rgb in entries:
-        draw.ellipse([x0 + pad, ty, x0 + pad + sw, ty + sw], fill=rgb)
-        draw.text((x0 + pad + sw + 14, ty - 2), label, font=font_body, fill=(0, 0, 0))
+        draw.ellipse([x0 + pad, ty, x0 + pad + swatch, ty + swatch], fill=rgb)
+        draw.text((x0 + pad + swatch + 14, ty - 2), label, font=font_body, fill=(0, 0, 0))
         ty += 50
 
     if caption:
-        draw.text((40, H - 60), caption, font=font_body, fill=(60, 60, 60))
+        draw.text((40, height - 60), caption, font=font_body, fill=(60, 60, 60))
 
-    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
     img.save(dst, dpi=(300, 300))
     logger.info("wrote %s", dst)

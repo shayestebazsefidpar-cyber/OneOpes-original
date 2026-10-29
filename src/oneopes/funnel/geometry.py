@@ -65,7 +65,7 @@ def funnel_parameters(cv) -> FunnelParameters:
 def funnel_extent(cv, projection_nm) -> np.ndarray:
     """Funnel radius (nm) at projection(s) along the axis (nm), via ``cv.getExtent()``."""
     require_biosimspace()
-    from BioSimSpace.Types import Length
+    from BioSimSpace.Types import Length  # pyright: ignore[reportMissingImports]
 
     proj = np.atleast_1d(np.asarray(projection_nm, dtype=float))
     return np.array([cv.getExtent(Length(float(p), "nanometer")).nanometers().value() for p in proj])

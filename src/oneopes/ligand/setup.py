@@ -1,6 +1,5 @@
 """Build and equilibrate a ligand-in-water GROMACS system (``oneopes prepare-system``)."""
 import logging
-import os
 import shlex
 import shutil
 import subprocess
@@ -55,7 +54,7 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp"):
         if not (mdp_dir / name).is_file():
             raise SystemExit(f"Required mdp file not found: {mdp_dir / name}")
-    os.makedirs(outdir, exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
     if not (outdir / "system.top").exists():
         shutil.copy(ligand_top, outdir / "system.top")
 

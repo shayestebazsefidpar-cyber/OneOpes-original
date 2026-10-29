@@ -171,14 +171,14 @@ def installed_version(package: str) -> str:
         return "unknown"
 
 
-def json_value(value: object) -> object:
+def json_value(value: range | np.number) -> list[int] | float:
     """JSON stand-in for the values ``json`` cannot write: a range as [start, stop], numpy numbers as floats."""
     return [value.start, value.stop] if isinstance(value, range) else float(value)
 
 
 def file_record(path: Path) -> dict:
     """File name, SHA-256 and size of an input file."""
-    with open(path, "rb") as fh:
+    with path.open("rb") as fh:
         sha256 = hashlib.file_digest(fh, "sha256").hexdigest()
     return {"file": path.name, "sha256": sha256, "bytes": path.stat().st_size}
 

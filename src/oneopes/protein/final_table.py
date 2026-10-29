@@ -50,5 +50,6 @@ MARKDOWN_DECIMALS = {
 
 def final_table_markdown(table: pd.DataFrame) -> str:
     """The final table as Markdown: same rows, order and columns; floats rounded."""
-    float_formats = [f".{MARKDOWN_DECIMALS[column]}f" if column in MARKDOWN_DECIMALS else "g" for column in table]
+    float_formats = [f".{MARKDOWN_DECIMALS[column]}f" if column in MARKDOWN_DECIMALS else "g"
+                     for column in map(str, table.columns)]
     return table.to_markdown(index=False, floatfmt=float_formats) + "\n"
