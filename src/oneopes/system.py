@@ -2,8 +2,8 @@
 Ligand, water oxygens and (when present) protein of a system, by the same rules everywhere.
 
 * Protein: MDAnalysis ``protein`` selection (standard residue names); may be empty.
-* Heavy atom: mass >= 1.5 and not element H (excludes hydrogens, also mass-repartitioned
-  ones, and massless virtual sites). Elements missing from the topology are guessed from atom names.
+* Heavy atom: not element H (also mass-repartitioned hydrogens) and not a massless virtual
+  site (e.g. a lone pair). Elements missing from the topology are guessed from atom names.
 * Water: residues with a known water residue name (or an explicit selection); its oxygens are
   the water atoms of element O.
 * Ligand: an explicit selection, or the single residue name, other than protein and water,
@@ -20,8 +20,8 @@ from oneopes.errors import InputError
 
 logger = logging.getLogger(__name__)
 
-HEAVY_ATOMS = "prop mass >= 1.5 and not element H"
-"""MDAnalysis selection of heavy atoms."""
+HEAVY_ATOMS = "not element H and prop mass > 0"
+"""MDAnalysis selection of heavy atoms: not hydrogen, and not a massless virtual site."""
 
 KNOWN_WATER_RESNAMES = (
     "WAT", "SOL", "HOH", "TIP3", "TIP3P", "TIP4", "TIP4P", "TIP5", "TIP5P", "T3P", "T4P", "SPC", "SPCE",
