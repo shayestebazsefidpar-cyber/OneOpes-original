@@ -46,17 +46,18 @@ def _fp_run(*fps):
 
 
 def _transition(current, previous):
-    """The one transition from block ``previous`` to block ``current``."""
-    return compare_blocks(_stack([previous, current]), TOL).isel(block=0)
+    """Block ``current`` compared with block ``previous`` before it."""
+    return compare_blocks(_stack([previous, current]), TOL).isel(block=1)
 
 
 def _passes(transition):
     return [bool(transition[criterion]) for criterion in CRITERIA]
 
 
-def _transitions(passed, block_ns=1.0):
-    """Transitions into blocks 1, 2, ... of block_ns ns that only differ in whether they passed."""
-    blocks = np.arange(1, len(passed) + 1)
+def _compared_blocks(passed, block_ns=1.0):
+    """Blocks 0, 1, ... of block_ns ns whose transitions into blocks 1, 2, ... only differ in ``passed``."""
+    passed = [False, *passed]
+    blocks = np.arange(len(passed))
     return xr.Dataset({"passed": ("block", passed), "stable_in_a_row": ("block", stable_in_a_row(passed))},
                       coords={"block": blocks, "t_end_ns": ("block", (blocks + 1) * block_ns)})
 
@@ -133,22 +134,24 @@ def test_nrmsd_gives_one_value_per_atom():
 
 def test_compare_blocks_scores_each_block_against_the_previous_one():
     fp = np.array([-30.0, -22.0, -15.0, -9.0])
-    transitions = compare_blocks(_fp_run(fp, fp, fp * 1.15), TOL)
-    assert list(transitions.block) == [1, 2]
-    assert list(transitions.passed.values) == [True, False]  # 0->1 identical, 1->2 FP +15 %
-    assert list(transitions.t_end_ns.values) == [2.0, 3.0]
+    blocks = compare_blocks(_fp_run(fp, fp, fp * 1.15), TOL)
+    assert list(blocks.passed.values) == [False, True, False]  # 0: nothing before; 0->1 identical; 1->2 FP +15 %
+    assert list(blocks.stable_in_a_row.values) == [0, 1, 0]
 
 
-def test_a_single_block_has_no_transitions():
-    transitions = compare_blocks(_fp_run([-3.0, -1.0]), TOL)
-    assert transitions.sizes["block"] == 0
+def test_the_first_block_is_compared_with_nothing():
+    first = compare_blocks(_fp_run([-3.0, -1.0], [-3.0, -1.0]), TOL).isel(block=0)
+    assert np.isnan([first.fp_change, first.rdf_nrmsd, first.spearman_rho]).all()
+    assert _passes(first) == [False, False, False, False]
+    assert int(first.stable_in_a_row) == 0
 
 
 def test_steady_fp_growth_fails_only_the_fp_criterion():
     fp = np.array([-30.0, -22.0, -15.0, -9.0])
-    transitions = compare_blocks(_fp_run(*(fp * 1.15 ** b for b in range(6))), TOL)
-    assert (transitions.spearman_pass & transitions.rdf_pass & ~transitions.fp_pass).all()
-    assert converged_block(transitions, TOL.n_stable) is None
+    blocks = compare_blocks(_fp_run(*(fp * 1.15 ** b for b in range(6))), TOL)
+    later = blocks.isel(block=slice(1, None))
+    assert (later.spearman_pass & later.rdf_pass & ~later.fp_pass).all()
+    assert converged_block(blocks, TOL.n_stable) is None
 
 
 def test_stable_in_a_row_resets_on_an_unstable_transition():
@@ -157,21 +160,20 @@ def test_stable_in_a_row_resets_on_an_unstable_transition():
 
 
 def test_converged_block_completes_the_first_streak():
-    transitions = _transitions([True, True, False, True, True, True, False, True, True, True])
-    assert converged_block(transitions, 3) == 6
-    assert converged_block(transitions.isel(block=slice(0, 5)), 3) is None
+    blocks = _compared_blocks([True, True, False, True, True, True, False, True, True, True])
+    assert converged_block(blocks, 3) == 6
+    assert converged_block(blocks.isel(block=slice(0, 6)), 3) is None
 
 
 def test_summarize_converged_run():
     """Converged at transition 2->3 (block 3); of the two later transitions one failed."""
-    transitions = _transitions([True, True, True, False, True], block_ns=2.0)
-    summary = summarize(transitions, 6, 2.0, TOL)
+    summary = summarize(_compared_blocks([True, True, True, False, True], block_ns=2.0), 2.0, TOL)
     assert summary == ConvergenceSummary(block_ns=2.0, tolerances=TOL, n_blocks=6, converged=True,
                                          converged_block=3, converged_ns=8.0, unstable_after_convergence=1,
                                          stable_in_a_row_at_end=1)
 
 
 def test_summarize_unconverged_and_single_block_runs():
-    summary = summarize(_transitions([True, False]), 3, 1.0, TOL)
+    summary = summarize(_compared_blocks([True, False]), 1.0, TOL)
     assert (summary.converged, summary.converged_block, summary.converged_ns) == (False, None, None)
-    assert summarize(_transitions([]), 1, 1.0, TOL).stable_in_a_row_at_end == 0
+    assert summarize(_compared_blocks([]), 1.0, TOL).stable_in_a_row_at_end == 0

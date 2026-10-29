@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import xarray as xr
 
-from oneopes.convergence import ConvergenceSummary
+from oneopes.convergence import TRANSITION_VARIABLES, ConvergenceSummary
 
 
 def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
@@ -24,9 +24,10 @@ def fp_by_block(blocks: xr.Dataset) -> pd.DataFrame:
     return blocks.fp.reset_coords(drop=True).transpose("atom", "block").to_pandas()
 
 
-def write_block_tables(outdir: Path, blocks: xr.Dataset, transitions: xr.Dataset) -> None:
-    """Write the block-wise CSVs to ``outdir``: FP and g(r) per block, FP and FP rank per atom and block,
-    and the transitions between blocks (convergence_metrics.csv).
+def write_block_tables(outdir: Path, blocks: xr.Dataset) -> None:
+    """Write the block-wise CSVs of blocks compared by :func:`~oneopes.convergence.compare_blocks` to
+    ``outdir``: FP and g(r) per block, FP and FP rank per atom and block, and the transitions between
+    blocks (convergence_metrics.csv, from block 1).
 
     g(r) leaves out the block times, which would repeat on every radius.
     """
@@ -35,6 +36,7 @@ def write_block_tables(outdir: Path, blocks: xr.Dataset, transitions: xr.Dataset
     fp_wide = fp_by_block(blocks)
     fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
+    transitions = blocks[TRANSITION_VARIABLES].isel(block=slice(1, None))
     transitions.to_dataframe().to_csv(outdir / "convergence_metrics.csv")
 
 

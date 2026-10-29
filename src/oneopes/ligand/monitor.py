@@ -88,11 +88,11 @@ def stop_mdrun(pid: int | None) -> None:
         logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
 
-def log_progress(transitions: xr.Dataset) -> None:
-    """One log line for the latest of the :func:`compare_blocks` transitions (none for the first block)."""
-    if not transitions.sizes["block"]:
+def log_progress(blocks: xr.Dataset) -> None:
+    """One log line for the latest of the blocks compared by :func:`compare_blocks` (none for block 0)."""
+    if blocks.sizes["block"] < 2:
         return
-    latest = transitions.isel(block=-1)
+    latest = blocks.isel(block=-1)
     logger.info("block %d (t=%.1f ns): max|dFP/FP|=%.3f max_nRMSD_RDF=%.3f spearman=%.3f stable=%s streak=%d",
                 latest.block, latest.t_end_ns, latest.fp_change, latest.rdf_nrmsd, latest.spearman_rho,
                 bool(latest.passed), latest.stable_in_a_row)
@@ -205,23 +205,21 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    measured = []
+    measured, blocks = [], None
     for u, frames in completed_blocks(load_universe, block_length, mdrun_pid, poll_seconds):
         block = block_of(u, frames, dt_ps)
         hydration = measure_hydration(u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens], block.frames, grid,
                                       norm_tail_bins)
         measured.append(label_block(hydration, block))
-        blocks = stack_blocks(measured)
-        transitions = compare_blocks(blocks, tol)
-        write_block_tables(outdir, blocks, transitions)
-        log_progress(transitions)
-        if converged_block(transitions, tol.n_stable) is not None:
+        blocks = compare_blocks(stack_blocks(measured), tol)
+        write_block_tables(outdir, blocks)
+        log_progress(blocks)
+        if converged_block(blocks, tol.n_stable) is not None:
             break
-    if not measured:
+    if blocks is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
 
-    blocks = stack_blocks(measured)
-    summary = summarize(compare_blocks(blocks, tol), len(measured), block_ns, tol)
+    summary = summarize(blocks, block_ns, tol)
     trajectory_end_ns = frame_time_ns(load_universe(), -1)
     write_summary(outdir / "convergence_summary.json", summary, trajectory_end_ns=trajectory_end_ns,
                   ligand_selection=sel.ligand_selection, ligand_heavy_atoms=atom_names)

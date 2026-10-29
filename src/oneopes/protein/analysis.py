@@ -83,9 +83,7 @@ class ProteinAnalysis:
     """The candidate pool (see :func:`select_candidates`), in the order of every per-atom result."""
     layout: FrameLayout
     blocks: xr.Dataset
-    """The :func:`measure_frames` of each block, stacked by :func:`stack_blocks`."""
-    transitions: xr.Dataset
-    """Each block against the one before it (see :func:`compare_blocks`)."""
+    """The :func:`measure_frames` of each block, each compared with the one before (:func:`compare_blocks`)."""
     full: xr.Dataset
     """The :func:`measure_frames` of the whole analysed range."""
     sasa: np.ndarray
@@ -109,15 +107,14 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
 
     candidate_atoms = system.trajectory.atoms[candidate_index]
     labels = list(candidates["Atom"])
-    blocks = stack_blocks([label_block(measure_frames(system, candidate_atoms, labels, block.frames), block)
-                           for block in layout.blocks])
+    measured = [label_block(measure_frames(system, candidate_atoms, labels, block.frames), block)
+                for block in layout.blocks]
+    blocks = compare_blocks(stack_blocks(measured), options.tolerances)
     full = measure_frames(system, candidate_atoms, labels, layout.analysed)
-    transitions = compare_blocks(blocks, options.tolerances)
-    summary = summarize(transitions, blocks.sizes["block"], options.block_ns, options.tolerances)
+    summary = summarize(blocks, options.block_ns, options.tolerances)
     logger.info("first sustained convergence: %s ns", summary.converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, blocks=blocks,
-                           transitions=transitions, full=full, sasa=static_sasa(system, candidate_index),
-                           summary=summary)
+                           full=full, sasa=static_sasa(system, candidate_index), summary=summary)
 
 
 OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
@@ -135,7 +132,7 @@ def write_outputs(outdir: Path, analysis: ProteinAnalysis) -> None:
     candidates, layout = analysis.candidates, analysis.layout
     outdir.mkdir(parents=True, exist_ok=True)
     candidates.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
-    write_block_tables(outdir, analysis.blocks, analysis.transitions)
+    write_block_tables(outdir, analysis.blocks)
     contacts = analysis.blocks[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
     contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
     write_summary(outdir / "convergence_summary.json", analysis.summary,

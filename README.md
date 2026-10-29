@@ -352,7 +352,7 @@ names (water/hydrogen naming may differ between formats).
 | `fp_values_per_block.csv`, `rdf_profiles_per_block.csv` | FP (with the block times) and g(r) per block and atom |
 | `contact_occupancy_per_block.csv` | Contact / Bridge per block and atom |
 | `fp_values_by_block_wide.csv`, `fp_ranking_by_block_wide.csv` | FP and rank (1 = most negative) per block |
-| `convergence_metrics.csv` | one row per block after the first, compared with the block before: `block`, `t_start_ns`, `t_end_ns`, `n_frames`, `t_mid_ns`, `fp_change`, `rdf_nrmsd`, `spearman_rho`, `fp_pass`, `rdf_pass`, `spearman_pass`, `passed`, `stable_in_a_row` |
+| `convergence_metrics.csv` | one row per block after the first, compared with the block before: `block`, `fp_change`, `rdf_nrmsd`, `spearman_rho`, `fp_pass`, `rdf_pass`, `spearman_pass`, `passed`, `stable_in_a_row`, `t_start_ns`, `t_end_ns`, `n_frames`, `t_mid_ns` |
 | `convergence_summary.json` | block size, tolerances, number of blocks, `converged_block`/`converged_ns`, unstable transitions after convergence, trajectory and analysed time range |
 | `final_per_atom_table.csv` | one row per candidate, sorted by `FP_Rank` |
 | `final_per_atom_table.md` | the same table as readable Markdown (floats rounded; the CSV keeps full precision) |

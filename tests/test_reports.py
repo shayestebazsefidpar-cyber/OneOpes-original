@@ -29,7 +29,7 @@ def _measured_blocks(n_blocks, labels=None, block_ns=1.0, start_ns=0.0):
 
 
 def _write_block_tables(outdir, blocks):
-    write_block_tables(outdir, blocks, compare_blocks(blocks, TOL))
+    write_block_tables(outdir, compare_blocks(blocks, TOL))
 
 
 def test_convergence_metrics_rows_and_times(tmp_path):
@@ -37,9 +37,8 @@ def test_convergence_metrics_rows_and_times(tmp_path):
     _write_block_tables(tmp_path, _measured_blocks(6, block_ns=2.5, start_ns=12.5))
     table = pd.read_csv(tmp_path / "convergence_metrics.csv")
     assert list(table.columns) == [
-        "block", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns",
-        "fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rdf_pass", "spearman_pass", "passed",
-        "stable_in_a_row"]
+        "block", "fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rdf_pass", "spearman_pass", "passed",
+        "stable_in_a_row", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert list(table["block"]) == [1, 2, 3, 4, 5]
     assert list(table["t_end_ns"]) == [17.5, 20.0, 22.5, 25.0, 27.5]
     assert list(table["stable_in_a_row"]) == stable_in_a_row(list(table["passed"]))
@@ -47,12 +46,12 @@ def test_convergence_metrics_rows_and_times(tmp_path):
 
 def test_a_single_block_has_no_transitions_but_keeps_the_header(tmp_path):
     _write_block_tables(tmp_path, _measured_blocks(1))
-    assert (tmp_path / "convergence_metrics.csv").read_text().startswith("block,t_start_ns,t_end_ns,")
+    assert (tmp_path / "convergence_metrics.csv").read_text().startswith("block,fp_change,")
     assert pd.read_csv(tmp_path / "convergence_metrics.csv").empty
 
 
 def test_write_summary_adds_facts_to_the_summary(tmp_path):
-    summary = summarize(compare_blocks(_measured_blocks(4), ALWAYS_STABLE), 4, 1.0, TOL)
+    summary = summarize(compare_blocks(_measured_blocks(4), ALWAYS_STABLE), 1.0, TOL)
     write_summary(tmp_path / "summary.json", summary, ligand_heavy_atoms=["C1", "O1"])
     written = json.loads((tmp_path / "summary.json").read_text())
     assert written["tolerances"] == dataclasses.asdict(TOL)
@@ -72,7 +71,7 @@ def test_fp_ranks_per_block_with_ties_in_atom_order():
 def test_write_block_tables(tmp_path):
     """Five CSVs; wide tables keep the atoms' order (not alphabetical) and rank each block's FP."""
     blocks = _measured_blocks(4, labels=["c", "a", "b"])
-    write_block_tables(tmp_path, blocks, compare_blocks(blocks, TOL))
+    write_block_tables(tmp_path, compare_blocks(blocks, TOL))
 
     fp_long = pd.read_csv(tmp_path / "fp_values_per_block.csv")
     assert list(fp_long.columns) == ["block", "atom", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns", "FP"]
