@@ -1,5 +1,6 @@
 """Candidate selection and the checks on the analysis inputs."""
 
+import MDAnalysis as mda
 import numpy as np
 import pytest
 from cyclopts import ValidationError
@@ -7,7 +8,7 @@ from cyclopts import ValidationError
 from oneopes.cli import app
 from oneopes.protein import analysis
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
-from oneopes.protein.inputs import protein_system, validate_same_atoms
+from oneopes.protein.inputs import protein_system, structure_chain_ids, validate_same_atoms
 from oneopes.system import SystemDefinitionError, SystemOptions, select_system
 from protein_systems import build_universe, protein_args, simple_protein
 
@@ -109,6 +110,16 @@ def test_renamed_atoms_fail_and_the_first_one_is_named(small_system):
     validate_same_atoms(small_system, other, "complex", indices=np.array([0, 1, 2]))
 
 
+def test_no_atom_within_the_cutoff_is_an_error(small_system):
+    with pytest.raises(SystemDefinitionError, match=r"No protein heavy atom lies within 0\.5 A of the ligand"):
+        select_candidates(protein_system(small_system, small_system), 0.5)
+
+
+def test_a_structure_without_chain_ids_gives_none():
+    no_chains = mda.Universe.empty(3, trajectory=True)
+    assert structure_chain_ids(no_chains) is None
+
+
 def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
     """With a GROMACS .tpr, MDAnalysis puts molecule-type names (e.g. "Protein") in chainIDs."""
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
@@ -117,8 +128,6 @@ def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
 
 
 def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
-    import MDAnalysis as mda
-
     small_system.atoms.chainIDs = ["K"] * len(small_system.atoms)
     small_system.atoms.write(tmp_path / "complex.pdb")
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)

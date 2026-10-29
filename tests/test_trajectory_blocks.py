@@ -1,9 +1,12 @@
 """Trajectory blocks: frame step, block length, complete blocks and the frame layout of an analysis."""
 import MDAnalysis as mda
 import numpy as np
+from types import SimpleNamespace
+
 import pytest
 from MDAnalysis.coordinates.memory import MemoryReader
 
+from oneopes.errors import InputError
 from oneopes.trajectory_blocks import (
     Block,
     FrameWindow,
@@ -22,6 +25,21 @@ def universe_with_times(n_frames: int, dt_ps: float) -> mda.Universe:
 
 def test_frame_step_is_the_spacing_between_frames():
     assert frame_step_ps(universe_with_times(5, 20.0)) == 20.0
+
+
+def frames_at(*times_ps):
+    """A stand-in universe whose frames are at ``times_ps``."""
+    return SimpleNamespace(trajectory=[SimpleNamespace(time=time) for time in times_ps])
+
+
+def test_unevenly_spaced_frames_are_an_error():
+    with pytest.raises(InputError, match="not evenly spaced"):
+        frame_step_ps(frames_at(0.0, 10.0, 30.0))
+
+
+def test_frames_must_move_forward_in_time():
+    with pytest.raises(InputError, match="time step must be > 0"):
+        frame_step_ps(frames_at(50.0, 50.0, 50.0))
 
 
 def test_frame_step_reads_only_the_first_n_frames():

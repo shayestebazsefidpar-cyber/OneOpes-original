@@ -64,6 +64,12 @@ def test_explicit_selections_override_detection():
     assert len(sel.water_oxygens) == 3
 
 
+def test_water_without_oxygens_is_an_error():
+    with pytest.raises(SystemDefinitionError, match="'resname SOL and name HW1' contains no oxygen atoms"):
+        select_system(ligand_in_water(LIGAND), SystemOptions(ligand_selection="resname MOL",
+                                                             water_selection="resname SOL and name HW1"))
+
+
 def test_ligand_without_heavy_atoms_is_an_error():
     with pytest.raises(SystemDefinitionError, match="no heavy atoms"):
         select_system(ligand_in_water(LIGAND), SystemOptions(ligand_selection="resname MOL and name H*"))

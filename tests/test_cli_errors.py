@@ -30,6 +30,28 @@ def test_an_input_problem_found_later_is_reported_the_same_way(tmp_path, caplog)
     assert any("is empty" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
 
 
+def test_a_trajectory_shorter_than_one_block_is_a_one_line_error(tmp_path, caplog):
+    """3 frames of 1 ps, far less than one 5 ns block, and no mdrun to wait for."""
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        main(["monitor", "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out")])
+    assert exit_info.value.code == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == ["error: mdrun ended before the first block was complete; nothing to report."]
+
+
+def test_missing_mdp_files_stop_prepare_system_before_gromacs_runs(tmp_path, caplog):
+    top, _ = ligand_in_water(tmp_path)
+    (tmp_path / "mdp").mkdir()
+    with pytest.raises(SystemExit) as exit_info:
+        main(["prepare-system", "--ligand-gro", top, "--ligand-top", top, "--outdir", str(tmp_path / "build"),
+              "--mdp-dir", str(tmp_path / "mdp"), "--gmx", "echo"])
+    assert exit_info.value.code == 1
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and errors[0].startswith("error: Required mdp file not found:")
+    assert not (tmp_path / "build").exists()
+
+
 @pytest.mark.parametrize("command", ["monitor", "select"])
 def test_a_trajectory_of_another_system_is_a_one_line_error(tmp_path, caplog, command):
     top, _ = ligand_in_water(tmp_path)
