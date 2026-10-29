@@ -40,12 +40,12 @@ def test_custom_grid_has_uniform_bins_and_growing_shells():
 def test_density_is_counts_per_frame_per_shell_volume():
     grid = RadialGrid()
     raw = np.arange(2 * 2001, dtype=np.int64).reshape(2, 2001)
-    density = hydration(raw, 4, grid, ["a", "b"]).density
+    density = hydration(raw, 4, ["a", "b"]).density
     assert np.array_equal(density.values, raw / 4 / grid.shell_volumes_nm3)
 
 
 def test_hydration_is_indexed_by_atom_name_and_radius():
-    result = hydration(bulk_water_counts(2), BULK_FRAMES, RadialGrid(), ["C1", "O1"])
+    result = hydration(bulk_water_counts(2), BULK_FRAMES, ["C1", "O1"])
     assert list(result.atom.values) == ["C1", "O1"]
     assert np.array_equal(result.r_nm, RadialGrid().r_nm)
     assert result.fp.dims == ("atom",)
@@ -74,7 +74,7 @@ def test_waters_beyond_rmax_are_not_counted():
 
 def test_no_water_in_the_bulk_tail_is_an_error():
     with pytest.raises(InputError, match=r"No water in the bulk tail .* atoms \['C1', 'N1'\]"):
-        hydration(np.zeros((2, 2001), dtype=np.int64), 1, RadialGrid(), ["C1", "N1"])
+        hydration(np.zeros((2, 2001), dtype=np.int64), 1, ["C1", "N1"])
 
 
 @pytest.mark.parametrize("rmax_nm, binwidth_nm", [(2.0, 0.0), (2.0, -0.1), (0.5, 1.0), (0.0, 0.001)])
@@ -105,7 +105,7 @@ def test_counts_of_consecutive_frame_ranges_add_up():
 
 
 def test_fp_is_zero_for_uniform_bulk_density():
-    result = hydration(bulk_water_counts(), BULK_FRAMES, RadialGrid(), ["C1"])
+    result = hydration(bulk_water_counts(), BULK_FRAMES, ["C1"])
     assert np.allclose(result.g, 1.0, atol=1e-4)
     assert abs(float(result.fp[0])) < 1e-6
 
@@ -115,7 +115,7 @@ def test_fp_is_negative_for_a_depleted_shell():
     # limit of (g ln g - g + 1) is 1, so the shell contributes a negative FP.
     depleted = bulk_water_counts()
     depleted[:, :50] = 0
-    result = hydration(depleted, BULK_FRAMES, RadialGrid(), ["C1"])
+    result = hydration(depleted, BULK_FRAMES, ["C1"])
     assert np.all(result.g[0, :50] == 0.0)
     assert float(result.fp[0]) < 0
 
@@ -133,7 +133,7 @@ def test_measure_hydration_covers_the_given_frames():
     u = random_universe()
     solute, water = u.atoms[:3], u.atoms[3:]
     counts = WaterFP(solute, water).run(start=1, stop=3).results.counts
-    expected = hydration(counts, 2, RadialGrid(), list(solute.names)).assign_coords(atom_index=("atom", [0, 1, 2]))
+    expected = hydration(counts, 2, list(solute.names)).assign_coords(atom_index=("atom", [0, 1, 2]))
     assert measure_hydration(solute, water, range(1, 3)).identical(expected)
 
 

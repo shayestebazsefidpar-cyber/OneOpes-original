@@ -95,14 +95,16 @@ def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: Radia
     return histogram.astype(np.int64)
 
 
-def hydration(counts: np.ndarray, n_frames: int, grid: RadialGrid, atoms: Sequence[str],
-              tail_bins: int = NORM_TAIL_BINS_DEFAULT) -> xr.Dataset:
-    """The water structure around each atom, from its water counts summed over ``n_frames`` frames.
+def hydration(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
+              options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
+    """The water structure around each atom, from its water counts on the ``options`` grid summed over
+    ``n_frames`` frames.
 
     A Dataset over ``atom`` (the names in ``atoms``) and ``r_nm`` (the bin centres) holding
-    ``density`` n(r) (waters/nm^3), ``bulk`` (the mean density over the last ``tail_bins`` bins),
+    ``density`` n(r) (waters/nm^3), ``bulk`` (the mean density over the last ``norm_tail_bins`` bins),
     ``g`` = n(r) / bulk and ``fp``. Raises InputError when an atom has no water in the bulk tail.
     """
+    grid, tail_bins = options.grid, options.norm_tail_bins
     waters = xr.DataArray(counts, dims=("atom", "r_nm"), coords={"atom": list(atoms), "r_nm": grid.r_nm})
     shell_volumes = xr.DataArray(grid.shell_volumes_nm3, dims="r_nm", coords={"r_nm": grid.r_nm})
     density = waters / n_frames / shell_volumes
@@ -142,31 +144,30 @@ class WaterFP(AnalysisBase):
         self.solute = solute
         self.water_oxygens = water_oxygens
         self.options = options
-        self.grid = options.grid
         self.labels = list(solute.names) if labels is None else list(labels)
 
     def _prepare(self) -> None:
-        self.results.counts = np.zeros((self.solute.n_atoms, self.grid.n_bins), dtype=np.int64)
+        self.results.counts = np.zeros((self.solute.n_atoms, self.options.grid.n_bins), dtype=np.int64)
 
     def _single_frame(self) -> None:
         """Add this frame's counts; warns (once: the message is constant) when the box is too small for rmax."""
-        box = self._ts.dimensions
-        if box is not None and self.grid.edges_a[-1] > 0.5 * min(box[:3]):
+        box, grid = self._ts.dimensions, self.options.grid
+        if box is not None and grid.edges_a[-1] > 0.5 * min(box[:3]):
             warnings.warn(
-                f"rmax ({self.grid.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
+                f"rmax ({grid.rmax_nm} nm) is larger than half the shortest box edge: with minimum-image "
                 "distances the outer shells are only partly sampled, so the bulk density and every FP "
                 "are biased. Use a larger box or a smaller rmax.",
                 RuntimeWarning,
                 stacklevel=2,
             )
         self.results.counts += count_waters_by_distance(self.solute.positions, self.water_oxygens.positions,
-                                                        self.grid, box)
+                                                        grid, box)
 
     def _get_aggregator(self) -> ResultsGroup:
         return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
 
     def _conclude(self) -> None:
-        measured = hydration(self.results.counts, self.n_frames, self.grid, self.labels, self.options.norm_tail_bins)
+        measured = hydration(self.results.counts, self.n_frames, self.labels, self.options)
         self.results.hydration = measured.assign_coords(atom_index=("atom", self.solute.indices))
 
 
