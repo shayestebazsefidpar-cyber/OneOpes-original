@@ -53,16 +53,17 @@ def check_stability(current: Results, previous: Results, tol: Tolerances) -> Sta
     """Compare two consecutive blocks' WaterFP results (same atoms, same order).
 
     Stable when, over all atoms, the largest FP change, the largest g(r) nRMSD
-    and the FP rank correlation are all within ``tol``.
+    and the Spearman correlation of the FP values are all within ``tol``. The
+    relative FP change divides by |previous FP| floored at 1e-6, for atoms with FP near 0.
     """
     fp, prev_fp = current.fp, previous.fp
-    fp_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))  # floor: FP of ~0
+    fp_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
     rdf_nrmsd = float(np.max(nrmsd(current.g, previous.g)))
-    rho, _ = spearmanr(fp, prev_fp)  # ranks the FP values itself
+    rho = float(spearmanr(fp, prev_fp).statistic)
 
     fp_pass = fp_change <= tol.fp_rel_tol
     rdf_pass = rdf_nrmsd <= tol.rdf_nrmsd_tol
-    spearman_pass = bool(rho >= tol.spearman_tol)
+    spearman_pass = rho >= tol.spearman_tol
     return StabilityResult(
         fp_change=fp_change, rdf_nrmsd=rdf_nrmsd, spearman_rho=rho,
         fp_pass=fp_pass, rdf_pass=rdf_pass, spearman_pass=spearman_pass,
@@ -134,7 +135,7 @@ def fp_ranks(fp: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
 def stack_blocks(tables: Sequence[pd.DataFrame]) -> pd.DataFrame:
     """Each block's table one after the other, with the block index as first column."""
     stacked = pd.concat([table.assign(block=b) for b, table in enumerate(tables)], ignore_index=True)
-    return stacked[["block", *tables[0].columns]]
+    return stacked.reindex(columns=["block", *tables[0].columns])
 
 
 def times_table(times_ns: Sequence[tuple[float, float]]) -> pd.DataFrame:

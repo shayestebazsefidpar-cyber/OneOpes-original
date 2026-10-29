@@ -8,7 +8,7 @@ dependencies = [
     "MDAnalysis>=2.0",
     "numpy>=2",
     "pandas",
-    "scipy",
+    "scipy>=1.11",
     "matplotlib",
     "freesasa",
     "PyYAML",
@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "networkx>=3.6.1",
     "pytest>=7",
+    "scipy-stubs>=1.17.1.5",
 ]
 # stage 5 rendering needs a PyMOL or Chimera install, invoked by path
 # (pymol -cq .../render_selected_atoms.py -- ...), not via console_scripts -
