@@ -8,11 +8,18 @@ from oneopes.cli import main
 from oneopes.ligand.setup import MDP_DIR
 
 ALL_STEPS = ["editconf", "solvate", "grompp", "genion", "grompp", "mdrun", "grompp", "mdrun", "grompp", "mdrun"]
+TWO_ATOM_LIGAND = """\
+ligand 1 nm long, along x
+    2
+    1MOL     C1    1   1.000   1.000   1.000
+    1MOL     C2    2   2.000   1.000   1.000
+   3.00000   3.00000   3.00000
+"""
 
 
 def prepare_system(tmp_path, gmx: str, *options: str) -> None:
     gro, top = tmp_path / "ligand.gro", tmp_path / "ligand.top"
-    gro.touch()
+    gro.write_text(TWO_ATOM_LIGAND)
     top.write_text("; topology\n")
     main(["prepare-system", "--ligand-gro", str(gro), "--ligand-top", str(top), "--outdir", str(tmp_path / "out"),
           "--gmx", gmx, *options])
@@ -59,6 +66,25 @@ def test_a_relative_mdp_dir_is_found_from_where_the_command_runs(tmp_path, caplo
         (tmp_path / "my_mdp" / mdp.name).write_text(mdp.read_text())
     grompp = gmx_commands(tmp_path, caplog, "--mdp-dir", "my_mdp", "--start-from", "em_tpr")[0]
     assert grompp[grompp.index("-f") + 1] == str(tmp_path / "my_mdp" / "em.mdp")
+
+
+def box_of(editconf: list[str]) -> list[str]:
+    start = editconf.index("-box") + 1
+    return editconf[start:editconf.index("-bt")]
+
+
+def test_a_small_ligand_gets_a_box_twice_the_waterfp_rmax(tmp_path, caplog):
+    """1 nm + 2 x 1.2 nm is 3.4 nm, less than 2 x 2.001 nm: WaterFP would count waters twice."""
+    assert box_of(gmx_commands(tmp_path, caplog)[0]) == ["4.2"]
+
+
+def test_a_larger_distance_than_the_minimum_box_is_kept(tmp_path, caplog):
+    assert box_of(gmx_commands(tmp_path, caplog, "--box-distance-nm", "2")[0]) == ["5.0"]
+
+
+def test_a_triclinic_box_is_sized_along_each_axis(tmp_path, caplog):
+    editconf = gmx_commands(tmp_path, caplog, "--box-type", "triclinic", "--box-distance-nm", "2")[0]
+    assert box_of(editconf) == ["5.0", "4.2", "4.2"]
 
 
 def errors(caplog) -> list[str]:

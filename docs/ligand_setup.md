@@ -17,6 +17,9 @@ oneopes monitor $! --tpr prod.tpr --xtc prod.xtc
 - The `.mdp` files come from `src/oneopes/ligand/mdp/` (`--mdp-dir` for your own);
   `prod.mdp` is copied to `--outdir`. Its 100 ns length is only a ceiling: the monitor
   usually stops the run much earlier.
+- The box keeps `--box-distance-nm` (1.2 nm) between the ligand and its edge, and is at least
+  `--min-box-nm` (4.2 nm): WaterFP counts waters up to 2.001 nm away, so a smaller box would count
+  some twice through the periodic boundary. Raise it if you raise the monitor's `--rmax-nm`.
 - `--start-from nvt_tpr` (or any step) resumes a partial build.
 - grompp warnings stop the build, except the expected net-charge warning before adding ions.
   `--maxwarn N` lets EM/NVT/NPT through N warnings you have checked.

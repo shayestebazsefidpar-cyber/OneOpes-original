@@ -6,17 +6,35 @@ import subprocess
 from pathlib import Path
 from typing import Annotated, Literal, get_args
 
+import numpy as np
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
+from scipy.spatial.distance import pdist
 
 from oneopes.errors import InputError
+from oneopes.system import load_universe
+from oneopes.waterfp import RadialGrid
 
 logger = logging.getLogger(__name__)
 
 Step = Literal["box", "solvate", "ions_tpr", "genion", "em_tpr", "em_run", "nvt_tpr", "nvt_run", "npt_tpr", "npt_run"]
 STEPS = get_args(Step)
 MDP_DIR = Path(__file__).parent / "mdp"
+BoxType = Literal["triclinic", "cubic", "dodecahedron", "octahedron"]
+MIN_BOX_NM = round(2 * RadialGrid().rmax_nm + 0.2, 1)
+"""Twice WaterFP's default rmax, so no water is counted twice through the periodic box, plus room for NPT."""
+
+
+def box_edges_nm(ligand_gro: Path, box_type: BoxType, distance_nm: float, min_edge_nm: float) -> list[float]:
+    """Box size for `gmx editconf -box`: the ligand with ``distance_nm`` on each side, and at least ``min_edge_nm``.
+
+    The ligand's size is what editconf -d would use: its extent along each axis for a triclinic box,
+    its diameter (largest atom-atom distance) otherwise.
+    """
+    positions_nm = load_universe(ligand_gro).atoms.positions / 10
+    sizes = np.ptp(positions_nm, axis=0) if box_type == "triclinic" else [np.max(pdist(positions_nm), initial=0.0)]
+    return [round(max(float(size) + 2 * distance_nm, min_edge_nm), 3) for size in sizes]
 
 
 def run_step(step: Step, cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
@@ -37,7 +55,8 @@ def run_step(step: Step, cmd: list[str], cwd: Path, stdin: str | None = None) ->
 
 def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir: Path, mdp_dir: Path = MDP_DIR,
                    box_distance_nm: Annotated[float, Parameter(validator=Number(gt=0))] = 1.2,
-                   box_type: Literal["triclinic", "cubic", "dodecahedron", "octahedron"] = "cubic",
+                   min_box_nm: Annotated[float, Parameter(validator=Number(gt=0))] = MIN_BOX_NM,
+                   box_type: BoxType = "cubic",
                    water_model: str = "spc216",
                    ion_conc: Annotated[float, Parameter(validator=Number(gte=0))] = 0.0,
                    pname: str = "NA", nname: str = "CL", gmx: str = "gmx",
@@ -60,7 +79,9 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     mdp_dir
         Directory with ions.mdp, em.mdp, nvt.mdp, npt.mdp and prod.mdp.
     box_distance_nm
-        Distance (nm) between the ligand and the box edge (`gmx editconf -d`).
+        Smallest distance (nm) between the ligand and the box edge.
+    min_box_nm
+        Smallest box edge (nm): twice the WaterFP rmax the monitor will use, plus room for NPT.
     box_type
         Box shape (`gmx editconf -bt`).
     water_model
@@ -93,11 +114,12 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
         return [gmx, "grompp", "-f", str(mdp_dir / mdp), "-c", *structure, "-p", "system.top", "-o", tpr,
                 "-maxwarn", str(allowed_warnings)]
 
+    box = [str(edge) for edge in box_edges_nm(ligand_gro, box_type, box_distance_nm, min_box_nm)]
     genion = [gmx, "genion", "-s", "ions.tpr", "-o", "ligand_ions.gro", "-p", "system.top",
               "-pname", pname, "-nname", nname, "-neutral"] + (["-conc", str(ion_conc)] if ion_conc > 0 else [])
     commands: dict[Step, list[str]] = {
         "box": [gmx, "editconf", "-f", str(ligand_gro.resolve()), "-o", "ligand_box.gro",
-                "-c", "-d", str(box_distance_nm), "-bt", box_type],
+                "-c", "-box", *box, "-bt", box_type],
         "solvate": [gmx, "solvate", "-cp", "ligand_box.gro", "-cs", water_model, "-o", "ligand_solv.gro",
                     "-p", "system.top"],
         "ions_tpr": grompp("ions.mdp", ["ligand_solv.gro"], "ions.tpr", allowed_warnings=1),
