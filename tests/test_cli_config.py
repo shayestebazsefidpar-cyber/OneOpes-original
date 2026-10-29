@@ -40,3 +40,10 @@ def test_a_misspelt_setting_is_an_error(tmp_path):
 
 def test_the_example_config_has_one_section_per_command():
     assert set(yaml.safe_load(EXAMPLE.read_text())) <= set(app)
+
+
+@pytest.mark.parametrize("command, settings", yaml.safe_load(EXAMPLE.read_text()).items())
+def test_every_example_setting_is_an_option_of_its_command(command, settings):
+    options = {name.removeprefix("--") for argument in app[command].assemble_argument_collection()
+               for name in argument.names}
+    assert set(settings) <= options
