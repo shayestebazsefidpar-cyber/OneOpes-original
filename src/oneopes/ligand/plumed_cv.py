@@ -25,8 +25,8 @@ G2: GROUP ATOMS={g2_serials}
 
 {water_group_line}
 
-g1_coord: COORDINATION GROUPA=G1 GROUPB={water_group_ref} R_0=0.32 NN=6 MM=12
-g2_coord: COORDINATION GROUPA=G2 GROUPB={water_group_ref} R_0=0.32 NN=6 MM=12
+g1_coord: COORDINATION GROUPA=G1 GROUPB=WATER_O R_0=0.32 NN=6 MM=12
+g2_coord: COORDINATION GROUPA=G2 GROUPB=WATER_O R_0=0.32 NN=6 MM=12
 
 PRINT ARG=g1_coord,g2_coord STRIDE=500 FILE=LIGAND_WATERFP_CV.dat
 """
@@ -56,21 +56,12 @@ def build_cv(*, g1_g2: ExistingFile, out: Path, water_group_def: str | None = No
 
     if water_group_def:
         water_group_line = f"WATER_O: GROUP {water_group_def}"
-        water_group_ref = "WATER_O"
     else:
         water_group_line = ("# TODO: define your own water-oxygen reference group, e.g.:\n"
-                             "# WATER_O: GROUP ATOMS=<water oxygen atom indices>")
-        water_group_ref = "WATER_O"
-
-    fragment = FRAGMENT_TEMPLATE.format(
-        g1_serials=g1_serials,
-        g2_serials=g2_serials,
-        water_group_line=water_group_line,
-        water_group_ref=water_group_ref,
-    )
+                            "# WATER_O: GROUP ATOMS=<water oxygen atom indices>")
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w") as f:
-        f.write(fragment)
+    out.write_text(FRAGMENT_TEMPLATE.format(g1_serials=g1_serials, g2_serials=g2_serials,
+                                            water_group_line=water_group_line))
 
     logger.info("G1 atoms (serials): %s; G2 atoms (serials): %s; wrote %s", g1_serials, g2_serials, out.resolve())
