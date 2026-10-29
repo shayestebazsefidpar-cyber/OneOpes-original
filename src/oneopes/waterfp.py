@@ -70,7 +70,7 @@ class RadialGrid:
 
 @dataclass(frozen=True)
 class HydrationOptions:
-    """How the water around an atom is counted and normalised; also command options."""
+    """How the water around an atom is counted and normalised."""
     grid: Annotated[RadialGrid, Parameter(name="*")] = RadialGrid()
     norm_tail_bins: Annotated[int, Parameter(validator=Number(gte=1))] = NORM_TAIL_BINS_DEFAULT
     """Bins at the end of the profile whose mean is the bulk density."""
@@ -83,11 +83,7 @@ class HydrationOptions:
 
 def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: RadialGrid,
                              box: np.ndarray | None) -> np.ndarray:
-    """Water oxygens in each radial shell around each solute atom, in one frame (positions in A).
-
-    Returns an (n_solute, grid.n_bins) int64 array; waters beyond rmax are not counted. Distances use the
-    minimum image when ``box`` is given.
-    """
+    """Water oxygens in each radial bin around each solute atom in one frame (positions in A)."""
     edges_a = grid.edges_a
     pairs, distances = capped_distance(solute, waters, max_cutoff=edges_a[-1], box=box)
     one_bin_per_atom = np.arange(len(solute) + 1)
@@ -97,12 +93,9 @@ def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: Radia
 
 def hydration(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
               options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
-    """The water structure around each atom, from its water counts on the ``options`` grid summed over
-    ``n_frames`` frames.
+    """Density n(r) (waters/nm^3), bulk density, g(r) and FP of each atom, from its counts summed over ``n_frames``.
 
-    A Dataset over ``atom`` (the names in ``atoms``) and ``r_nm`` (the bin centres) holding
-    ``density`` n(r) (waters/nm^3), ``bulk`` (the mean density over the last ``norm_tail_bins`` bins),
-    ``g`` = n(r) / bulk and ``fp``. Raises InputError when an atom has no water in the bulk tail.
+    Raises InputError when an atom has no water in the bulk tail.
     """
     grid, tail_bins = options.grid, options.norm_tail_bins
     waters = xr.DataArray(counts, dims=("atom", "r_nm"), coords={"atom": list(atoms), "r_nm": grid.r_nm})
@@ -120,13 +113,9 @@ def hydration(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
 
 
 class WaterFP(AnalysisBase):
-    """Water oxygens per radial shell around each solute atom, summed over the analysed frames.
+    """Water oxygens per radial bin around each solute atom; ``results.hydration`` is the :func:`hydration` Dataset.
 
-    Usage: ``WaterFP(solute, water_oxygens).run(start=..., stop=...).results.hydration`` is the
-    :func:`hydration` Dataset, with each atom's 0-based topology index as coordinate ``atom_index``;
-    ``results.counts`` holds the raw counts, which add up across frames,
-    so the analysis can also run in parallel, e.g. ``run(backend="multiprocessing", n_workers=4)``.
-    ``labels`` name the atoms in the Dataset (default: the solute's atom names).
+    Counts add up across frames, so ``run(backend="multiprocessing")`` works.
     """
 
     _analysis_algorithm_is_parallelizable = True
@@ -150,7 +139,7 @@ class WaterFP(AnalysisBase):
         self.results.counts = np.zeros((self.solute.n_atoms, self.options.grid.n_bins), dtype=np.int64)
 
     def _single_frame(self) -> None:
-        """Add this frame's counts; warns (once: the message is constant) when the box is too small for rmax."""
+        """Add this frame's counts; warn when the box is too small for rmax."""
         box, grid = self._ts.dimensions, self.options.grid
         if box is not None and grid.edges_a[-1] > 0.5 * min(box[:3]):
             warnings.warn(

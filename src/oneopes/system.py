@@ -35,7 +35,7 @@ class SystemDefinitionError(InputError):
 
 @dataclass(frozen=True)
 class SystemOptions:
-    """How to find the ligand and the water; also command options."""
+    """How to find the ligand and the water."""
     ligand_selection: str | None = None
     """MDAnalysis selection of the ligand (default: auto-detect)."""
     water_selection: str | None = None
@@ -44,12 +44,7 @@ class SystemOptions:
 
 @dataclass(frozen=True)
 class SystemSelection:
-    """0-based atom indices of each part of the system, and the selections that found the ligand and water.
-
-    Indices rather than AtomGroups, so that they apply to any universe of the same topology (the
-    protein side uses them on the complex structure): ``ligand(u)`` gives the ligand's atoms in ``u``.
-    ``protein_heavy`` is empty without a protein.
-    """
+    """0-based atom indices of each part of the system, so they apply to any universe with the same topology."""
     protein_heavy: np.ndarray
     ligand_heavy: np.ndarray
     water_oxygens: np.ndarray

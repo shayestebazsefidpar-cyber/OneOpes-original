@@ -24,7 +24,7 @@ from oneopes.waterfp import HydrationOptions
 
 @dataclass(frozen=True)
 class BlockOptions:
-    """How long a block is, and when consecutive blocks count as converged; also command options."""
+    """How long a block is, and when consecutive blocks count as converged."""
     block_ns: Annotated[float, Parameter(validator=Number(gt=0))] = BLOCK_NS_DEFAULT
     """Trajectory block size (ns)."""
     tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES

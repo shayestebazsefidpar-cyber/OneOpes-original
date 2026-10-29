@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AnalysisOptions:
-    """Settings of one protein analysis; also the options of ``oneopes protein``."""
+    """Settings of one protein analysis."""
     candidate_cutoff_A: Annotated[float, Parameter(name="--candidate-cutoff-A", validator=Number(gt=0))] = (
         CANDIDATE_CUTOFF_A_DEFAULT)
     """Largest distance (A) from the ligand of a candidate protein atom."""

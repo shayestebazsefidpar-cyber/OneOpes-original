@@ -34,8 +34,7 @@ TABLE_NAMES = {"atom": "Atom", "atom_index": "Atom_index", "fp": "FP", "contact_
 
 
 def build_final_table(full: xr.Dataset) -> pd.DataFrame:
-    """One row per candidate atom of the full-range Dataset, ranked by FP: its candidate details
-    (coordinates, see :func:`~oneopes.protein.candidates.candidate_details`), FP, occupancies and SASA."""
+    """One row per candidate atom, ranked by FP: its coordinates, FP, occupancies and SASA."""
     table = full[["fp", "contact_occupancy", "bridge_occupancy", "sasa"]].to_dataframe().reset_index()
     table = table.rename(columns=TABLE_NAMES)
     table["FP_Rank"] = fp_ranks(table["FP"])

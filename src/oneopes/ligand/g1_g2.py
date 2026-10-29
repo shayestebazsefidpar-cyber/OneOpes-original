@@ -1,5 +1,5 @@
 """G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on: the selection rule from WaterFP, and
-its g1_g2.yaml file. The commands that run it are in :mod:`oneopes.ligand.select`."""
+its g1_g2.yaml file."""
 from pathlib import Path
 
 import numpy as np
@@ -36,11 +36,9 @@ class SelectionResult(BaseModel, frozen=True):
 
 
 def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> SelectionResult:
-    """G1 (anti-bulk pair) and G2 (bulk pair) among a ligand's heavy atoms, from their FP values.
+    """G1 (anti-bulk) and G2 (bulk) pairs from the FP of the ligand's heavy atoms.
 
-    The rules of WaterFP's fp_driven_atom_selection.ipynb, checked against it in the tests.
-    The atoms are put in FP order first (most negative first, ties keeping their order), so the
-    rules below refer to atoms by FP rank. Raises InputError when a pair does not exist.
+    The rules of WaterFP's fp_driven_atom_selection.ipynb; raises InputError when a pair does not exist.
     """
     by_fp = np.argsort(fp, kind="stable")
     atoms, fp = atoms[by_fp], fp[by_fp]
@@ -54,10 +52,9 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
 
 
 def bonds_from(atoms: AtomGroup, sources: list[int]) -> np.ndarray:
-    """Number of bonds from each atom at the positions ``sources`` to every atom of ``atoms``, along the
-    bonds among ``atoms`` only; one row per source.
+    """Bonds between each atom at the positions ``sources`` and every atom of ``atoms``; one row per source.
 
-    Raises InputError unless those bonds join the atoms into one molecule (e.g. when bonds are missing).
+    Raises InputError unless the bonds join ``atoms`` into one molecule.
     """
     bonds = atoms.intra_bonds.indices
     n_topology = atoms.universe.atoms.n_atoms
@@ -80,13 +77,9 @@ def bulk_partner(bonds_from_last: np.ndarray) -> int:
 
 
 def anti_bulk_partner(fp_rounded: np.ndarray, same_fp_within: int, bonds_from_first: np.ndarray) -> int:
-    """The G1 partner of atom 0 (most negative FP), among the atoms not bonded to it.
+    """The G1 partner of atom 0 (most negative FP): the first atom not bonded to it, or a farther one of the same FP.
 
-    ``fp_rounded`` are the rounded FPs as integers (-0.3 is -3 for one decimal), so that
-    comparing them is exact; values less than ``same_fp_within`` apart count as the same FP.
-    The partner starts as the first atom not bonded to atom 0. Walking on through atoms with
-    the same FP as the partner, it moves to any atom farther from atom 0; the walk ends at the
-    first atom with a different FP or exactly as far as the partner.
+    ``fp_rounded`` are integers (-0.3 is -3 for one decimal), so comparing them is exact.
     """
     if np.count_nonzero(fp_rounded == fp_rounded[0]) > 2:
         raise InputError("more than two atoms share the most negative rounded FP: the anti-bulk pair is ambiguous")

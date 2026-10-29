@@ -7,7 +7,6 @@ A transition from one block to the next is stable when all three criteria are wi
 * FP ranking: the atoms' FP values kept a Spearman correlation of at least ``spearman_tol``.
 
 The run has converged at the block completing the first ``n_stable`` stable transitions in a row.
-Blocks are the stacked block measurements of :func:`oneopes.trajectory_blocks.stack_blocks`.
 """
 
 from collections.abc import Iterable
@@ -69,11 +68,9 @@ TRANSITION_VARIABLES = ["fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rd
 
 
 def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> xr.Dataset:
-    """The blocks, each compared with the one before it.
+    """Each block compared with the one before: the criteria, which passed, and the stable transitions in a row.
 
-    Adds the three criteria (``fp_change``, ``rdf_nrmsd``, ``spearman_rho``), whether each passed,
-    whether all did (``passed``) and the stable transitions in a row ending at each block. Block 0
-    has no block before it: its criteria are NaN, so it passes none and ends no stable run.
+    Block 0 has nothing to compare with: NaN criteria, nothing passed.
     """
     current = blocks[["fp", "g"]].isel(block=slice(1, None))
     previous = blocks[["fp", "g"]].shift(block=1).isel(block=slice(1, None))
@@ -103,11 +100,7 @@ def unstable_after(blocks: xr.Dataset, block: int) -> int:
 
 @dataclass(frozen=True)
 class ConvergenceSummary:
-    """What comparing consecutive blocks concluded.
-
-    ``converged_block`` is the block completing the first run of ``tolerances.n_stable``
-    stable transitions and ``converged_ns`` its end time; both are None when there is none.
-    """
+    """What the block comparison concluded; ``converged_block`` and ``converged_ns`` are None if it never converged."""
     block_ns: float
     tolerances: Tolerances
     n_blocks: int
@@ -119,7 +112,7 @@ class ConvergenceSummary:
 
 
 def summarize(blocks: xr.Dataset, block_ns: float, tol: Tolerances) -> ConvergenceSummary:
-    """Summary of a run of blocks compared by :func:`compare_blocks`."""
+    """The convergence summary of blocks from :func:`compare_blocks`."""
     block = converged_block(blocks, tol.n_stable)
     return ConvergenceSummary(
         block_ns=block_ns,

@@ -107,7 +107,7 @@ class FrameLayout:
 
 @dataclass(frozen=True)
 class FrameWindow:
-    """The frames to analyse; also command options."""
+    """The frames to analyse."""
     first_frame: int = 0
     """First analysed frame."""
     last_frame: int | None = None
