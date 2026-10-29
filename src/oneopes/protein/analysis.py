@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import platform
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -39,6 +40,8 @@ from oneopes.protein.candidates import (
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, Contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.sasa import static_sasa
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -123,27 +126,27 @@ def write_outputs(outdir: Path, candidates: pd.DataFrame, layout: FrameLayout, b
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))
 
 
-def run_analysis(system: ProteinSystem, options: AnalysisOptions, outdir: Path, log=print) -> dict:
+def run_analysis(system: ProteinSystem, options: AnalysisOptions, outdir: Path) -> dict:
     """Analyse every complete block and the whole analysed range of an existing trajectory.
 
     Every transition is scored whether or not convergence is reached; the final per-atom values
     cover the whole analysed range. Writes all outputs to ``outdir`` and returns the run's metadata.
     """
     sel = system.selection
-    log(f"[protein-waterfp] ligand: {sel.ligand_description} ({len(sel.ligand_heavy)} heavy atoms); "
-        f"water: {sel.water_description} ({len(sel.water_oxygens)} oxygens)")
+    logger.info("ligand: %s (%d heavy atoms); water: %s (%d oxygens)", sel.ligand_description,
+                len(sel.ligand_heavy), sel.water_description, len(sel.water_oxygens))
     candidates = select_candidates(system.complex, sel, options.candidate_cutoff_A, system.chain_ids)
     candidate_index = candidates["Atom_index"].to_numpy()
-    log(f"[protein-waterfp] {len(candidates)} candidate protein heavy atoms within {options.candidate_cutoff_A} A")
+    logger.info("%d candidate protein heavy atoms within %s A", len(candidates), options.candidate_cutoff_A)
     layout = frame_layout(system.trajectory, options.block_ns, options.first_frame, options.last_frame)
-    log(f"[protein-waterfp] {layout.describe()}")
+    logger.info("%s", layout.describe())
 
     candidate_atoms = system.trajectory.atoms[candidate_index]
     blocks = [analyse_frames(system, candidate_atoms, frames) for frames in layout.blocks]
     full = analyse_frames(system, candidate_atoms, layout.analysed)
     stabilities = compare_blocks([block.waterfp.results for block in blocks], options.tolerances)
     summary = summarize(stabilities, layout.block_times_ns, options.block_ns, options.tolerances)
-    log(f"[protein-waterfp] first sustained convergence: {summary.converged_ns} ns")
+    logger.info("first sustained convergence: %s ns", summary.converged_ns)
 
     sasa = static_sasa(system.complex, sel.protein_all, sel.ligand_all, candidate_index)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -236,4 +239,4 @@ def protein(*, complex: ExistingFile, topology: ExistingFile, trajectory: Existi
     meta["options"] = asdict(options)
     meta["versions"] = _versions()
     (output_dir / "run_metadata.json").write_text(json.dumps(meta, indent=2, default=json_value))
-    print(f"[protein-waterfp] {meta['n_candidate_atoms']} candidates -> {output_dir / 'final_per_atom_table.csv'}")
+    logger.info("%d candidates -> %s", meta["n_candidate_atoms"], output_dir / "final_per_atom_table.csv")

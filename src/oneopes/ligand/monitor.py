@@ -1,4 +1,5 @@
 """Convergence monitor of an unbiased ligand-in-water run (``oneopes monitor``)."""
+import logging
 import os
 import time
 import signal
@@ -39,6 +40,8 @@ from oneopes.trajectory_blocks import (
 )
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
+logger = logging.getLogger(__name__)
+
 
 def process_alive(pid):
     if pid is None:
@@ -77,21 +80,20 @@ def stop_mdrun(pid: int | None) -> None:
     """Send SIGTERM to mdrun, if it is still running (never SIGKILL: see docs/ligand_setup.md)."""
     if not process_alive(pid):
         return
-    print(f"[monitor] sending SIGTERM to mdrun pid {pid}")
+    logger.info("sending SIGTERM to mdrun pid %d", pid)
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError as e:
-        print(f"[monitor] failed to signal mdrun pid {pid}: {e}")
+        logger.warning("failed to signal mdrun pid %d: %s", pid, e)
 
 
-def print_progress(block: int, end_ns: float, stabilities: Sequence[StabilityResult]) -> None:
+def log_progress(block: int, end_ns: float, stabilities: Sequence[StabilityResult]) -> None:
     """One log line for the transition into ``block``, the last of ``stabilities``."""
     if not stabilities:
         return
     s = stabilities[-1]
-    print(f"[monitor] block {block} (t={end_ns:.1f} ns): "
-          f"max|dFP/FP|={s.fp_change:.3f} max_nRMSD_RDF={s.rdf_nrmsd:.3f} spearman={s.spearman_rho:.3f} "
-          f"stable={s.passed} streak={stable_in_a_row(stabilities)[-1]}")
+    logger.info("block %d (t=%.1f ns): max|dFP/FP|=%.3f max_nRMSD_RDF=%.3f spearman=%.3f stable=%s streak=%d",
+                block, end_ns, s.fp_change, s.rdf_nrmsd, s.spearman_rho, s.passed, stable_in_a_row(stabilities)[-1])
 
 
 def plot_blocks(blocks: Sequence[WaterFP], block_times: Sequence[tuple[float, float]], outdir: Path) -> None:
@@ -109,10 +111,10 @@ def select_g1_g2_on_block(block: WaterFP, selection_dir: Path, fp_round_decimals
     try:
         selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
     except ValueError as e:
-        print(f"[monitor] no G1/G2 selection: {e}")
+        logger.warning("no G1/G2 selection: %s", e)
         return
     write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
-    print(f"[monitor] {selection}, written to {selection_dir}")
+    logger.info("%s, written to %s", selection, selection_dir)
 
 
 def plot_atom(atom_name: str, fp_df: pd.DataFrame, rdf_df: pd.DataFrame, outdir: Path) -> tuple[Path, Path]:
@@ -194,17 +196,17 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     except SystemDefinitionError as e:
         raise SystemExit(f"[monitor] {e}")
     atom_names = list(u.atoms[sel.ligand_heavy].names)
-    print(f"[monitor] {len(atom_names)} ligand heavy atoms ({sel.ligand_description}): {atom_names}")
-    print(f"[monitor] {len(sel.water_oxygens)} water oxygens ({sel.water_description})")
-    print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
-          f"norm=mean of last {norm_tail_bins} bins (WaterFP fp.py convention)")
+    logger.info("%d ligand heavy atoms (%s): %s", len(atom_names), sel.ligand_description, atom_names)
+    logger.info("%d water oxygens (%s)", len(sel.water_oxygens), sel.water_description)
+    logger.info("RDF: rmax=%s nm, bins=%d, norm=mean of last %d bins (WaterFP fp.py convention)",
+                grid.rmax_nm, grid.n_bins, norm_tail_bins)
 
     try:
         dt_ps = frame_step_ps(wait_for_frames(load_universe, 2, mdrun_pid, poll_seconds))
         block_length = frames_per_block(block_ns, dt_ps)
     except ValueError as e:
         raise SystemExit(f"[monitor] {e}")
-    print(f"[monitor] dt/frame = {dt_ps} ps -> {block_length} frames/block ({block_ns} ns)")
+    logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_ns)
 
     outdir.mkdir(parents=True, exist_ok=True)
     blocks, block_times, stabilities = [], [], []
@@ -215,7 +217,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         block_times.append(time_span_ns(u, frames, dt_ps))
         write_block_tables(outdir, blocks, block_times, tol)
         stabilities = compare_blocks([block.results for block in blocks], tol)
-        print_progress(len(blocks) - 1, block_times[-1][1], stabilities)
+        log_progress(len(blocks) - 1, block_times[-1][1], stabilities)
         if first_convergence(stabilities, tol.n_stable) is not None:
             break
     if not blocks:
@@ -227,10 +229,10 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
                   ligand_selection=sel.ligand_description, ligand_heavy_atoms=atom_names)
     plot_blocks(blocks, block_times, outdir)
     if not summary.converged:
-        print(f"[monitor] DONE, not converged: the trajectory ended at {trajectory_end_ns} ns, "
-              f"after {summary.n_blocks} complete block(s)")
+        logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
+                    trajectory_end_ns, summary.n_blocks)
         return
 
-    print(f"[monitor] DONE, converged at block {summary.converged_block} ({summary.converged_ns} ns)")
+    logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
     select_g1_g2_on_block(blocks[summary.converged_block], outdir / "selection", fp_round_decimals)

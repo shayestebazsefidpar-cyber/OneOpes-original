@@ -1,8 +1,11 @@
 """A legend on a raw render of the selected atoms (``oneopes add-legend``)."""
+import logging
 import os
 
 from cyclopts.types import ExistingFile
 from PIL import Image, ImageDraw, ImageFont
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -74,4 +77,4 @@ def add_legend(*, src: ExistingFile, dst: str, entry: list[str], title: str = "S
 
     os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
     img.save(dst, dpi=(300, 300))
-    print(f"[add_legend] wrote {dst}")
+    logger.info("wrote %s", dst)

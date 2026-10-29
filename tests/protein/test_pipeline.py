@@ -39,7 +39,7 @@ def _trajectory(u, n_frames=N_FRAMES, noise=0.3, dt_ps=DT_PS, t0_ps=0.0):
 def _run(tmp_path, options=AnalysisOptions(block_ns=BLOCK_NS), **traj_kw):
     """Run the analysis on the synthetic system; return the trajectory universe and the run metadata."""
     u_traj = _trajectory(_system(), **traj_kw)
-    meta = run_analysis(protein_system(u_traj, _system()), options, tmp_path, log=lambda *_: None)
+    meta = run_analysis(protein_system(u_traj, _system()), options, tmp_path)
     return u_traj, meta
 
 

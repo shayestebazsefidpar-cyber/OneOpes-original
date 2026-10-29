@@ -1,5 +1,7 @@
 """Build and equilibrate a ligand-in-water GROMACS system (``oneopes prepare-system``)."""
+import logging
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -7,15 +9,17 @@ from typing import Literal, get_args
 
 from cyclopts.types import ExistingFile
 
+logger = logging.getLogger(__name__)
+
 Step = Literal["box", "solvate", "ions_tpr", "genion", "em_tpr", "em_run", "nvt_tpr", "nvt_run", "npt_tpr", "npt_run"]
 STEPS = get_args(Step)
 MDP_DIR = Path(__file__).parent / "mdp"
 
 
 def run_command(cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
-    """Run ``cmd`` in ``cwd``, echoing it first; ``stdin`` answers its prompt (as ``echo stdin | cmd``)."""
-    shown = " ".join(cmd) if stdin is None else f"echo {stdin} | {' '.join(cmd)}"
-    print(f"[prepare_ligand_system] $ {shown}")
+    """Run ``cmd`` in ``cwd``, logging it first; ``stdin`` answers its prompt (as ``echo stdin | cmd``)."""
+    shown = shlex.join(cmd) if stdin is None else f"echo {stdin} | {shlex.join(cmd)}"
+    logger.info("$ %s", shown)
     subprocess.run(cmd, cwd=cwd, check=True, input=None if stdin is None else f"{stdin}\n", text=True)
 
 
@@ -78,6 +82,5 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     for step in STEPS[STEPS.index(start_from):]:
         run_command(commands[step], cwd=outdir, stdin="SOL" if step == "genion" else None)
 
-    print(f"[prepare_ligand_system] done. NPT output: {outdir / 'npt.gro'}")
-    print("[prepare_ligand_system] next: grompp+mdrun production with mdp/prod.mdp, then hand the "
-          "mdrun PID to oneopes monitor")
+    logger.info("done. NPT output: %s; next: grompp+mdrun production with mdp/prod.mdp, "
+                "then hand the mdrun PID to oneopes monitor", outdir / "npt.gro")

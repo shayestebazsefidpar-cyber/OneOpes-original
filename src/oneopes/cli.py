@@ -1,5 +1,6 @@
 """The ``oneopes`` command: one subcommand per stage, each a typed function whose docstring is its help."""
 
+import logging
 from collections.abc import Sequence
 
 from cyclopts import App
@@ -18,4 +19,7 @@ for command in (prepare_system, monitor, select, build_cv, protein, add_legend):
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Run ``oneopes``, logging its progress (and other libraries' warnings) to stderr."""
+    logging.basicConfig(format="[%(module)s] %(message)s", level=logging.WARNING)
+    logging.getLogger("oneopes").setLevel(logging.INFO)
     app(argv)

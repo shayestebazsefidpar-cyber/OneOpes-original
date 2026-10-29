@@ -1,4 +1,5 @@
 """G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, chosen from WaterFP (``oneopes select``)."""
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -13,6 +14,8 @@ from scipy.sparse.csgraph import shortest_path
 
 from oneopes.system import SystemDefinitionError, select_system
 from oneopes.waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
+
+logger = logging.getLogger(__name__)
 
 SAME_FP_WITHIN = 0.2
 """Rounded FP values less than this apart count as the same FP."""
@@ -162,8 +165,9 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
 
     waterfp = WaterFP(ligand, water, grid=grid, norm_tail_bins=norm_tail_bins)
     waterfp.run(start=start_frame, stop=end_frame)
-    print(f"[select] {len(ligand)} ligand heavy atoms, frames {waterfp.frames[0]}-{waterfp.frames[-1]}")
-    print(waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
+    logger.info("%d ligand heavy atoms, frames %d-%d, FP from most negative:\n%s", len(ligand),
+                waterfp.frames[0], waterfp.frames[-1],
+                waterfp.fp_table().sort_values("FP", kind="stable").to_string(index=False))
 
     write_waterfp_files(waterfp, outdir)
     try:
@@ -171,5 +175,4 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
     except ValueError as e:
         raise SystemExit(f"[select] no G1/G2 selection: {e}")
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
-    print(f"[select] {selection}")
-    print(f"[select] wrote rdf.csv, fingerprints.csv and g1_g2.yaml to {outdir}")
+    logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)
