@@ -13,6 +13,7 @@ import MDAnalysis as mda
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
@@ -106,28 +107,24 @@ def plot_atom(atom_name: str, blocks: xr.Dataset, outdir: Path) -> tuple[Path, P
     atom = blocks.sel(atom=atom_name)
 
     fig, ax = plt.subplots(figsize=(5, 3.5))
-    ax.plot(atom.t_mid_ns, atom.fp, marker="o", color="tab:blue")
-    ax.set_xlabel("simulation time (ns)")
-    ax.set_ylabel("FP (WaterFP excess-entropy integral)")
-    ax.set_title(f"Hydration FP vs time - {atom_name}")
-    fig.tight_layout()
-    fig.savefig(fp_plot_path, dpi=150)
-    plt.close(fig)
+    atom.fp.plot.line(x="t_mid_ns", marker="o", ax=ax)
+    ax.set(xlabel="simulation time (ns)", ylabel="FP (WaterFP excess-entropy integral)",
+           title=f"Hydration FP vs time - {atom_name}")
+    save_figure(fig, fp_plot_path)
 
-    fig2, ax2 = plt.subplots(figsize=(5, 3.5))
-    for block in atom.block.values:
-        ax2.plot(atom.r_nm, atom.g.sel(block=block), alpha=0.6, label=f"block {block}")
-    ax2.set_xlabel("r (nm) to water O")
-    ax2.set_ylabel("g(r)")
-    ax2.set_xlim(0, 1.0)
-    ax2.set_title(f"RDF per block - {atom_name}")
-    if atom.sizes["block"] <= 8:
-        ax2.legend(fontsize=6)
-    fig2.tight_layout()
-    fig2.savefig(rdf_plot_path, dpi=150)
-    plt.close(fig2)
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+    atom.g.plot.line(x="r_nm", hue="block", alpha=0.6, ax=ax, add_legend=atom.sizes["block"] <= 8)
+    ax.set(xlabel="r (nm) to water O", ylabel="g(r)", xlim=(0, 1.0), title=f"RDF per block - {atom_name}")
+    save_figure(fig, rdf_plot_path)
 
     return fp_plot_path, rdf_plot_path
+
+
+def save_figure(fig: Figure, path: Path) -> None:
+    """Save ``fig`` at 150 dpi and close it."""
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.tpr"),

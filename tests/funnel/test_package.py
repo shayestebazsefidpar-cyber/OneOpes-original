@@ -11,7 +11,7 @@ import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "oneopes" / "funnel"
 MODULES = ["oneopes.funnel", "oneopes.funnel.bss", "oneopes.funnel.p0_p1", "oneopes.funnel.geometry",
-           "oneopes.funnel.make_funnel", "oneopes.funnel.plumed_io", "oneopes.funnel.system_io"]
+           "oneopes.funnel.make_funnel"]
 
 
 @pytest.mark.parametrize("name", MODULES)

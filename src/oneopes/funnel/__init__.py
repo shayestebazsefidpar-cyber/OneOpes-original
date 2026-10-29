@@ -6,6 +6,4 @@ Modules:
     p0_p1         - BioSimSpace makeFunnel() atom selections + derived P0/P1
     geometry      - Funnel CV parameters, getExtent() radius, wall points
     make_funnel   - selections + the BioSimSpace Funnel CV
-    system_io     - (stub) system loading
-    plumed_io     - (stub) read-only parsing of existing plumed.dat funnel definitions
 """
