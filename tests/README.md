@@ -42,7 +42,8 @@ pytest
 
 - Following a live mdrun: waiting for new frames and sending SIGTERM need a
   running GROMACS process (the monitor tests read a finished trajectory).
-- `oneopes prepare-system`, which runs GROMACS.
+- GROMACS itself: `test_prepare_system.py` runs `oneopes prepare-system`
+  with `echo` in place of gmx, checking the commands and their order only.
 - The PyMOL and Chimera render scripts, which run inside those programs.
 - Results on real systems: real trajectories don't belong in this
   repository (see the top-level README's "code only" policy).

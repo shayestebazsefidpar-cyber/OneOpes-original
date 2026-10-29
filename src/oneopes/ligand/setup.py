@@ -12,9 +12,11 @@ STEPS = get_args(Step)
 MDP_DIR = Path(__file__).parent / "mdp"
 
 
-def run_command(cmd, cwd):
-    print(f"[prepare_ligand_system] $ {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=cwd, check=True)
+def run_command(cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
+    """Run ``cmd`` in ``cwd``, echoing it first; ``stdin`` answers its prompt (as ``echo stdin | cmd``)."""
+    shown = " ".join(cmd) if stdin is None else f"echo {stdin} | {' '.join(cmd)}"
+    print(f"[prepare_ligand_system] $ {shown}")
+    subprocess.run(cmd, cwd=cwd, check=True, input=None if stdin is None else f"{stdin}\n", text=True)
 
 
 def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir: Path, mdp_dir: Path = MDP_DIR,
@@ -46,59 +48,36 @@ def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir
     start_from
         Resume from this step instead of the beginning.
     """
+    for name in ("ions.mdp", "em.mdp", "nvt.mdp", "npt.mdp"):
+        if not (mdp_dir / name).is_file():
+            raise SystemExit(f"Required mdp file not found: {mdp_dir / name}")
     os.makedirs(outdir, exist_ok=True)
+    if not (outdir / "system.top").exists():
+        shutil.copy(ligand_top, outdir / "system.top")
 
-    ligand_gro = os.path.abspath(ligand_gro)
-    top = os.path.join(outdir, "system.top")
-    if not os.path.exists(top):
-        shutil.copy(os.path.abspath(ligand_top), top)
+    def grompp(mdp: str, structure: list[str], tpr: str) -> list[str]:
+        return [gmx, "grompp", "-f", str(mdp_dir / mdp), "-c", *structure, "-p", "system.top", "-o", tpr,
+                "-maxwarn", "1"]
 
-    def mdp(name):
-        path = os.path.join(mdp_dir, name)
-        if not os.path.exists(path):
-            raise SystemExit(f"Required mdp file not found: {path}")
-        return path
+    genion = [gmx, "genion", "-s", "ions.tpr", "-o", "ligand_ions.gro", "-p", "system.top",
+              "-pname", pname, "-nname", nname, "-neutral"] + (["-conc", str(ion_conc)] if ion_conc > 0 else [])
+    commands: dict[Step, list[str]] = {
+        "box": [gmx, "editconf", "-f", str(ligand_gro.resolve()), "-o", "ligand_box.gro",
+                "-c", "-d", str(box_distance_nm), "-bt", box_type],
+        "solvate": [gmx, "solvate", "-cp", "ligand_box.gro", "-cs", water_model, "-o", "ligand_solv.gro",
+                    "-p", "system.top"],
+        "ions_tpr": grompp("ions.mdp", ["ligand_solv.gro"], "ions.tpr"),
+        "genion": genion,
+        "em_tpr": grompp("em.mdp", ["ligand_ions.gro"], "em.tpr"),
+        "em_run": [gmx, "mdrun", "-deffnm", "em", "-v"],
+        "nvt_tpr": grompp("nvt.mdp", ["em.gro"], "nvt.tpr"),
+        "nvt_run": [gmx, "mdrun", "-deffnm", "nvt", "-v"],
+        "npt_tpr": grompp("npt.mdp", ["nvt.gro", "-t", "nvt.cpt"], "npt.tpr"),
+        "npt_run": [gmx, "mdrun", "-deffnm", "npt", "-v"],
+    }
+    for step in STEPS[STEPS.index(start_from):]:
+        run_command(commands[step], cwd=outdir, stdin="SOL" if step == "genion" else None)
 
-    steps_to_run = STEPS[STEPS.index(start_from):]
-
-    if "box" in steps_to_run:
-        run_command([gmx, "editconf", "-f", ligand_gro, "-o", "ligand_box.gro",
-             "-c", "-d", str(box_distance_nm), "-bt", box_type], cwd=outdir)
-
-    if "solvate" in steps_to_run:
-        run_command([gmx, "solvate", "-cp", "ligand_box.gro", "-cs", water_model,
-             "-o", "ligand_solv.gro", "-p", "system.top"], cwd=outdir)
-
-    if "ions_tpr" in steps_to_run:
-        run_command([gmx, "grompp", "-f", mdp("ions.mdp"), "-c", "ligand_solv.gro",
-             "-p", "system.top", "-o", "ions.tpr", "-maxwarn", "1"], cwd=outdir)
-
-    if "genion" in steps_to_run:
-        genion_cmd = [gmx, "genion", "-s", "ions.tpr", "-o", "ligand_ions.gro",
-                      "-p", "system.top", "-pname", pname, "-nname", nname, "-neutral"]
-        if ion_conc > 0:
-            genion_cmd += ["-conc", str(ion_conc)]
-        print(f"[prepare_ligand_system] $ echo SOL | {' '.join(genion_cmd)}")
-        subprocess.run(genion_cmd, cwd=outdir, input="SOL\n", text=True, check=True)
-
-    if "em_tpr" in steps_to_run:
-        run_command([gmx, "grompp", "-f", mdp("em.mdp"), "-c", "ligand_ions.gro",
-             "-p", "system.top", "-o", "em.tpr", "-maxwarn", "1"], cwd=outdir)
-    if "em_run" in steps_to_run:
-        run_command([gmx, "mdrun", "-deffnm", "em", "-v"], cwd=outdir)
-
-    if "nvt_tpr" in steps_to_run:
-        run_command([gmx, "grompp", "-f", mdp("nvt.mdp"), "-c", "em.gro",
-             "-p", "system.top", "-o", "nvt.tpr", "-maxwarn", "1"], cwd=outdir)
-    if "nvt_run" in steps_to_run:
-        run_command([gmx, "mdrun", "-deffnm", "nvt", "-v"], cwd=outdir)
-
-    if "npt_tpr" in steps_to_run:
-        run_command([gmx, "grompp", "-f", mdp("npt.mdp"), "-c", "nvt.gro", "-t", "nvt.cpt",
-             "-p", "system.top", "-o", "npt.tpr", "-maxwarn", "1"], cwd=outdir)
-    if "npt_run" in steps_to_run:
-        run_command([gmx, "mdrun", "-deffnm", "npt", "-v"], cwd=outdir)
-
-    print(f"[prepare_ligand_system] done. NPT output: {os.path.join(outdir, 'npt.gro')}")
+    print(f"[prepare_ligand_system] done. NPT output: {outdir / 'npt.gro'}")
     print("[prepare_ligand_system] next: grompp+mdrun production with mdp/prod.mdp, then hand the "
           "mdrun PID to oneopes monitor")
