@@ -10,7 +10,6 @@ dependencies = [
     "pandas",
     "scipy",
     "matplotlib",
-    "networkx",
     "freesasa",
     "PyYAML",
     "Pillow",
@@ -19,7 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = [
+    "networkx>=3.6.1",
+    "pytest>=7",
+]
 # stage 5 rendering needs a PyMOL or Chimera install, invoked by path
 # (pymol -cq .../render_selected_atoms.py -- ...), not via console_scripts -
 # see docs/render.md. Nothing extra to pip-install here. The funnel

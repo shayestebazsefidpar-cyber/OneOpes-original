@@ -978,8 +978,6 @@ dependencies = [
     { name = "freesasa" },
     { name = "matplotlib" },
     { name = "mdanalysis" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
@@ -992,6 +990,8 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pytest" },
 ]
 
@@ -1001,7 +1001,7 @@ requires-dist = [
     { name = "freesasa" },
     { name = "matplotlib" },
     { name = "mdanalysis", specifier = ">=2.0" },
-    { name = "networkx" },
+    { name = "networkx", marker = "extra == 'dev'", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2" },
     { name = "pandas" },
     { name = "pillow" },

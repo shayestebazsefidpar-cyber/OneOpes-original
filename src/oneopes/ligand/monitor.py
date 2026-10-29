@@ -26,7 +26,7 @@ from oneopes.convergence import (
     write_block_tables,
     write_summary,
 )
-from oneopes.ligand.g1_g2 import write_selection
+from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml, write_waterfp_files
 from oneopes.system import SystemDefinitionError, select_system
 from oneopes.trajectory_blocks import (
     BLOCK_NS_DEFAULT,
@@ -211,8 +211,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {mdrun_pid}: {e}")
 
+    block, selection_dir = blocks[summary.converged_block], outdir / "selection"
+    write_waterfp_files(block, selection_dir)
     try:
-        selection = write_selection(blocks[-1], outdir / "selection", fp_round_decimals)
-        print(f"[monitor] {selection}, written to {outdir / 'selection'}")
+        selection = select_g1_g2(block.solute, block.results.fp, fp_round_decimals)
     except ValueError as e:
         print(f"[monitor] no G1/G2 selection for block {summary.converged_block}: {e}")
+        return
+    write_g1_g2_yaml(selection, selection_dir / "g1_g2.yaml")
+    print(f"[monitor] {selection}, written to {selection_dir}")
