@@ -1,45 +1,43 @@
-"""
-Per-frame structural pass (Contact, Bridge).
-
-Per frame (distances in A, minimum image):
-* Contact: candidate's minimum distance to any ligand heavy atom <= 5 A.
-* Bridge: at least one water oxygen within 3.5 A of the candidate AND within
-  3.5 A of some ligand heavy atom.
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
+"""Contact and Bridge occupancy of protein atoms around a bound ligand."""
 
 import numpy as np
+from MDAnalysis.analysis.base import AnalysisBase
+from MDAnalysis.core.groups import AtomGroup
 from MDAnalysis.lib.distances import distance_array
-
 
 CONTACT_CUTOFF_A = 5.0
 BRIDGE_WATER_CUTOFF_A = 3.5
 
 
-@dataclass
-class StructuralBlock:
-    contact_occupancy: np.ndarray
-    bridge_occupancy: np.ndarray
-    n_frames: int
+class Contacts(AnalysisBase):
+    """Fraction of frames each candidate atom is in contact with the ligand, and bridged to it by a water.
 
+    Per frame (distances in A, minimum image):
+    * Contact: the candidate is within 5 A of some ligand heavy atom.
+    * Bridge: some water oxygen is within 3.5 A of the candidate and within 3.5 A of some ligand heavy atom.
 
-def structural_block(u, start: int, end: int, cand_idx, ligand_heavy_idx, water_o_idx) -> StructuralBlock:
-    """Contact / Bridge occupancies of each candidate over frames [start, end)."""
-    cand_idx = np.asarray(cand_idx)
-    lig_idx = np.asarray(ligand_heavy_idx)
-    contact = np.zeros(len(cand_idx))
-    bridge = np.zeros(len(cand_idx))
-    for fi in range(start, end):
-        ts = u.trajectory[fi]
-        box = ts.dimensions
-        pos = u.atoms.positions
-        cand_pos, lig_pos, water_pos = pos[cand_idx], pos[lig_idx], pos[water_o_idx]
-        contact += distance_array(cand_pos, lig_pos, box=box).min(axis=1) <= CONTACT_CUTOFF_A
-        water_near_lig = distance_array(water_pos, lig_pos, box=box).min(axis=1) <= BRIDGE_WATER_CUTOFF_A
-        near_cand = distance_array(cand_pos, water_pos[water_near_lig], box=box) <= BRIDGE_WATER_CUTOFF_A
-        bridge += near_cand.any(axis=1) if near_cand.size else 0
-    n = end - start
-    return StructuralBlock(contact / n, bridge / n, n)
+    Usage: ``results = Contacts(candidates, ligand, water_oxygens).run(start=..., stop=...).results``,
+    then ``results.contact_occupancy`` and ``results.bridge_occupancy``, one value per candidate.
+    """
+
+    def __init__(self, candidates: AtomGroup, ligand: AtomGroup, water_oxygens: AtomGroup, **kwargs) -> None:
+        super().__init__(candidates.universe.trajectory, **kwargs)
+        self.candidates = candidates
+        self.ligand = ligand
+        self.water_oxygens = water_oxygens
+
+    def _prepare(self) -> None:
+        self.results.contact_frames = np.zeros(self.candidates.n_atoms, dtype=np.int64)
+        self.results.bridge_frames = np.zeros(self.candidates.n_atoms, dtype=np.int64)
+
+    def _single_frame(self) -> None:
+        box = self._ts.dimensions
+        candidates, ligand, water = self.candidates.positions, self.ligand.positions, self.water_oxygens.positions
+        self.results.contact_frames += distance_array(candidates, ligand, box=box).min(axis=1) <= CONTACT_CUTOFF_A
+        water_near_ligand = water[distance_array(water, ligand, box=box).min(axis=1) <= BRIDGE_WATER_CUTOFF_A]
+        bridged = distance_array(candidates, water_near_ligand, box=box) <= BRIDGE_WATER_CUTOFF_A
+        self.results.bridge_frames += bridged.any(axis=1)
+
+    def _conclude(self) -> None:
+        self.results.contact_occupancy = self.results.contact_frames / self.n_frames
+        self.results.bridge_occupancy = self.results.bridge_frames / self.n_frames

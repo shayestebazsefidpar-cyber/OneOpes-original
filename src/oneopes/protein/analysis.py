@@ -38,7 +38,7 @@ from oneopes.protein.candidates import (
     structure_chain_ids,
     validate_same_atoms,
 )
-from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, StructuralBlock, structural_block
+from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, Contacts
 from oneopes.protein.final_table import build_final_table, final_table_markdown
 from oneopes.protein.sasa import static_sasa
 
@@ -54,13 +54,13 @@ class AnalysisOptions:
     tolerances: Tolerances = DEFAULT_TOLERANCES
 
 
-def _contacts_per_block(contacts: list[StructuralBlock], block_times: list[tuple[float, float]],
+def _contacts_per_block(contacts: list[Contacts], block_times: list[tuple[float, float]],
                         labels: list[str]) -> pd.DataFrame:
     """contact_occupancy_per_block.csv: one row per (block, candidate atom)."""
     tables = [pd.DataFrame({"block": b, "t_start_ns": start, "t_end_ns": end, "atom": labels,
-                            "Contact_occupancy_5A": st.contact_occupancy, "Bridge_occupancy": st.bridge_occupancy,
-                            "n_frames": st.n_frames})
-              for b, (st, (start, end)) in enumerate(zip(contacts, block_times))]
+                            "Contact_occupancy_5A": c.results.contact_occupancy,
+                            "Bridge_occupancy": c.results.bridge_occupancy, "n_frames": c.n_frames})
+              for b, (c, (start, end)) in enumerate(zip(contacts, block_times))]
     return pd.concat(tables, ignore_index=True)
 
 
@@ -115,16 +115,16 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
     # Compute: WaterFP and contacts of each block, then of the whole analysed range.
     candidate_atoms = u_traj.atoms[cand_idx]
+    ligand = u_traj.atoms[sel.ligand_heavy]
     water_oxygens = u_traj.atoms[sel.water_oxygens]
     blocks, contacts = [], []
     for b, (frames, (start_ns, end_ns)) in enumerate(zip(block_ranges, block_times)):
         blocks.append(WaterFP(candidate_atoms, water_oxygens).run(start=frames.start, stop=frames.stop))
-        contacts.append(structural_block(u_traj, frames.start, frames.stop, cand_idx, sel.ligand_heavy,
-                                         sel.water_oxygens))
+        contacts.append(Contacts(candidate_atoms, ligand, water_oxygens).run(start=frames.start, stop=frames.stop))
         log(f"[protein-waterfp] block {b} ({start_ns:g}-{end_ns:g} ns) done")
     log(f"[protein-waterfp] full-trajectory pass over frames {first_frame}-{end_frame - 1}")
     fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=first_frame, stop=end_frame).results.fp
-    st_full = structural_block(u_traj, first_frame, end_frame, cand_idx, sel.ligand_heavy, sel.water_oxygens)
+    contacts_full = Contacts(candidate_atoms, ligand, water_oxygens).run(start=first_frame, stop=end_frame).results
 
     # Judge: convergence over the blocks.
     tol = options.tolerances
@@ -140,7 +140,7 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
                   analysis_start_ns=analysis_start_ns, analysis_end_ns=analysis_end_ns)
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
-    table = build_final_table(candidates, fp_full, st_full.contact_occupancy, st_full.bridge_occupancy,
+    table = build_final_table(candidates, fp_full, contacts_full.contact_occupancy, contacts_full.bridge_occupancy,
                               sasa, final_analysis_time_ns, summary.converged_ns)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))

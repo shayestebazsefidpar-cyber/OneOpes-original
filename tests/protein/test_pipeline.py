@@ -83,7 +83,7 @@ def test_final_table_has_every_candidate_once(analysis):
 
 
 def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
-    from oneopes.protein.contacts import structural_block
+    from oneopes.protein.contacts import Contacts
     from oneopes.waterfp import WaterFP
 
     n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
@@ -93,10 +93,10 @@ def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
     labels = list(pd.read_csv(tmp_path / "candidate_atom_mapping.csv")["Atom"])
     idx = table.loc[labels, "Atom_index"].to_numpy()
     fp_full = WaterFP(u.atoms[idx], u.atoms[sel.water_oxygens]).run(start=0, stop=n_frames).results.fp
-    st_full = structural_block(u, 0, n_frames, idx, sel.ligand_heavy, sel.water_oxygens)
+    contacts = Contacts(u.atoms[idx], u.atoms[sel.ligand_heavy], u.atoms[sel.water_oxygens]).run().results
     np.testing.assert_allclose(table.loc[labels, "FP"], fp_full, rtol=1e-12)
-    np.testing.assert_allclose(table.loc[labels, "Contact_occupancy_5A"], st_full.contact_occupancy)
-    np.testing.assert_allclose(table.loc[labels, "Bridge_occupancy"], st_full.bridge_occupancy)
+    np.testing.assert_allclose(table.loc[labels, "Contact_occupancy_5A"], contacts.contact_occupancy)
+    np.testing.assert_allclose(table.loc[labels, "Bridge_occupancy"], contacts.bridge_occupancy)
     last_block = pd.read_csv(tmp_path / "fp_values_per_block.csv").query("block == block.max()").set_index("atom")
     assert not np.allclose(table.loc[labels, "FP"], last_block.loc[labels, "FP"])  # not the last block
     assert set(table["Analysis_time_ns"]) == {(n_frames - 1) * DT_PS / 1000.0}
