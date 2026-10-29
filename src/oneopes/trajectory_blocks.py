@@ -38,7 +38,7 @@ def frame_time_ns(u: Universe, frame: int) -> float:
     return float(u.trajectory[frame].time) / 1000.0
 
 
-def complete_blocks(start: int, stop: int, length: int) -> list[range]:
+def block_ranges(start: int, stop: int, length: int) -> list[range]:
     """The complete blocks of ``length`` frames in frames [start, stop); leftover frames at the end are skipped."""
     return [range(first, first + length) for first in range(start, stop - length + 1, length)]
 
@@ -128,7 +128,7 @@ def frame_layout(u: Universe, block_ns: float, window: FrameWindow = FrameWindow
     n_frames = len(u.trajectory)
     analysed = window.frames(n_frames)
     dt_ps = frame_step_ps(u)
-    block_frames = complete_blocks(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
+    block_frames = block_ranges(analysed.start, analysed.stop, frames_per_block(block_ns, dt_ps))
     if not block_frames:
         raise InputError(f"Frames [{analysed.start}, {analysed.stop}) hold less than one {block_ns} ns block.")
     return FrameLayout(

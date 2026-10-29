@@ -8,7 +8,7 @@ from numpy.typing import ArrayLike
 
 from oneopes.errors import InputError
 from oneopes.funnel.bss import BssBound, BssFunnel, length_nm, nanometers
-from oneopes.funnel.p0_p1 import P0P1Result
+from oneopes.funnel.p0_p1 import FunnelAxis
 from oneopes.vectors import circles_around_axis
 
 
@@ -56,7 +56,7 @@ def funnel_extent(cv: BssFunnel, projection_nm: ArrayLike) -> np.ndarray:
     return np.array([nanometers(cv.getExtent(length_nm(p))) for p in np.atleast_1d(projection_nm)])
 
 
-def funnel_wall_points(p0p1: P0P1Result, cv: BssFunnel, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
+def funnel_wall_points(axis: FunnelAxis, cv: BssFunnel, step_A: float = 2.0, n_angles: int = 8) -> np.ndarray:
     """Points on the funnel wall (A): a ring every ``step_A`` along the axis between the CV's bounds, shape (n, 3)."""
     if step_A <= 0 or n_angles < 3:
         raise InputError(f"The wall needs step_A > 0 and n_angles >= 3, got {step_A} and {n_angles}.")
@@ -67,5 +67,5 @@ def funnel_wall_points(p0p1: P0P1Result, cv: BssFunnel, step_A: float = 2.0, n_a
     upper_A = convert(parameters.upper_bound.position_nm, "nm", "A")
     positions_A = np.arange(lower_A, upper_A + 1e-9, step_A)
     radii_A = convert(funnel_extent(cv, convert(positions_A, "A", "nm")), "nm", "A")
-    rings = circles_around_axis(p0p1.p0, p0p1.axis, positions_A, radii_A, n_angles)
+    rings = circles_around_axis(axis.p0, axis.direction, positions_A, radii_A, n_angles)
     return rings.reshape(-1, 3)

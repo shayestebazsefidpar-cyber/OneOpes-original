@@ -53,7 +53,7 @@ def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):
         assert (i in chosen) == (d <= CANDIDATE_CUTOFF_A_DEFAULT), (i, d)
     assert 0 < len(chosen) < len(sel.protein_heavy)
     expected = [_min_dist(u, sel, i) for i in cand.atom_index.values]
-    np.testing.assert_allclose(cand["Min_distance_to_ligand_A"], expected, atol=1e-4)
+    np.testing.assert_allclose(cand["min_distance_to_ligand_A"], expected, atol=1e-4)
 
 
 def test_cutoff_is_a_parameter(small_system):
@@ -62,7 +62,7 @@ def test_cutoff_is_a_parameter(small_system):
     small = select_candidates(system, cutoff_A=nearest + 1.0)
     large = select_candidates(system, cutoff_A=nearest + 8.0)
     assert set(small.atom_index.values) < set(large.atom_index.values)
-    assert (small["Min_distance_to_ligand_A"] <= nearest + 1.0).all()
+    assert (small["min_distance_to_ligand_A"] <= nearest + 1.0).all()
 
 
 def test_pool_has_only_protein_heavy_atoms(small_system):
@@ -124,7 +124,7 @@ def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
     """With a GROMACS .tpr, MDAnalysis puts molecule-type names (e.g. "Protein") in chainIDs."""
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
     cand = select_candidates(protein_system(small_system, small_system), 10.0)
-    assert set(cand.Chain_ID.values) == {""}
+    assert set(cand.chain_id.values) == {""}
 
 
 def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
@@ -133,10 +133,10 @@ def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
     small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
     complex_file = mda.Universe(str(tmp_path / "complex.pdb"))
     cand = select_candidates(protein_system(small_system, small_system, complex_file), 10.0)
-    assert set(cand.Chain_ID.values) == {"K"}
+    assert set(cand.chain_id.values) == {"K"}
 
 
 def test_blank_chain_ids_in_structure_stay_empty(small_system):
     small_system.atoms.chainIDs = [" "] * len(small_system.atoms)
     cand = select_candidates(protein_system(small_system, small_system, small_system), 10.0)
-    assert set(cand.Chain_ID.values) == {""}
+    assert set(cand.chain_id.values) == {""}

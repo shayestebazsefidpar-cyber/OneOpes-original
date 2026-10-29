@@ -55,10 +55,10 @@ def _(Path, molecule_sizes, read_system, system_dir):
 @app.cell
 def _(make_funnel, system):
     funnel = make_funnel(system)
-    p0p1 = funnel.p0p1
-    print("atoms0 (funnel origin):     ", p0p1.atoms0)
-    print("atoms1 (funnel inflection): ", p0p1.atoms1)
-    print(f"P0 {p0p1.p0} A, P1 {p0p1.p1} A, axis length {p0p1.axis_length:.2f} A")
+    axis = funnel.axis
+    print("atoms0 (funnel origin):     ", axis.atoms0)
+    print("atoms1 (funnel inflection): ", axis.atoms1)
+    print(f"P0 {axis.p0} A, P1 {axis.p1} A, axis length {axis.length:.2f} A")
     funnel.parameters
     return
 

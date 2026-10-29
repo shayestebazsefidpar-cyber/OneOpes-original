@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from ligand_systems import ligand_in_water
 from oneopes.cli import main
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import AtomRef, G1G2Selection, select_g1_g2, write_g1_g2_yaml
 from oneopes.ligand.select import ligand_atoms
 
 RAW = {
@@ -22,7 +22,7 @@ RAW = {
 
 
 def test_selection_result_dict_roundtrip():
-    result = SelectionResult.model_validate(RAW)
+    result = G1G2Selection.model_validate(RAW)
     g1 = result.G1
     assert g1 == (AtomRef(name="X1", serial=3), AtomRef(name="X2", serial=7))
     assert result.model_dump(mode="json") == RAW
@@ -30,7 +30,7 @@ def test_selection_result_dict_roundtrip():
 
 def test_selection_result_is_frozen():
     with pytest.raises(ValidationError):
-        SelectionResult.model_validate(RAW).G1 = ()
+        G1G2Selection.model_validate(RAW).G1 = ()
 
 
 @pytest.mark.parametrize("g1", [
@@ -40,12 +40,12 @@ def test_selection_result_is_frozen():
 ])
 def test_malformed_selection_is_rejected(g1):
     with pytest.raises(ValidationError):
-        SelectionResult.model_validate({**RAW, "G1": g1})
+        G1G2Selection.model_validate({**RAW, "G1": g1})
 
 
 def test_write_g1_g2_yaml_creates_parent_directory(tmp_path):
     out_path = tmp_path / "nested" / "g1_g2.yaml"
-    write_g1_g2_yaml(SelectionResult.model_validate(RAW), out_path)
+    write_g1_g2_yaml(G1G2Selection.model_validate(RAW), out_path)
     assert yaml.safe_load(out_path.read_text()) == RAW
 
 
@@ -104,7 +104,7 @@ def test_select_command_writes_waterfp_and_g1_g2(tmp_path):
 
     ligand = mda.Universe(top).select_atoms("resname MOL")
     expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy())
-    assert SelectionResult.model_validate(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected
+    assert G1G2Selection.model_validate(yaml.safe_load((outdir / "g1_g2.yaml").read_text())) == expected
     metadata = json.loads((outdir / "run_metadata.json").read_text())
     assert (metadata["frames"], metadata["ligand_selection"]) == ([0, 3], "resname MOL")
     assert set(metadata["inputs"]) == {"tpr", "xtc"}

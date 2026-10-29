@@ -50,8 +50,8 @@ def nrmsd(g: xr.DataArray, prev_g: xr.DataArray) -> xr.DataArray:
     return rmsd / peak.clip(min=1e-8)
 
 
-def atom_ranks(fp: xr.DataArray) -> xr.DataArray:
-    """Rank of each atom's FP among the atoms (1 = most negative; ties share their average rank)."""
+def spearman_ranks(fp: xr.DataArray) -> xr.DataArray:
+    """Rank of each atom's FP among the atoms, as Spearman's correlation needs: ties share their average rank."""
     return xr.apply_ufunc(rankdata, fp, input_core_dims=[["atom"]], output_core_dims=[["atom"]],
                           kwargs={"axis": -1})
 
@@ -77,7 +77,7 @@ def compare_blocks(blocks: xr.Dataset, tol: Tolerances) -> xr.Dataset:
     criteria = xr.Dataset({
         "fp_change": (abs(current.fp - previous.fp) / abs(previous.fp).clip(min=1e-6)).max("atom"),
         "rdf_nrmsd": nrmsd(current.g, previous.g).max("atom"),
-        "spearman_rho": xr.corr(atom_ranks(current.fp), atom_ranks(previous.fp), dim="atom"),
+        "spearman_rho": xr.corr(spearman_ranks(current.fp), spearman_ranks(previous.fp), dim="atom"),
     }).reset_coords(drop=True).reindex(block=blocks.block)
     fp_pass = criteria.fp_change <= tol.fp_rel_tol
     rdf_pass = criteria.rdf_nrmsd <= tol.rdf_nrmsd_tol

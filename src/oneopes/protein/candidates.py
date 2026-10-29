@@ -19,7 +19,7 @@ def atom_label(atom: Atom) -> str:
 def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_A_DEFAULT) -> xr.Dataset:
     """Protein heavy atoms within ``cutoff_A`` of the ligand in the complex structure, as a Dataset of coordinates.
 
-    ``Chain_ID`` comes only from the complex file: a GROMACS topology puts molecule-type names there.
+    ``chain_id`` comes only from the complex file: a GROMACS topology puts molecule-type names there.
     """
     u = system.complex
     protein, ligand = system.selection.protein(u), system.selection.ligand(u)
@@ -32,10 +32,10 @@ def select_candidates(system: ProteinSystem, cutoff_A: float = CANDIDATE_CUTOFF_
     return xr.Dataset(coords={
         "atom": [atom_label(atom) for atom in atoms],
         "atom_index": ("atom", atoms.indices),
-        "Atom_serial": ("atom", atoms.indices + 1),
-        "Atom_name": ("atom", atoms.names),
-        "Residue_name": ("atom", atoms.resnames),
-        "Residue_number": ("atom", atoms.resids),
-        "Chain_ID": ("atom", chain_ids),
-        "Min_distance_to_ligand_A": ("atom", min_distance[near]),
+        "atom_serial": ("atom", atoms.indices + 1),
+        "atom_name": ("atom", atoms.names),
+        "residue_name": ("atom", atoms.resnames),
+        "residue_number": ("atom", atoms.resids),
+        "chain_id": ("atom", chain_ids),
+        "min_distance_to_ligand_A": ("atom", min_distance[near]),
     })

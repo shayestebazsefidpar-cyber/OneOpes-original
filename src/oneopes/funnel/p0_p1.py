@@ -17,8 +17,8 @@ MIN_AXIS_LENGTH_A = 1e-6
 
 
 @dataclass(frozen=True)
-class P0P1Result:
-    """The makeFunnel atom selections and the P0/P1 points derived from them (A)."""
+class FunnelAxis:
+    """The funnel axis P0 -> P1 (A), and the makeFunnel atoms it is derived from."""
 
     atoms0: tuple[int, ...]
     """0-based system indices of the P0 (funnel origin) atoms."""
@@ -30,27 +30,27 @@ class P0P1Result:
     """Average position of ``atoms1``."""
 
     def __post_init__(self) -> None:
-        if not self.axis_length >= MIN_AXIS_LENGTH_A:
+        if not self.length >= MIN_AXIS_LENGTH_A:
             raise InputError(f"P0 {self.p0} and P1 {self.p1} must be distinct points to define the funnel axis.")
 
     @property
-    def axis_length(self) -> float:
+    def length(self) -> float:
         """|P1 - P0|."""
         return float(np.linalg.norm(self.p1 - self.p0))
 
     @property
-    def axis(self) -> np.ndarray:
+    def direction(self) -> np.ndarray:
         """Unit vector P0 -> P1."""
-        return (self.p1 - self.p0) / self.axis_length
+        return (self.p1 - self.p0) / self.length
 
 
-def make_p0_p1(
+def funnel_axis(
     system: BssSystem,
     protein: int | BssMolecule | None = None,
     ligand: int | BssMolecule | None = None,
     alpha_carbon_name: str = ALPHA_CARBON_NAME,
     property_map: PropertyMap | None = None,
-) -> P0P1Result:
+) -> FunnelAxis:
     """atoms0/atoms1 from BioSimSpace ``makeFunnel()``, which gets the arguments unchanged, and P0/P1."""
     require_biosimspace()
     from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel  # pyright: ignore[reportMissingImports]
@@ -61,5 +61,5 @@ def make_p0_p1(
     )
     positions0 = np.array([atom_position_A(system, i, property_map) for i in atoms0])
     positions1 = np.array([atom_position_A(system, i, property_map) for i in atoms1])
-    return P0P1Result(atoms0=tuple(int(i) for i in atoms0), atoms1=tuple(int(i) for i in atoms1),
+    return FunnelAxis(atoms0=tuple(int(i) for i in atoms0), atoms1=tuple(int(i) for i in atoms1),
                       p0=positions0.mean(axis=0), p1=positions1.mean(axis=0))

@@ -6,7 +6,7 @@ from cyclopts.types import ExistingFile
 from PIL import Image, ImageDraw, ImageFont
 
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import SelectionResult, read_g1_g2_yaml
+from oneopes.ligand.g1_g2 import G1G2Selection, read_g1_g2_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,9 @@ def parse_entry(spec: str) -> tuple[str, Rgb]:
     return f"{title}:  {detail}", (r, g, b)
 
 
-def selection_entries(selection: SelectionResult) -> list[tuple[str, Rgb]]:
+def selection_entries(selection: G1G2Selection) -> list[tuple[str, Rgb]]:
     """The legend entries of a G1/G2 selection, coloured as the renders colour them."""
-    return [(f"Anti-bulk (G1):  {selection.G1[0].name}, {selection.G1[1].name}", G1_RGB),
-            (f"Bulk (G2):  {selection.G2[0].name}, {selection.G2[1].name}", G2_RGB)]
+    return [(f"Anti-bulk (G1):  {selection.g1_names}", G1_RGB), (f"Bulk (G2):  {selection.g2_names}", G2_RGB)]
 
 
 def load_fonts(title_size: int, body_size: int) -> tuple[ImageFont.ImageFont | ImageFont.FreeTypeFont, ...]:

@@ -23,25 +23,25 @@ def test_b1_modules_import_without_biosimspace(name, monkeypatch):
 def test_b4_result_dataclasses_are_frozen():
     from oneopes.funnel.geometry import Bound, FunnelParameters
     from oneopes.funnel.make_funnel import FunnelResult
-    from oneopes.funnel.p0_p1 import P0P1Result
+    from oneopes.funnel.p0_p1 import FunnelAxis
 
-    r = P0P1Result(atoms0=(0,), atoms1=(1,), p0=np.array([0.0, 0.0, 0.0]), p1=np.array([0.0, 0.0, 3.0]))
+    r = FunnelAxis(atoms0=(0,), atoms1=(1,), p0=np.array([0.0, 0.0, 0.0]), p1=np.array([0.0, 0.0, 3.0]))
     lower = Bound(position_nm=0.5, force_constant=2000.0)
     params = FunnelParameters(width_nm=0.6, buffer_nm=0.15, steepness_per_nm=1.5, inflection_nm=2.0,
                               lower_bound=lower, upper_bound=Bound(position_nm=4.0, force_constant=2000.0))
-    f = FunnelResult(p0p1=r, cv=None)
+    f = FunnelResult(axis=r, cv=None)
     for obj, field in [(r, "atoms0"), (lower, "position_nm"), (params, "width_nm"), (f, "cv")]:
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(obj, field, None)
-    assert (f.p0p1.atoms0, f.p0p1.atoms1, f.p0p1.axis_length) == ((0,), (1,), 3.0)
+    assert (f.axis.atoms0, f.axis.atoms1, f.axis.length) == ((0,), (1,), 3.0)
 
 
 def test_b7_clear_error_without_biosimspace(monkeypatch):
     from oneopes.funnel.make_funnel import make_funnel
-    from oneopes.funnel.p0_p1 import make_p0_p1
+    from oneopes.funnel.p0_p1 import funnel_axis
 
     monkeypatch.setitem(sys.modules, "BioSimSpace", None)
-    for fn in (make_p0_p1, make_funnel):
+    for fn in (funnel_axis, make_funnel):
         with pytest.raises(ImportError, match=r"BioSimSpace .*conda"):
             fn(system=None)
 

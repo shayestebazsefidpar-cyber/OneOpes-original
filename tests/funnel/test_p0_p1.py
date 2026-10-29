@@ -6,22 +6,22 @@ import numpy as np
 import pytest
 from bss_helpers import bss_xyz, molecule_layout
 
-from oneopes.funnel.p0_p1 import P0P1Result
+from oneopes.funnel.p0_p1 import FunnelAxis
 
 
 # --------------------------------------------------------------------------
 # B: unit tests (no BioSimSpace)
 # --------------------------------------------------------------------------
 def test_b3_axis_runs_from_p0_to_p1():
-    r = P0P1Result(atoms0=(3, 4), atoms1=(6, 7), p0=np.array([1.0, 0.0, 0.0]), p1=np.array([1.0, 0.0, 8.0]))
-    np.testing.assert_allclose(r.axis, [0.0, 0.0, 1.0], atol=1e-12)
-    assert r.axis_length == pytest.approx(8.0, abs=1e-12)
+    r = FunnelAxis(atoms0=(3, 4), atoms1=(6, 7), p0=np.array([1.0, 0.0, 0.0]), p1=np.array([1.0, 0.0, 8.0]))
+    np.testing.assert_allclose(r.direction, [0.0, 0.0, 1.0], atol=1e-12)
+    assert r.length == pytest.approx(8.0, abs=1e-12)
 
 
 @pytest.mark.parametrize("p1", [[1.0, 2.0, 3.0], [np.nan, 0.0, 0.0]])
 def test_b3_p0_and_p1_must_be_distinct_points(p1):
     with pytest.raises(ValueError, match="distinct points"):
-        P0P1Result(atoms0=(0,), atoms1=(1,), p0=np.array([1.0, 2.0, 3.0]), p1=np.array(p1))
+        FunnelAxis(atoms0=(0,), atoms1=(1,), p0=np.array([1.0, 2.0, 3.0]), p1=np.array(p1))
 
 
 # --------------------------------------------------------------------------
@@ -36,9 +36,9 @@ def bss_funnel_atoms(ref):
 
 @pytest.fixture(scope="module")
 def ours(ref):
-    from oneopes.funnel.p0_p1 import make_p0_p1
+    from oneopes.funnel.p0_p1 import funnel_axis
 
-    return make_p0_p1(ref.system)
+    return funnel_axis(ref.system)
 
 
 def test_c1_c2_atoms_equal_bss_makefunnel(ours, bss_funnel_atoms):
@@ -49,7 +49,7 @@ def test_c1_c2_atoms_equal_bss_makefunnel(ours, bss_funnel_atoms):
 def test_c3_arguments_pass_through_to_makefunnel(ref):
     from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel
 
-    from oneopes.funnel.p0_p1 import make_p0_p1
+    from oneopes.funnel.p0_p1 import funnel_axis
 
     system = ref.system
     protein, ligand, _, _ = molecule_layout(system)
@@ -59,7 +59,7 @@ def test_c3_arguments_pass_through_to_makefunnel(ref):
         {"alpha_carbon_name": "CA", "property_map": {}},
     ):
         expected0, expected1 = makeFunnel(system, **kwargs)
-        r = make_p0_p1(system, **kwargs)
+        r = funnel_axis(system, **kwargs)
         assert (r.atoms0, r.atoms1) == (tuple(expected0), tuple(expected1)), kwargs
 
 
@@ -74,9 +74,9 @@ def test_c4_c5_p0_p1_derived_from_bss_selected_atoms(ref, ours, bss_funnel_atoms
 
 
 def test_c6_axis_consistent_with_p0_p1(ours):
-    np.testing.assert_allclose(ours.axis_length, np.linalg.norm(ours.p1 - ours.p0), atol=1e-12)
-    np.testing.assert_allclose(ours.axis, (ours.p1 - ours.p0) / ours.axis_length, atol=1e-12)
-    assert np.linalg.norm(ours.axis) == pytest.approx(1.0, abs=1e-12)
+    np.testing.assert_allclose(ours.length, np.linalg.norm(ours.p1 - ours.p0), atol=1e-12)
+    np.testing.assert_allclose(ours.direction, (ours.p1 - ours.p0) / ours.length, atol=1e-12)
+    assert np.linalg.norm(ours.direction) == pytest.approx(1.0, abs=1e-12)
 
 
 # --------------------------------------------------------------------------

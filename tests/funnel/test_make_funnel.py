@@ -29,7 +29,7 @@ def test_c7_cv_is_the_bss_funnel_built_from_makefunnel(funnel, bss_reference):
     assert isinstance(funnel.cv, Funnel)
     assert funnel.cv.getAtoms0() == list(atoms0)
     assert funnel.cv.getAtoms1() == list(atoms1)
-    assert (funnel.p0p1.atoms0, funnel.p0p1.atoms1) == (tuple(atoms0), tuple(atoms1))
+    assert (funnel.axis.atoms0, funnel.axis.atoms1) == (tuple(atoms0), tuple(atoms1))
 
 
 def test_c8_default_parameters_equal_bss_defaults(funnel, bss_reference):
@@ -52,7 +52,7 @@ def test_c9_funnel_kwargs_reach_bss_unchanged(ref):
         "upper_bound": Bound(Length(3.7, "nanometer"), force_constant=20000),
     }
     f = make_funnel(ref.system, **kwargs)
-    reference = Funnel(list(f.p0p1.atoms0), list(f.p0p1.atoms1), **kwargs)
+    reference = Funnel(list(f.axis.atoms0), list(f.axis.atoms1), **kwargs)
     assert f.parameters == funnel_parameters(reference)
 
 
@@ -77,7 +77,7 @@ def test_c12_getcorrection_available_via_cv(funnel, bss_reference):
 
 def test_e3_p0_p1_in_angstrom_from_bss_coordinates(ref, funnel, bss_reference):
     atoms0, atoms1, _ = bss_reference
-    np.testing.assert_allclose(funnel.p0p1.p0, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms0], axis=0),
+    np.testing.assert_allclose(funnel.axis.p0, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms0], axis=0),
                                atol=1e-9)
-    np.testing.assert_allclose(funnel.p0p1.p1, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms1], axis=0),
+    np.testing.assert_allclose(funnel.axis.p1, np.mean([bss_xyz(ref.system.getAtom(i)) for i in atoms1], axis=0),
                                atol=1e-9)

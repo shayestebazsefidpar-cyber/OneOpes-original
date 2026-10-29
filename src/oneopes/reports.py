@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 import pandas as pd
 import xarray as xr
 
-from oneopes.block_run import run_facts, run_summary, save_run
+from oneopes.block_run import convergence_summary, facts_of, save_run
 from oneopes.convergence import TRANSITION_VARIABLES
 from oneopes.provenance import to_json
 
@@ -40,7 +40,7 @@ def write_block_tables(outdir: Path, run: xr.Dataset) -> None:
 
 def write_summary(path: Path, run: xr.Dataset) -> None:
     """Write the run's convergence summary and its facts as one indented JSON object."""
-    path.write_text(json.dumps(asdict(run_summary(run)) | run_facts(run), indent=2))
+    path.write_text(json.dumps(asdict(convergence_summary(run)) | facts_of(run), indent=2))
 
 
 def write_run_metadata(outdir: Path, metadata: Mapping[str, Any]) -> None:

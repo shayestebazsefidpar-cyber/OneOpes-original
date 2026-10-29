@@ -11,10 +11,10 @@ from oneopes.funnel.make_funnel import make_funnel
 
 system = read_system("top.top", "npt.gro", structure="whole.pdb")   # positions from whole.pdb (optional)
 f = make_funnel(system)                     # extra kwargs go to BSS Funnel(...)
-f.p0p1.atoms0, f.p0p1.p0, f.p0p1.axis       # makeFunnel atoms (0-based system indices), P0, axis (A)
+f.axis.atoms0, f.axis.p0, f.axis.direction  # makeFunnel atoms (0-based system indices), P0 (A), unit vector
 f.parameters                                # width, buffer, steepness, inflection, bounds (nm)
 funnel_extent(f.cv, [0.5, 1.0])             # radius (nm), from Funnel.getExtent()
-funnel_wall_points(f.p0p1, f.cv)            # (N, 3) points on the funnel wall (A)
+funnel_wall_points(f.axis, f.cv)            # (N, 3) points on the funnel wall (A)
 f.cv.getCorrection()                        # anything else: the BioSimSpace Funnel itself
 ```
 

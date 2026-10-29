@@ -45,7 +45,7 @@ def block_run(measured: Sequence[xr.Dataset], block_options: BlockOptions, hydra
     return compared.assign_attrs(**settings(block_options, hydration_options), **facts)
 
 
-def run_block_options(run: xr.Dataset) -> BlockOptions:
+def block_options_of(run: xr.Dataset) -> BlockOptions:
     """The block options a run was made with, rebuilt from its attributes."""
     tolerances = Tolerances(fp_rel_tol=float(run.attrs["fp_rel_tol"]),
                             rdf_nrmsd_tol=float(run.attrs["rdf_nrmsd_tol"]),
@@ -53,27 +53,27 @@ def run_block_options(run: xr.Dataset) -> BlockOptions:
     return BlockOptions(block_ns=float(run.attrs["block_ns"]), tolerances=tolerances)
 
 
-def run_summary(run: xr.Dataset) -> ConvergenceSummary:
+def convergence_summary(run: xr.Dataset) -> ConvergenceSummary:
     """What comparing the blocks of a run concluded."""
-    options = run_block_options(run)
+    options = block_options_of(run)
     return summarize(run, options.block_ns, options.tolerances)
 
 
-def run_facts(run: xr.Dataset) -> dict[str, Any]:
+def facts_of(run: xr.Dataset) -> dict[str, Any]:
     """The attributes of a run other than its settings and metadata, as plain Python values."""
     return {name: np.asarray(value).tolist() for name, value in run.attrs.items()
             if name not in [*SETTINGS, "metadata"]}
 
 
-def run_metadata(run: xr.Dataset) -> dict[str, Any]:
+def metadata_of(run: xr.Dataset) -> dict[str, Any]:
     """The metadata stored with a run: versions, inputs and options."""
     return json.loads(run.attrs["metadata"])
 
 
-def run_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:
+def chosen_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:
     """Block ``block`` of a run, by default its converged block; raises InputError when there is none."""
     if block is None:
-        block = run_summary(run).converged_block
+        block = convergence_summary(run).converged_block
         if block is None:
             raise InputError("The run did not converge: choose a block.")
     if block not in run.block:

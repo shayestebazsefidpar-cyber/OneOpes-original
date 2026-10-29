@@ -5,12 +5,12 @@ import xarray as xr
 
 from oneopes.block_run import (
     BlockOptions,
+    block_options_of,
     block_run,
+    chosen_block,
+    convergence_summary,
+    facts_of,
     load_run,
-    run_block,
-    run_block_options,
-    run_facts,
-    run_summary,
     save_run,
 )
 from oneopes.convergence import Tolerances
@@ -39,30 +39,30 @@ def _run(**facts):
 def test_a_run_holds_the_measurements_the_comparisons_and_the_settings():
     run = _run(ligand_selection="resname MOL")
     assert run.sizes["block"] == 4 and {"fp", "g", "passed", "stable_in_a_row"} <= set(run.data_vars)
-    assert run_block_options(run) == OPTIONS
+    assert block_options_of(run) == OPTIONS
     assert (run.attrs["rmax_nm"], run.attrs["norm_tail_bins"]) == (2.001, 500)
-    assert run_facts(run) == {"ligand_selection": "resname MOL"}
+    assert facts_of(run) == {"ligand_selection": "resname MOL"}
 
 
 def test_the_summary_is_derived_from_the_run():
-    summary = run_summary(_run())
+    summary = convergence_summary(_run())
     assert (summary.converged_block, summary.converged_ns, summary.block_ns) == (2, 6.0, 2.0)
     assert (summary.n_blocks, summary.unstable_after_convergence, summary.tolerances) == (4, 1, TOL)
 
 
-def test_run_block_defaults_to_the_converged_block():
+def test_the_chosen_block_defaults_to_the_converged_block():
     run = _run()
-    assert int(run_block(run).block) == 2
-    assert int(run_block(run, 0).block) == 0
+    assert int(chosen_block(run).block) == 2
+    assert int(chosen_block(run, 0).block) == 0
     with pytest.raises(InputError, match="blocks 0 to 3, not 4"):
-        run_block(run, 4)
+        chosen_block(run, 4)
 
 
-def test_run_block_of_an_unconverged_run_needs_a_block():
+def test_an_unconverged_run_needs_a_chosen_block():
     fp = [-9.0, -5.0, -2.0]
     run = block_run(_measured(fp, [-20.0, -5.0, -2.0]), OPTIONS, HydrationOptions())
     with pytest.raises(InputError, match="did not converge"):
-        run_block(run)
+        chosen_block(run)
 
 
 def test_a_saved_run_loads_back_identical(tmp_path):
@@ -70,6 +70,6 @@ def test_a_saved_run_loads_back_identical(tmp_path):
     save_run(run, tmp_path / "blocks.nc")
     loaded = load_run(tmp_path / "blocks.nc")
     assert loaded.identical(run)
-    assert run_summary(loaded) == run_summary(run)
-    assert run_facts(loaded) == {"ligand_selection": "resname MOL", "ligand_heavy_atoms": ["C1", "N1", "O1"],
+    assert convergence_summary(loaded) == convergence_summary(run)
+    assert facts_of(loaded) == {"ligand_selection": "resname MOL", "ligand_heavy_atoms": ["C1", "N1", "O1"],
                                  "trajectory_end_ns": 8.5}

@@ -22,9 +22,9 @@ def _():
     import marimo as mo
     import matplotlib.pyplot as plt
 
-    from oneopes.block_run import load_run, run_facts, run_summary
+    from oneopes.block_run import convergence_summary, facts_of, load_run
     from oneopes.convergence import TRANSITION_VARIABLES
-    return TRANSITION_VARIABLES, load_run, mo, plt, run_facts, run_summary
+    return TRANSITION_VARIABLES, convergence_summary, facts_of, load_run, mo, plt
 
 
 @app.cell
@@ -36,11 +36,11 @@ def _(mo):
 
 
 @app.cell
-def _(load_run, mo, run_facts, run_path, run_summary):
+def _(convergence_summary, facts_of, load_run, mo, run_path):
     run = load_run(run_path.value)
-    summary = run_summary(run)
+    summary = convergence_summary(run)
     mo.md(f"**{summary.n_blocks} blocks of {summary.block_ns} ns**; converged: {summary.converged}"
-          f" (block {summary.converged_block}, {summary.converged_ns} ns). Facts: {run_facts(run)}")
+          f" (block {summary.converged_block}, {summary.converged_ns} ns). Facts: {facts_of(run)}")
     return (run,)
 
 

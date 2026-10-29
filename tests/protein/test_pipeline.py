@@ -8,7 +8,7 @@ import pytest
 
 from cyclopts import ValidationError
 
-from oneopes.block_run import BlockOptions, load_run, run_metadata
+from oneopes.block_run import BlockOptions, load_run, metadata_of
 from oneopes.cli import app, main
 from oneopes.protein.analysis import AnalysisOptions, analysis_details, run_analysis, write_outputs
 from oneopes.provenance import to_json
@@ -172,7 +172,7 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     fp = pd.read_csv(out / "fp_values_per_block.csv")
     assert fp["block"].nunique() == n_blocks and len(fp) == n_blocks * n
     contacts = pd.read_csv(out / "contact_occupancy_per_block.csv")
-    assert list(contacts.columns) == ["block", "atom", "Contact_occupancy_5A", "Bridge_occupancy", "atom_index",
+    assert list(contacts.columns) == ["block", "Atom", "Contact_occupancy_5A", "Bridge_occupancy", "Atom_index",
                                       "Atom_serial", "Atom_name", "Residue_name", "Residue_number", "Chain_ID",
                                       "Min_distance_to_ligand_A", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
@@ -205,7 +205,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     run = load_run(out / "blocks.nc")
     assert (run.attrs["rmax_nm"], run.attrs["norm_tail_bins"], run.attrs["block_ns"]) == (1.5, 300, BLOCK_NS)
     assert run.r_nm.max() < 1.5
-    assert {"Residue_name", "Residue_number", "Chain_ID"} <= set(run.coords)
+    assert {"residue_name", "residue_number", "chain_id"} <= set(run.coords)
     for name in ("blocks.nc", "candidate_atom_mapping.csv", "fp_values_per_block.csv", "rdf_profiles_per_block.csv",
                  "fp_values_by_block_wide.csv", "fp_ranking_by_block_wide.csv", "convergence_metrics.csv",
                  "convergence_summary.json", "final_per_atom_table.csv",
@@ -219,7 +219,7 @@ def test_cli_end_to_end_from_files(tmp_path):
     meta = json.loads(meta_text)
     assert meta["candidate_cutoff_A"] == 7.0  # default
     assert set(meta["inputs"]) == {"complex", "topology", "trajectory"} and "versions" in meta
-    assert run_metadata(run) == meta
+    assert metadata_of(run) == meta
 
 
 @pytest.mark.parametrize("cutoff", [7.0, 10.0])

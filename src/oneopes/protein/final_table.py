@@ -3,28 +3,28 @@
 import pandas as pd
 import xarray as xr
 
+from oneopes.protein.contacts import CONTACT_CUTOFF_A
 from oneopes.reports import fp_ranks
 
-FINAL_COLUMNS = [
-    "FP_Rank",
-    "Atom",
-    "Atom_index",
-    "Atom_serial",
-    "Atom_name",
-    "Residue_name",
-    "Residue_number",
-    "Chain_ID",
-    "Min_distance_to_ligand_A",
-    "FP",
-    "Contact_occupancy_5A",
-    "Bridge_occupancy",
-    "SASA_A2",
-]
+CONTACT_COLUMN = f"Contact_occupancy_{CONTACT_CUTOFF_A:g}A"
 
+TABLE_NAMES = {
+    "atom": "Atom",
+    "atom_index": "Atom_index",
+    "atom_serial": "Atom_serial",
+    "atom_name": "Atom_name",
+    "residue_name": "Residue_name",
+    "residue_number": "Residue_number",
+    "chain_id": "Chain_ID",
+    "min_distance_to_ligand_A": "Min_distance_to_ligand_A",
+    "fp": "FP",
+    "contact_occupancy": CONTACT_COLUMN,
+    "bridge_occupancy": "Bridge_occupancy",
+    "sasa": "SASA_A2",
+}
+"""The table column of each name in the protein Datasets, in the final table's order."""
 
-TABLE_NAMES = {"atom": "Atom", "atom_index": "Atom_index", "fp": "FP", "contact_occupancy": "Contact_occupancy_5A",
-               "bridge_occupancy": "Bridge_occupancy", "sasa": "SASA_A2"}
-"""The table's column for each name of the full-range Dataset; its candidate details keep their names."""
+FINAL_COLUMNS = ["FP_Rank", *TABLE_NAMES.values()]
 
 
 def build_final_table(full: xr.Dataset) -> pd.DataFrame:
@@ -38,7 +38,7 @@ def build_final_table(full: xr.Dataset) -> pd.DataFrame:
 MARKDOWN_DECIMALS = {
     "Min_distance_to_ligand_A": 2,
     "FP": 3,
-    "Contact_occupancy_5A": 3,
+    CONTACT_COLUMN: 3,
     "Bridge_occupancy": 3,
     "SASA_A2": 2,
 }

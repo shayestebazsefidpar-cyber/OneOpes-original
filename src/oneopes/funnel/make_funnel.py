@@ -5,14 +5,14 @@ from typing import Any
 
 from oneopes.funnel.bss import BssFunnel, BssMolecule, BssSystem, PropertyMap, require_biosimspace
 from oneopes.funnel.geometry import FunnelParameters, funnel_parameters
-from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, P0P1Result, make_p0_p1
+from oneopes.funnel.p0_p1 import ALPHA_CARBON_NAME, FunnelAxis, funnel_axis
 
 
 @dataclass(frozen=True)
 class FunnelResult:
-    """A BioSimSpace funnel: the makeFunnel selections with P0/P1, and the ``Funnel`` CV."""
+    """A BioSimSpace funnel: its axis from the makeFunnel selections, and the ``Funnel`` CV."""
 
-    p0p1: P0P1Result
+    axis: FunnelAxis
     cv: BssFunnel
     """The BioSimSpace ``Funnel`` CV (e.g. ``cv.getCorrection()``)."""
 
@@ -37,7 +37,7 @@ def make_funnel(
     require_biosimspace()
     from BioSimSpace.Metadynamics.CollectiveVariable import Funnel  # pyright: ignore[reportMissingImports]
 
-    p0p1 = make_p0_p1(system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name,
-                      property_map=property_map)
-    cv = Funnel(list(p0p1.atoms0), list(p0p1.atoms1), **funnel_kwargs)
-    return FunnelResult(p0p1=p0p1, cv=cv)
+    axis = funnel_axis(system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name,
+                       property_map=property_map)
+    cv = Funnel(list(axis.atoms0), list(axis.atoms1), **funnel_kwargs)
+    return FunnelResult(axis=axis, cv=cv)

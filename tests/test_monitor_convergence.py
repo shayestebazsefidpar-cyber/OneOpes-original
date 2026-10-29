@@ -15,10 +15,10 @@ import psutil
 import xarray as xr
 
 from ligand_systems import ligand_in_water
-from oneopes.block_run import load_run, run_facts, run_metadata, run_summary
+from oneopes.block_run import convergence_summary, facts_of, load_run, metadata_of
 from oneopes.cli import main
 from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
-from oneopes.ligand.monitor import completed_blocks, plot_atom, process_alive, stop_mdrun
+from oneopes.ligand.monitor import blocks_as_written, plot_atom, process_alive, stop_mdrun
 
 N_FRAMES = 10
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
@@ -79,10 +79,10 @@ def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
     assert summary["trajectory_end_ns"] == (N_FRAMES - 1) / 1000
     assert len(pd.read_csv(outdir / "convergence_metrics.csv")) == 4
     run = load_run(outdir / "blocks.nc")
-    assert run.sizes["block"] == 5 and run_facts(run)["trajectory_end_ns"] == summary["trajectory_end_ns"]
-    assert asdict(run_summary(run)) == {name: summary[name] for name in asdict(run_summary(run))}
+    assert run.sizes["block"] == 5 and facts_of(run)["trajectory_end_ns"] == summary["trajectory_end_ns"]
+    assert asdict(convergence_summary(run)) == {name: summary[name] for name in asdict(convergence_summary(run))}
     metadata = json.loads((outdir / "run_metadata.json").read_text())
-    assert run_metadata(run) == metadata
+    assert metadata_of(run) == metadata
     assert {role: entry["file"] for role, entry in metadata["inputs"].items()} == {"tpr": "top.pdb", "xtc": "traj.xtc"}
     assert metadata["options"]["blocks"]["tolerances"]["fp_rel_tol"] == 0
     assert "metadata" not in summary
@@ -121,7 +121,7 @@ class GrowingTrajectory:
 def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it():
     """The last frame may be half-written, so a block is complete once a later frame exists."""
     u = GrowingTrajectory(2, 3, 4, 5, 7)
-    blocks = completed_blocks(u, Path("prod.xtc"), 2, os.getpid(), poll_seconds=0)
+    blocks = blocks_as_written(u, Path("prod.xtc"), 2, os.getpid(), poll_seconds=0)
     assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
         (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
 
@@ -157,4 +157,4 @@ def test_only_an_mdrun_process_is_stopped():
 
 def test_once_mdrun_has_stopped_every_frame_is_complete():
     u = GrowingTrajectory(4, 4, 4)
-    assert list(completed_blocks(u, Path("prod.xtc"), 2, None, poll_seconds=0)) == [range(2), range(2, 4)]
+    assert list(blocks_as_written(u, Path("prod.xtc"), 2, None, poll_seconds=0)) == [range(2), range(2, 4)]

@@ -25,17 +25,24 @@ class AtomRef(BaseModel, frozen=True):
         return cls(name=atom.name, serial=int(atom.index) + 1)
 
 
-class SelectionResult(BaseModel, frozen=True):
+class G1G2Selection(BaseModel, frozen=True):
     """The G1 (anti-bulk) and G2 (bulk) atom pairs, as written to and read from g1_g2.yaml."""
     G1: tuple[AtomRef, AtomRef]
     G2: tuple[AtomRef, AtomRef]
 
+    @property
+    def g1_names(self) -> str:
+        return f"{self.G1[0].name}, {self.G1[1].name}"
+
+    @property
+    def g2_names(self) -> str:
+        return f"{self.G2[0].name}, {self.G2[1].name}"
+
     def __str__(self) -> str:
-        return (f"G1 (anti-bulk): {self.G1[0].name}, {self.G1[1].name}; "
-                f"G2 (bulk): {self.G2[0].name}, {self.G2[1].name}")
+        return f"G1 (anti-bulk): {self.g1_names}; G2 (bulk): {self.g2_names}"
 
 
-def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> SelectionResult:
+def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -> G1G2Selection:
     """G1 (anti-bulk) and G2 (bulk) pairs from the FP of the ligand's heavy atoms.
 
     The rules of WaterFP's fp_driven_atom_selection.ipynb; raises InputError when a pair does not exist.
@@ -47,7 +54,7 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
     scale = 10 ** fp_round_decimals
     g1 = anti_bulk_partner(np.rint(fp * scale).astype(int), round(SAME_FP_WITHIN * scale), bonds_from_first)
     g2 = bulk_partner(bonds_from_last)
-    return SelectionResult(G1=(AtomRef.of(atoms[first]), AtomRef.of(atoms[g1])),
+    return G1G2Selection(G1=(AtomRef.of(atoms[first]), AtomRef.of(atoms[g1])),
                            G2=(AtomRef.of(atoms[last]), AtomRef.of(atoms[g2])))
 
 
@@ -97,12 +104,12 @@ def anti_bulk_partner(fp_rounded: np.ndarray, same_fp_within: int, bonds_from_fi
     return int(partner)
 
 
-def write_g1_g2_yaml(selection: SelectionResult, path: Path) -> None:
+def write_g1_g2_yaml(selection: G1G2Selection, path: Path) -> None:
     """Write the selection to YAML, creating the parent directory if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(selection.model_dump(mode="json"), sort_keys=False))
 
 
-def read_g1_g2_yaml(path: Path) -> SelectionResult:
+def read_g1_g2_yaml(path: Path) -> G1G2Selection:
     """The selection in a g1_g2.yaml; raises pydantic's ValidationError when the file is malformed."""
-    return SelectionResult.model_validate(yaml.safe_load(path.read_text()))
+    return G1G2Selection.model_validate(yaml.safe_load(path.read_text()))

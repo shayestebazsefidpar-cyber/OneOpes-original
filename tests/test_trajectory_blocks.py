@@ -10,7 +10,7 @@ from oneopes.errors import InputError
 from oneopes.trajectory_blocks import (
     Block,
     FrameWindow,
-    complete_blocks,
+    block_ranges,
     frame_layout,
     frame_step_ps,
     frames_per_block,
@@ -66,11 +66,11 @@ def test_frames_per_block_rejects_bad_lengths(block_ns):
 
 
 def test_complete_blocks_skip_the_leftover_frames():
-    assert complete_blocks(1, 12, 3) == [range(1, 4), range(4, 7), range(7, 10)]
+    assert block_ranges(1, 12, 3) == [range(1, 4), range(4, 7), range(7, 10)]
 
 
 def test_no_complete_block():
-    assert complete_blocks(0, 2, 3) == []
+    assert block_ranges(0, 2, 3) == []
 
 
 def test_frame_layout_of_a_frame_range():

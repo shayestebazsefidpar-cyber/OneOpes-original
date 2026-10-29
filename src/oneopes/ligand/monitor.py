@@ -18,7 +18,7 @@ from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 
-from oneopes.block_run import BlockOptions, block_run, run_block, run_summary
+from oneopes.block_run import BlockOptions, block_run, chosen_block, convergence_summary
 from oneopes.convergence import converged_block
 from oneopes.errors import InputError
 from oneopes.ligand.select import write_selection
@@ -41,7 +41,7 @@ def process_alive(pid: int | None) -> bool:
         return False
 
 
-def complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
+def n_complete_frames(u: mda.Universe, mdrun_pid: int | None) -> int:
     """Frames fully written: while mdrun runs, all but the last, which it may still be writing."""
     n_frames = len(u.trajectory)
     return n_frames - 1 if process_alive(mdrun_pid) else n_frames
@@ -55,18 +55,18 @@ def wait_for_frames(u: mda.Universe, trajectory: Path, n_frames: int, mdrun_pid:
     """
     while True:
         u.load_new(str(trajectory))
-        if complete_frames(u, mdrun_pid) >= n_frames or not process_alive(mdrun_pid):
+        if n_complete_frames(u, mdrun_pid) >= n_frames or not process_alive(mdrun_pid):
             return
         time.sleep(poll_seconds)
 
 
-def completed_blocks(u: mda.Universe, trajectory: Path, block_length: int, mdrun_pid: int | None,
-                     poll_seconds: float) -> Iterator[range]:
+def blocks_as_written(u: mda.Universe, trajectory: Path, block_length: int, mdrun_pid: int | None,
+                      poll_seconds: float) -> Iterator[range]:
     """The frames of each block, as soon as they are complete; ends when mdrun stops before the next one."""
     for first in count(0, block_length):
         frames = range(first, first + block_length)
         wait_for_frames(u, trajectory, frames.stop, mdrun_pid, poll_seconds)
-        if complete_frames(u, mdrun_pid) < frames.stop:
+        if n_complete_frames(u, mdrun_pid) < frames.stop:
             return
         yield frames
 
@@ -144,12 +144,12 @@ def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hyd
     """
     ligand, water = sel.ligand(u), sel.water(u)
     wait_for_frames(u, xtc, 2, mdrun_pid, poll_seconds)
-    dt_ps = frame_step_ps(u, complete_frames(u, mdrun_pid))
+    dt_ps = frame_step_ps(u, n_complete_frames(u, mdrun_pid))
     block_length = frames_per_block(block_options.block_ns, dt_ps)
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_options.block_ns)
 
     measured, run = [], None
-    for frames in completed_blocks(u, xtc, block_length, mdrun_pid, poll_seconds):
+    for frames in blocks_as_written(u, xtc, block_length, mdrun_pid, poll_seconds):
         block = Block.of(u, frames, dt_ps)
         measured.append(block.label(measure_hydration(ligand, water, block.frames, hydration_options)))
         run = block_run(measured, block_options, hydration_options, ligand_selection=sel.ligand_selection,
@@ -210,7 +210,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
     write_run(outdir, run, metadata)
-    summary = run_summary(run)
+    summary = convergence_summary(run)
     plot_blocks(run, outdir)
     if summary.converged_block is None:
         logger.info("DONE, not converged: the trajectory ended at %s ns, after %d complete block(s)",
@@ -220,6 +220,6 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     logger.info("DONE, converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
     stop_mdrun(mdrun_pid)
     try:
-        write_selection(ligand, run_block(run), outdir / "selection", fp_round_decimals)
+        write_selection(ligand, chosen_block(run), outdir / "selection", fp_round_decimals)
     except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)

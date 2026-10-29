@@ -12,7 +12,7 @@ from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 from MDAnalysis.core.groups import AtomGroup
 
-from oneopes.block_run import load_run, run_block
+from oneopes.block_run import chosen_block, load_run
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
 from oneopes.provenance import provenance
@@ -95,7 +95,7 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     fp_round_decimals
         Decimals FP is rounded to when comparing atoms.
     """
-    hydration = run_block(load_run(run), block)
+    hydration = chosen_block(load_run(run), block)
     write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
         "block": int(hydration.block), "fp_round_decimals": fp_round_decimals})
     write_selection(ligand_atoms(load_universe(tpr), hydration), hydration, outdir, fp_round_decimals)

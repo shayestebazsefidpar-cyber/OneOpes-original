@@ -11,7 +11,7 @@ from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 
-from oneopes.block_run import BlockOptions, block_run, run_summary
+from oneopes.block_run import BlockOptions, block_run, convergence_summary
 from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
 from oneopes.protein.contacts import BRIDGE_WATER_CUTOFF_A, CONTACT_CUTOFF_A, measure_contacts
 from oneopes.protein.final_table import TABLE_NAMES, build_final_table, final_table_markdown
@@ -79,23 +79,18 @@ def run_analysis(system: ProteinSystem, options: AnalysisOptions) -> ProteinAnal
                     analysis_start_ns=layout.analysis_start_ns, analysis_end_ns=layout.analysis_end_ns)
     full = measure_frames(system, candidates, layout.analysed, options.hydration_options)
     full = full.assign(sasa=("atom", static_sasa(system, full.atom_index.values)))
-    logger.info("first sustained convergence: %s ns", run_summary(run).converged_ns)
+    logger.info("first sustained convergence: %s ns", convergence_summary(run).converged_ns)
     return ProteinAnalysis(system=system, options=options, candidates=candidates, layout=layout, run=run, full=full)
-
-
-OCCUPANCY_COLUMNS = {"contact_occupancy": "Contact_occupancy_5A", "bridge_occupancy": "Bridge_occupancy"}
-"""The occupancies' column names in the per-block table."""
 
 
 def write_outputs(outdir: Path, analysis: ProteinAnalysis, metadata: Mapping[str, Any] | None = None) -> None:
     """Write the candidate pool, the block run with its contacts per block, and the final per-atom table."""
-    candidates = analysis.candidates
     outdir.mkdir(parents=True, exist_ok=True)
-    candidate_table = candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
+    candidate_table = analysis.candidates.to_dataframe().reset_index().rename(columns=TABLE_NAMES)
     candidate_table.to_csv(outdir / "candidate_atom_mapping.csv", index=False)
     write_run(outdir, analysis.run, metadata)
-    contacts = analysis.run[list(OCCUPANCY_COLUMNS)].to_dataframe().rename(columns=OCCUPANCY_COLUMNS)
-    contacts.to_csv(outdir / "contact_occupancy_per_block.csv")
+    contacts = analysis.run[["contact_occupancy", "bridge_occupancy"]].to_dataframe().reset_index()
+    contacts.rename(columns=TABLE_NAMES).to_csv(outdir / "contact_occupancy_per_block.csv", index=False)
     table = build_final_table(analysis.full)
     table.to_csv(outdir / "final_per_atom_table.csv", index=False)
     (outdir / "final_per_atom_table.md").write_text(final_table_markdown(table))

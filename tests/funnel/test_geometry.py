@@ -5,12 +5,12 @@ import math
 import numpy as np
 import pytest
 
-from oneopes.funnel.p0_p1 import P0P1Result
+from oneopes.funnel.p0_p1 import FunnelAxis
 
 PROJECTIONS_NM = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 4.5]
 P0 = np.array([1.0, 2.0, 3.0])
 P1 = np.array([1.5, 0.8, 11.0])
-P0P1 = P0P1Result(atoms0=(0,), atoms1=(1,), p0=P0, p1=P1)
+AXIS = FunnelAxis(atoms0=(0,), atoms1=(1,), p0=P0, p1=P1)
 
 
 # --------------------------------------------------------------------------
@@ -93,7 +93,7 @@ def test_wall_points_shape_and_finiteness(default_cv, step_A, n_angles):
     from oneopes.funnel.geometry import funnel_parameters, funnel_wall_points
 
     p = funnel_parameters(default_cv)
-    points = funnel_wall_points(P0P1, default_cv, step_A=step_A, n_angles=n_angles)
+    points = funnel_wall_points(AXIS, default_cv, step_A=step_A, n_angles=n_angles)
     length_A = 10 * (p.upper_bound.position_nm - p.lower_bound.position_nm)
     n_rings = int(np.floor(length_A / step_A + 1e-9)) + 1
     assert isinstance(points, np.ndarray) and points.dtype == float
@@ -105,7 +105,7 @@ def test_wall_points_sample_the_axis_between_the_cv_bounds(default_cv):
     from oneopes.funnel.geometry import funnel_parameters, funnel_wall_points
 
     p = funnel_parameters(default_cv)
-    points = funnel_wall_points(P0P1, default_cv, step_A=2.0, n_angles=8)
+    points = funnel_wall_points(AXIS, default_cv, step_A=2.0, n_angles=8)
     proj, _ = _axial_radial(points, P0, P1)
     rings = proj.reshape(-1, 8)
     np.testing.assert_allclose(rings, rings[:, :1] * np.ones((1, 8)), atol=1e-9)  # each ring at one axial position
@@ -120,7 +120,7 @@ def test_wall_radii_equal_getextent_at_each_axial_position(default_cv):
 
     from oneopes.funnel.geometry import funnel_wall_points
 
-    points = funnel_wall_points(P0P1, default_cv)
+    points = funnel_wall_points(AXIS, default_cv)
     proj, radial = _axial_radial(points, P0, P1)
     expected = [default_cv.getExtent(Length(float(s), "angstrom")).angstroms().value() for s in proj]
     np.testing.assert_allclose(radial, expected, atol=1e-9)
@@ -131,7 +131,7 @@ def test_wall_points_reject_invalid_input(default_cv, kwargs):
     from oneopes.funnel.geometry import funnel_wall_points
 
     with pytest.raises(ValueError, match="step_A > 0 and n_angles >= 3"):
-        funnel_wall_points(P0P1, default_cv, **kwargs)
+        funnel_wall_points(AXIS, default_cv, **kwargs)
 
 
 def test_wall_points_need_cv_bounds():
@@ -141,7 +141,7 @@ def test_wall_points_need_cv_bounds():
     from oneopes.funnel.geometry import funnel_wall_points
 
     with pytest.raises(ValueError, match="bounds"):
-        funnel_wall_points(P0P1, Funnel([0], [1], lower_bound=None, upper_bound=None, grid=None))
+        funnel_wall_points(AXIS, Funnel([0], [1], lower_bound=None, upper_bound=None, grid=None))
 
 
 def test_wall_points_on_validation_system_use_getextent(ref):
@@ -151,8 +151,8 @@ def test_wall_points_on_validation_system_use_getextent(ref):
     from oneopes.funnel.make_funnel import make_funnel
 
     f = make_funnel(ref.system)
-    points = funnel_wall_points(f.p0p1, f.cv)
+    points = funnel_wall_points(f.axis, f.cv)
     assert points.shape[1] == 3 and np.all(np.isfinite(points))
-    proj, radial = _axial_radial(points, f.p0p1.p0, f.p0p1.p1)
+    proj, radial = _axial_radial(points, f.axis.p0, f.axis.p1)
     expected = [f.cv.getExtent(Length(float(s), "angstrom")).angstroms().value() for s in proj]
     np.testing.assert_allclose(radial, expected, atol=1e-9)

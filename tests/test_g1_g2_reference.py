@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from oneopes.ligand.g1_g2 import AtomRef, SelectionResult, select_g1_g2
+from oneopes.ligand.g1_g2 import AtomRef, G1G2Selection, select_g1_g2
 from reference import vendored_selection as official
 
 MOL = "SystemA-lig1"  # the vendored code's "<system>-<ligand>" id
@@ -50,7 +50,7 @@ def pair(sentence: str) -> tuple[AtomRef, AtomRef]:
     return AtomRef(name=name1, serial=int(serial1)), AtomRef(name=name2, serial=int(serial2))
 
 
-def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> SelectionResult | None:
+def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> G1G2Selection | None:
     """Run the vendored notebook functions; None when they report ambiguity or fail."""
     monkeypatch.setattr(official, "MDAnalysis", SimpleNamespace(Universe=lambda path: u))
     ranking = pd.DataFrame({"name": MOL, "atom": np.arange(1, len(fp) + 1), "fp": fp, "fp_round": np.round(fp, 1)})
@@ -63,7 +63,7 @@ def vendored_selection(u: mda.Universe, fp: np.ndarray, monkeypatch) -> Selectio
         return None
     if anti_bulk is None:  # ambiguous anchor
         return None
-    return SelectionResult(G1=pair(anti_bulk), G2=pair(bulk))
+    return G1G2Selection(G1=pair(anti_bulk), G2=pair(bulk))
 
 
 def test_matches_the_vendored_notebook_code_on_random_ligands(monkeypatch):
