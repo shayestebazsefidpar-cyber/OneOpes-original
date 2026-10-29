@@ -27,8 +27,11 @@ def run_command(cmd: list[str], cwd: Path, stdin: str | None = None) -> None:
 
 
 def prepare_system(*, ligand_gro: ExistingFile, ligand_top: ExistingFile, outdir: Path, mdp_dir: Path = MDP_DIR,
-                   box_distance_nm: float = 1.2, box_type: str = "cubic", water_model: str = "spc216",
-                   ion_conc: float = 0.0, pname: str = "NA", nname: str = "CL", gmx: str = "gmx",
+                   box_distance_nm: Annotated[float, Parameter(validator=Number(gt=0))] = 1.2,
+                   box_type: Literal["triclinic", "cubic", "dodecahedron", "octahedron"] = "cubic",
+                   water_model: str = "spc216",
+                   ion_conc: Annotated[float, Parameter(validator=Number(gte=0))] = 0.0,
+                   pname: str = "NA", nname: str = "CL", gmx: str = "gmx",
                    maxwarn: Annotated[int, Parameter(validator=Number(gte=0))] = 0,
                    start_from: Step = "box") -> None:
     """Build and equilibrate a ligand-in-water GROMACS system for the unbiased run the monitor follows.

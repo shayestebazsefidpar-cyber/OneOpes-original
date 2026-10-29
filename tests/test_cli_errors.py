@@ -3,7 +3,7 @@ import logging
 
 import MDAnalysis as mda
 import pytest
-from cyclopts import ValidationError
+from cyclopts import CycloptsError, ValidationError
 
 from ligand_systems import ligand_in_water
 from oneopes.cli import app, main
@@ -50,3 +50,12 @@ def test_monitor_options_are_checked_when_the_command_line_is_read(tmp_path, opt
     with pytest.raises(ValidationError):
         app.parse_args(["monitor", "--tpr", top, "--xtc", traj, option, value],
                        exit_on_error=False, print_error=False)
+
+
+@pytest.mark.parametrize("option, value", [("--box-distance-nm", "0"), ("--ion-conc", "-0.1"),
+                                           ("--box-type", "sphere"), ("--maxwarn", "-1")])
+def test_prepare_system_options_are_checked_when_the_command_line_is_read(tmp_path, option, value):
+    top, _ = ligand_in_water(tmp_path)
+    with pytest.raises(CycloptsError):
+        app.parse_args(["prepare-system", "--ligand-gro", top, "--ligand-top", top, "--outdir", str(tmp_path),
+                        option, value], exit_on_error=False, print_error=False)
