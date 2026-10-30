@@ -33,7 +33,7 @@ Every analysis command writes `run_metadata.json` (input hashes, options, versio
 | Command | Does | Docs |
 |---|---|---|
 | `prepare-system` | build and equilibrate the ligand-in-water system | [ligand_setup.md](docs/ligand_setup.md) |
-| `monitor` | WaterFP per block until G1/G2 is settled; stop mdrun; select G1/G2 | [ligand_monitor.md](docs/ligand_monitor.md) |
+| `monitor` | WaterFP per block until the G1/G2 anchors are settled; stop mdrun; select G1/G2 | [ligand_monitor.md](docs/ligand_monitor.md) |
 | `select`, `select-block` | G1/G2 over a frame window, or from the production of `blocks.nc` | [g1_g2.md](docs/g1_g2.md) |
 | `build-cv` | PLUMED fragment for G1/G2 (review before use) | [plumed_cv.md](docs/plumed_cv.md) |
 | `render` | figure of G1/G2 on the bound complex (PyMOL), with a legend | [render.md](docs/render.md) |
