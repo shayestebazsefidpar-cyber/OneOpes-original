@@ -13,7 +13,7 @@ from MDAnalysis.core.groups import AtomGroup
 
 from oneopes.block_run import chosen_block, estimate_at, load_run
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import drawn_selections, select_g1_g2, write_g1_g2_yaml
 from oneopes.provenance import provenance
 from oneopes.reports import write_hydration_files, write_run_metadata
 from oneopes.system import SystemOptions, load_universe, select_system
@@ -37,6 +37,13 @@ def write_selection(ligand: AtomGroup, hydration: xr.Dataset, outdir: Path, fp_r
     selection = select_g1_g2(ligand, hydration.fp.values, fp_round_decimals)
     write_g1_g2_yaml(selection, outdir / "g1_g2.yaml")
     logger.info("%s; wrote rdf.csv, fingerprints.csv and g1_g2.yaml to %s", selection, outdir)
+
+
+def write_selection_draws(ligand: AtomGroup, estimate: xr.Dataset, outdir: Path, fp_round_decimals: int) -> None:
+    """Write g1_g2_draws.csv: how often each G1/G2 selection comes out of FP drawn within the estimate's errors."""
+    draws = drawn_selections(ligand, estimate, fp_round_decimals)
+    draws.to_csv(outdir / "g1_g2_draws.csv", index=False)
+    logger.info("G1/G2 of FP drawn within the errors:\n%s", draws.to_string(index=False))
 
 
 def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
@@ -88,7 +95,7 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     run
         blocks.nc written by `oneopes monitor`.
     outdir
-        Directory for rdf.csv, fingerprints.csv, g1_g2.yaml and run_metadata.json.
+        Directory for rdf.csv, fingerprints.csv, g1_g2.yaml, g1_g2_draws.csv and run_metadata.json.
     block
         Block whose check found the production blocks (default: the converged block).
     fp_round_decimals
@@ -96,7 +103,9 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     """
     saved = load_run(run)
     chosen = chosen_block(saved, block)
-    hydration = estimate_at(saved, chosen)
+    estimate = estimate_at(saved, chosen)
     write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
         "block": chosen, "options": {"block": block, "fp_round_decimals": fp_round_decimals}})
-    write_selection(ligand_atoms(load_universe(tpr), hydration), hydration, outdir, fp_round_decimals)
+    ligand = ligand_atoms(load_universe(tpr), estimate)
+    write_selection(ligand, estimate, outdir, fp_round_decimals)
+    write_selection_draws(ligand, estimate, outdir, fp_round_decimals)

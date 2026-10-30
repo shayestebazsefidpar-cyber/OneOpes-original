@@ -17,8 +17,8 @@ from cyclopts.validators import Number
 from oneopes.block_run import BlockOptions, block_run, convergence_summary, estimate_at
 from oneopes.convergence import PrecisionGoal, check, converged_block
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import SettledSelection
-from oneopes.ligand.select import write_selection
+from oneopes.ligand.g1_g2 import SettledAnchors
+from oneopes.ligand.select import write_selection, write_selection_draws
 from oneopes.plots import write_charts
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
@@ -134,11 +134,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
             block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
             poll_seconds: Annotated[float, Parameter(validator=Number(gt=0))] = 30,
             fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1,
-            selection_confidence: Annotated[float, Parameter(validator=Number(gte=0, lte=1))] = 0.95) -> None:
-    """Follow an unbiased ligand-in-water run block by block and stop it once its G1/G2 selection is settled.
+            anchor_confidence: Annotated[float, Parameter(validator=Number(gte=0, lte=1))] = 0.95) -> None:
+    """Follow an unbiased ligand-in-water run block by block and stop it once its G1 and G2 anchors are settled.
 
     After --n-passes passing checks in a row, sends SIGTERM to mdrun and writes the G1/G2 selection
-    of the production blocks to --outdir/selection. docs/METHOD_RATIONALE.md explains the checks.
+    of the production blocks to --outdir/selection, with how often each selection comes out of FP
+    drawn within the errors (g1_g2_draws.csv). docs/METHOD_RATIONALE.md explains the checks.
 
     Parameters
     ----------
@@ -154,8 +155,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         Wait between polls for more trajectory frames.
     fp_round_decimals
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
-    selection_confidence
-        Fraction of FP draws within the errors that must give the same G1/G2 selection.
+    anchor_confidence
+        Fraction of FP draws within the errors that must have the same G1 and G2 anchors.
     """
     if mdrun_pid is not None and not mdrun_running(mdrun_pid):
         raise InputError(f"pid {mdrun_pid} is not a running gmx mdrun; for a finished run, leave the pid out.")
@@ -170,9 +171,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
                 hydration_options.grid.rmax_nm, hydration_options.grid.n_bins, hydration_options.norm_tail_bins)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    goal = SettledSelection(ligand, selection_confidence, fp_round_decimals)
-    run = follow_until_converged(u, xtc, sel, hydration_options, block_options, goal, outdir, mdrun_pid,
-                                 poll_seconds)
+    run = follow_until_converged(u, xtc, sel, hydration_options, block_options, SettledAnchors(anchor_confidence),
+                                 outdir, mdrun_pid, poll_seconds)
     summary = convergence_summary(run)
     if summary.converged_block is not None:
         logger.info("converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
@@ -182,7 +182,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     trajectory_end_ns = frame_time_ns(u, n_complete_frames(u, mdrun_pid) - 1)
     options = {"system_options": system_options, "hydration_options": hydration_options,
                "block_options": block_options, "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds,
-               "fp_round_decimals": fp_round_decimals, "selection_confidence": selection_confidence}
+               "fp_round_decimals": fp_round_decimals, "anchor_confidence": anchor_confidence}
     metadata = provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
@@ -193,7 +193,9 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
                     trajectory_end_ns, summary.n_blocks)
         return
 
+    estimate = estimate_at(run, summary.converged_block)
     try:
-        write_selection(ligand, estimate_at(run, summary.converged_block), outdir / "selection", fp_round_decimals)
+        write_selection(ligand, estimate, outdir / "selection", fp_round_decimals)
     except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)
+    write_selection_draws(ligand, estimate, outdir / "selection", fp_round_decimals)

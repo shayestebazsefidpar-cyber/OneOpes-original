@@ -1,9 +1,10 @@
-"""G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on: the selection rule from WaterFP, whether
-it is settled within the FP errors, and its g1_g2.yaml file."""
+"""G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on: the selection rule from WaterFP, how
+settled it is within the FP errors, and its g1_g2.yaml file."""
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 import yaml
 from MDAnalysis.core.groups import Atom, AtomGroup
@@ -69,29 +70,49 @@ def selection_or_none(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int) 
         return None
 
 
-SELECTION_RESAMPLES = 1000
-"""FP vectors drawn to test whether a G1/G2 selection is settled."""
+FP_DRAWS = 1000
+"""FP vectors drawn within the errors of an estimate, to see how settled its G1/G2 selection is."""
+
+
+def fp_draws(estimate: xr.Dataset) -> np.ndarray:
+    """FP_DRAWS FP vectors (one row each) drawn within the errors of a production estimate, always the same."""
+    return fp_samples(estimate, FP_DRAWS, np.random.default_rng(0))
 
 
 @dataclass(frozen=True)
-class SettledSelection:
-    """FP drawn within its errors gives the estimate's G1/G2 selection in at least ``confidence`` of the draws."""
-    ligand: AtomGroup
+class SettledAnchors:
+    """FP drawn within its errors has the estimate's G1 and G2 anchors in at least ``confidence`` of the draws.
+
+    The anchors are the most and the least negative FP atoms. Their partners are left out: two partners
+    whose FPs differ by less than their errors are a tie that more sampling hardly resolves.
+    """
     confidence: float = 0.95
-    fp_round_decimals: int = 1
 
     @property
     def description(self) -> str:
-        return f"the same G1/G2 selection in at least {self.confidence:.0%} of FP draws within the errors"
+        return f"the same G1 and G2 anchors in at least {self.confidence:.0%} of FP draws within the errors"
 
     def score(self, estimate: xr.Dataset) -> float:
-        """The fraction of FP draws within the estimate's errors that give the estimate's selection."""
-        chosen = selection_or_none(self.ligand, estimate.fp.values, self.fp_round_decimals)
-        draws = fp_samples(estimate, SELECTION_RESAMPLES, np.random.default_rng(0))
-        return float(np.mean([selection_or_none(self.ligand, fp, self.fp_round_decimals) == chosen for fp in draws]))
+        """The fraction of FP draws whose most and least negative atoms are the estimate's."""
+        draws = fp_draws(estimate)
+        fp = estimate.fp.values
+        same_anchors = (draws.argmin(axis=1) == fp.argmin()) & (draws.argmax(axis=1) == fp.argmax())
+        return float(same_anchors.mean())
 
     def met(self, score: float) -> bool:
         return score >= self.confidence
+
+
+def drawn_selections(ligand: AtomGroup, estimate: xr.Dataset, fp_round_decimals: int) -> pd.DataFrame:
+    """How often each G1/G2 selection comes out of FP drawn within the estimate's errors, most often first.
+
+    Columns G1, G2 (atom names; "none" where a pair does not exist) and fraction.
+    """
+    pairs = []
+    for fp in fp_draws(estimate):
+        selection = selection_or_none(ligand, fp, fp_round_decimals)
+        pairs.append(("none", "none") if selection is None else (selection.g1_names, selection.g2_names))
+    return pd.DataFrame(pairs, columns=["G1", "G2"]).value_counts(normalize=True).rename("fraction").reset_index()
 
 
 def bonds_from(atoms: AtomGroup, sources: list[int]) -> np.ndarray:

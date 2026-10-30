@@ -2,8 +2,8 @@
 
 After each block, a check looks at all the blocks so far:
 
-* production starts at the latest point, over the atoms, where their first-shell water counts have
-  equilibrated (Chodera 2016), and keeps at least the last two blocks;
+* production starts where the atoms' total first-shell water count has equilibrated (Chodera 2016),
+  and keeps at least the last two blocks;
 * FP of the production blocks together, corrected for its finite-sampling bias by a block jackknife,
   with its standard error;
 * drift: each atom's FP change from the first half of production to the second, in standard errors;
@@ -79,14 +79,14 @@ class FpPrecision:
 
 
 def production_start(shell_count: xr.DataArray) -> int:
-    """The block where production starts: the latest, over the atoms, at which equilibration ends (Chodera 2016).
+    """The block where production starts: where the atoms' total first-shell count has equilibrated (Chodera 2016).
 
     ``shell_count`` has dimensions block, frame and atom; equilibration can only end at the start of a block.
+    The total is one series: the latest start over the atoms would be decided by the noisiest atom.
     """
     block_length = shell_count.sizes["frame"]
-    series = shell_count.stack(time=("block", "frame")).transpose("atom", "time").values.astype(float)
-    start_frame = max(detect_equilibration(atom_series, nskip=block_length)[0] for atom_series in series)
-    return int(start_frame) // block_length
+    total = shell_count.sum("atom").stack(time=("block", "frame")).values.astype(float)
+    return int(detect_equilibration(total, nskip=block_length)[0]) // block_length
 
 
 def production(blocks: xr.Dataset) -> xr.Dataset:

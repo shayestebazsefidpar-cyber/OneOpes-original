@@ -12,7 +12,14 @@ from pydantic import ValidationError
 from ligand_systems import ligand_in_water
 from oneopes.cli import main
 from oneopes.errors import InputError
-from oneopes.ligand.g1_g2 import AtomRef, G1G2Selection, select_g1_g2, write_g1_g2_yaml
+from oneopes.ligand.g1_g2 import (
+    AtomRef,
+    G1G2Selection,
+    SettledAnchors,
+    drawn_selections,
+    select_g1_g2,
+    write_g1_g2_yaml,
+)
 from oneopes.ligand.select import ligand_atoms
 
 RAW = {
@@ -74,6 +81,34 @@ def test_farther_partner_with_the_same_fp_wins():
     """C2 and C5 share the rounded FP -0.3; C5 is farther from C0, so it becomes the partner."""
     fp = np.array([-1.0, -0.5, -0.31, -0.04, 0.0, -0.29])
     assert [a.name for a in select_g1_g2(chain(6), fp).G1] == ["C0", "C5"]
+
+
+def production_estimate_of(fp: list[float], fp_se: float) -> xr.Dataset:
+    """A production estimate of ``fp`` whose left-out FPs give each atom an independent error of about ``fp_se``."""
+    n_blocks = 50
+    rng = np.random.default_rng(0)
+    left_out = np.array(fp) + fp_se / np.sqrt(n_blocks - 1) * rng.standard_normal((n_blocks, len(fp)))
+    return xr.Dataset({"fp": ("atom", fp), "fp_left_out": (("block", "atom"), left_out)})
+
+
+def test_anchors_far_apart_from_the_other_atoms_are_settled():
+    estimate = production_estimate_of([-1.0, -0.5, -0.31, -0.04, 0.0, -0.29], fp_se=0.005)
+    assert SettledAnchors().score(estimate) == 1.0
+
+
+def test_anchors_tied_with_another_atom_are_not_settled():
+    estimate = production_estimate_of([-1.0, -0.99, -0.5, -0.3, 0.0, -0.2], fp_se=0.02)
+    assert not SettledAnchors(confidence=0.95).met(SettledAnchors().score(estimate))
+
+
+def test_tied_partners_leave_the_anchors_settled_and_show_in_the_draws():
+    """C2 and C5 round to -0.4 or -0.3 from draw to draw, so either can be G1's partner."""
+    estimate = production_estimate_of([-1.0, -0.5, -0.36, -0.2, 0.0, -0.34], fp_se=0.03)
+    assert SettledAnchors().score(estimate) == 1.0
+    draws = drawn_selections(chain(6), estimate, fp_round_decimals=1)
+    assert list(draws.columns) == ["G1", "G2", "fraction"]
+    assert {"C0, C2", "C0, C5"} <= set(draws["G1"])
+    assert draws["fraction"].sum() == pytest.approx(1.0) and draws["fraction"].is_monotonic_decreasing
 
 
 def test_atoms_not_bonded_into_one_molecule_are_rejected():

@@ -24,7 +24,7 @@ from oneopes.ligand.monitor import blocks_as_written, mdrun_running, stop_mdrun,
 
 N_FRAMES = 16
 BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 8 blocks
-PASSING = ["--min-blocks", "4", "--drift-alpha", "0", "--selection-confidence", "0"]
+PASSING = ["--min-blocks", "4", "--drift-alpha", "0", "--anchor-confidence", "0"]
 """Every check with four production blocks passes: the checks after blocks 3 and 4 converge the run at block 4."""
 NEVER_PASSING = ["--min-blocks", "1000"]
 
@@ -59,7 +59,9 @@ def test_stops_at_convergence_and_selects_g1_g2_on_the_production_blocks(tmp_pat
     again = tmp_path / "again"
     main(["select-block", "--tpr", str(tmp_path / "top.pdb"), "--run", str(outdir / "blocks.nc"),
           "--outdir", str(again), "--fp-round-decimals", "3"])
-    for name in ("g1_g2.yaml", "fingerprints.csv", "rdf.csv"):
+    draws = pd.read_csv(outdir / "selection" / "g1_g2_draws.csv")
+    assert draws["fraction"].sum() == pytest.approx(1.0)
+    for name in ("g1_g2.yaml", "fingerprints.csv", "rdf.csv", "g1_g2_draws.csv"):
         assert (again / name).read_text() == (outdir / "selection" / name).read_text(), name
     metadata = json.loads((again / "run_metadata.json").read_text())
     assert (metadata["block"], metadata["inputs"]["run"]["file"]) == (4, "blocks.nc")
