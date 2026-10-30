@@ -25,6 +25,8 @@ from scipy.special import xlogy
 from oneopes.errors import InputError
 
 NORM_TAIL_BINS_DEFAULT = 500
+FIRST_SHELL_NM = 0.35
+"""Radius of an atom's first water shell, whose water count is recorded every frame to find where equilibration ends."""
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,10 @@ class RadialGrid:
     def edges_A(self) -> np.ndarray:
         """The bin edges in Angstrom, the unit of MDAnalysis distances."""
         return convert(self.edges_nm, "nm", "A")
+
+    def bins_within(self, r_nm: float) -> int:
+        """How many bins lie within ``r_nm`` of the atom."""
+        return min(round(r_nm / self.binwidth_nm), self.n_bins)
 
     @property
     def r_nm(self) -> np.ndarray:
@@ -92,20 +98,25 @@ def count_waters_by_distance(solute: np.ndarray, waters: np.ndarray, grid: Radia
 
 def hydration_from_counts(counts: np.ndarray, n_frames: int, atoms: Sequence[str],
                           options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
-    """Density n(r) (waters/nm^3), bulk density, g(r) and FP of each atom, from its counts summed over ``n_frames``.
+    """Density n(r) (waters/nm^3), bulk density, g(r) and FP of each atom, from its counts summed over ``n_frames``."""
+    grid = options.grid
+    waters = xr.DataArray(counts, dims=("atom", "r_nm"), coords={"atom": list(atoms), "r_nm": grid.r_nm})
+    shell_volumes = xr.DataArray(grid.shell_volumes_nm3, dims="r_nm", coords={"r_nm": grid.r_nm})
+    return hydration_from_density(waters / n_frames / shell_volumes, options)
+
+
+def hydration_from_density(density: xr.DataArray, options: HydrationOptions = HydrationOptions()) -> xr.Dataset:
+    """Bulk density, g(r) and FP of each atom from its water density n(r), for any further dimensions of ``density``.
 
     Raises InputError when an atom has no water in the bulk tail.
     """
-    grid, tail_bins = options.grid, options.norm_tail_bins
-    waters = xr.DataArray(counts, dims=("atom", "r_nm"), coords={"atom": list(atoms), "r_nm": grid.r_nm})
-    shell_volumes = xr.DataArray(grid.shell_volumes_nm3, dims="r_nm", coords={"r_nm": grid.r_nm})
-    density = waters / n_frames / shell_volumes
+    tail_bins = options.norm_tail_bins
     bulk = density.isel(r_nm=slice(-tail_bins, None)).mean("r_nm")
-    if (bulk == 0).any():
-        no_water = bulk.atom[bulk == 0].values.tolist()
-        raise InputError(f"No water in the bulk tail (last {tail_bins} bins, up to {grid.rmax_nm} nm) around "
-                         f"atoms {no_water}: check the water selection and that the box holds water that far "
-                         "from the solute.")
+    no_bulk = (bulk == 0).any([dim for dim in bulk.dims if dim != "atom"])
+    if no_bulk.any():
+        raise InputError(f"No water in the bulk tail (last {tail_bins} bins, up to {options.grid.rmax_nm} nm) "
+                         f"around atoms {bulk.atom[no_bulk].values.tolist()}: check the water selection and that "
+                         "the box holds water that far from the solute.")
     g = density / bulk
     fp = (-2 * np.pi * bulk * (xlogy(g, g) - g + 1) * g.r_nm ** 2).integrate("r_nm")
     return xr.Dataset({"density": density, "bulk": bulk, "g": g, "fp": fp})
@@ -136,9 +147,10 @@ class WaterFP(AnalysisBase):
 
     def _prepare(self) -> None:
         self.results.counts = np.zeros((self.solute.n_atoms, self.options.grid.n_bins), dtype=np.int64)
+        self.results.shell_counts = np.zeros((self.n_frames, self.solute.n_atoms), dtype=np.int64)
 
     def _single_frame(self) -> None:
-        """Add this frame's counts; warn when the box is too small for rmax."""
+        """Add this frame's counts and record its first-shell counts; warn when the box is too small for rmax."""
         box, grid = self._ts.dimensions, self.options.grid
         if box is not None and grid.edges_A[-1] > 0.5 * min(box[:3]):
             warnings.warn(
@@ -148,14 +160,16 @@ class WaterFP(AnalysisBase):
                 RuntimeWarning,
                 stacklevel=2,
             )
-        self.results.counts += count_waters_by_distance(self.solute.positions, self.water_oxygens.positions,
-                                                        grid, box)
+        counts = count_waters_by_distance(self.solute.positions, self.water_oxygens.positions, grid, box)
+        self.results.counts += counts
+        self.results.shell_counts[self._frame_index] = counts[:, :grid.bins_within(FIRST_SHELL_NM)].sum(axis=1)
 
     def _get_aggregator(self) -> ResultsGroup:
-        return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum})
+        return ResultsGroup(lookup={"counts": ResultsGroup.ndarray_sum, "shell_counts": ResultsGroup.ndarray_vstack})
 
     def _conclude(self) -> None:
         measured = hydration_from_counts(self.results.counts, self.n_frames, self.labels, self.options)
+        measured = measured.assign(shell_count=(("frame", "atom"), self.results.shell_counts))
         self.results.hydration = measured.assign_coords(atom_index=("atom", self.solute.indices))
 
 

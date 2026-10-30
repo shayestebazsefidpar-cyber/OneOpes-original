@@ -4,9 +4,17 @@ analysis, and the water structure and FP integral in hydration_from_counts().
 """
 import numpy as np
 import pytest
+import xarray as xr
 
 from oneopes.errors import InputError
-from oneopes.waterfp import HydrationOptions, RadialGrid, WaterFP, hydration_from_counts, measure_hydration
+from oneopes.waterfp import (
+    HydrationOptions,
+    RadialGrid,
+    WaterFP,
+    hydration_from_counts,
+    hydration_from_density,
+    measure_hydration,
+)
 from water_systems import random_universe, universe_from_coordinates
 
 BULK_DENSITY_NM3 = 33.4  # water-O number density of bulk water
@@ -134,7 +142,27 @@ def test_measure_hydration_covers_the_given_frames():
     solute, water = u.atoms[:3], u.atoms[3:]
     counts = WaterFP(solute, water).run(start=1, stop=3).results.counts
     expected = hydration_from_counts(counts, 2, list(solute.names)).assign_coords(atom_index=("atom", [0, 1, 2]))
-    assert measure_hydration(solute, water, range(1, 3)).identical(expected)
+    measured = measure_hydration(solute, water, range(1, 3))
+    assert measured.drop_vars("shell_count").identical(expected)
+    assert measured.shell_count.sizes == {"frame": 2, "atom": 3}
+
+
+def test_the_first_shell_count_of_each_frame_is_recorded():
+    """A water 0.3 nm from the atom, then 0.4 nm: in the first shell (0.35 nm), then not; a bulk water stays out."""
+    near, far = [28.0, 25.0, 25.0], [29.0, 25.0, 25.0]
+    bulk = [25.0, 43.0025, 25.0]
+    coords = np.array([[[25.0, 25.0, 25.0], near, bulk], [[25.0, 25.0, 25.0], far, bulk]], dtype=np.float32)
+    u = universe_from_coordinates(coords)
+    assert WaterFP(u.atoms[:1], u.atoms[1:]).run().results.shell_counts.tolist() == [[1], [0]]
+
+
+def test_hydration_from_density_works_along_further_dimensions():
+    """A density per block gives each block the hydration it has alone."""
+    counts = [bulk_water_counts(), bulk_water_counts()]
+    counts[1][:, :50] = 0
+    alone = [hydration_from_counts(block_counts, BULK_FRAMES, ["C1"]) for block_counts in counts]
+    together = hydration_from_density(xr.concat([hydration.density for hydration in alone], dim="block"))
+    assert np.allclose(together.fp.values, [hydration.fp.values for hydration in alone])
 
 
 def test_a_wrong_number_of_labels_is_rejected():
