@@ -1,6 +1,7 @@
-"""A block run: the measured trajectory blocks, each compared with the one before, as one Dataset (blocks.nc).
+"""A block run: the measured trajectory blocks, each with the convergence check after it, as one Dataset (blocks.nc).
 
-Its attributes hold the settings and facts of the run; the convergence summary is derived from it, not stored.
+Its attributes hold the settings and facts of the run; the convergence summary and the FP estimates
+are derived from it, not stored.
 """
 
 import json
@@ -13,18 +14,26 @@ import numpy as np
 import xarray as xr
 from cyclopts import Parameter
 
-from oneopes.convergence import DEFAULT_TOLERANCES, ConvergenceSummary, Tolerances, compare_blocks, summarize
+from oneopes.convergence import (
+    DEFAULT_CRITERIA,
+    ConvergenceCriteria,
+    ConvergenceSummary,
+    PrecisionGoal,
+    production_estimate,
+    summarize,
+    with_checks,
+)
 from oneopes.errors import InputError
-from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT, stack_blocks
-from oneopes.waterfp import HydrationOptions
+from oneopes.trajectory_blocks import BLOCK_NS_DEFAULT
+from oneopes.waterfp import HydrationOptions, RadialGrid
 
 
 @dataclass(frozen=True)
 class BlockOptions:
-    """How long a block is, and when consecutive blocks count as converged."""
+    """How long a block is, and when the checks after the blocks mean converged."""
     block_ns: float = BLOCK_NS_DEFAULT
-    """Trajectory block size (ns)."""
-    tolerances: Annotated[Tolerances, Parameter(name="*")] = DEFAULT_TOLERANCES
+    """Trajectory block size (ns): the unit of the jackknife, and how often the run is checked."""
+    criteria: Annotated[ConvergenceCriteria, Parameter(name="*")] = DEFAULT_CRITERIA
 
     def __post_init__(self) -> None:
         if not self.block_ns > 0:
@@ -33,7 +42,7 @@ class BlockOptions:
 
 def settings(block_options: BlockOptions, hydration_options: HydrationOptions) -> dict[str, float]:
     """The options a run is made with, as flat attributes."""
-    return {"block_ns": block_options.block_ns, **asdict(block_options.tolerances),
+    return {"block_ns": block_options.block_ns, **asdict(block_options.criteria),
             **asdict(hydration_options.grid), "norm_tail_bins": hydration_options.norm_tail_bins}
 
 
@@ -41,25 +50,31 @@ SETTINGS = list(settings(BlockOptions(), HydrationOptions()))
 """The attributes holding the settings of a run."""
 
 
-def block_run(measured: Sequence[xr.Dataset], block_options: BlockOptions, hydration_options: HydrationOptions,
-              **facts: str | float | list[str]) -> xr.Dataset:
-    """The measured blocks, stacked and compared, with the settings and ``facts`` as attributes."""
-    compared = compare_blocks(stack_blocks(measured), block_options.tolerances)
-    return compared.assign_attrs(**settings(block_options, hydration_options), **facts)
+def block_run(blocks: xr.Dataset, checks: Sequence[xr.Dataset], block_options: BlockOptions,
+              hydration_options: HydrationOptions, goal: PrecisionGoal, **facts: str | float | list[str]) -> xr.Dataset:
+    """The stacked ``blocks`` with the check after each, and the settings, the goal and ``facts`` as attributes."""
+    return with_checks(blocks, checks).assign_attrs(**settings(block_options, hydration_options),
+                                                    goal=goal.description, **facts)
 
 
 def block_options_of(run: xr.Dataset) -> BlockOptions:
     """The block options a run was made with, rebuilt from its attributes."""
-    tolerances = Tolerances(fp_rel_tol=float(run.attrs["fp_rel_tol"]),
-                            rdf_nrmsd_tol=float(run.attrs["rdf_nrmsd_tol"]),
-                            spearman_tol=float(run.attrs["spearman_tol"]), n_stable=int(run.attrs["n_stable"]))
-    return BlockOptions(block_ns=float(run.attrs["block_ns"]), tolerances=tolerances)
+    criteria = ConvergenceCriteria(min_blocks=int(run.attrs["min_blocks"]),
+                                   drift_alpha=float(run.attrs["drift_alpha"]),
+                                   n_passes=int(run.attrs["n_passes"]))
+    return BlockOptions(block_ns=float(run.attrs["block_ns"]), criteria=criteria)
+
+
+def hydration_options_of(run: xr.Dataset) -> HydrationOptions:
+    """The hydration options a run was made with, rebuilt from its attributes."""
+    grid = RadialGrid(rmax_nm=float(run.attrs["rmax_nm"]), binwidth_nm=float(run.attrs["binwidth_nm"]))
+    return HydrationOptions(grid=grid, norm_tail_bins=int(run.attrs["norm_tail_bins"]))
 
 
 def convergence_summary(run: xr.Dataset) -> ConvergenceSummary:
-    """What comparing the blocks of a run concluded."""
+    """What the checks of a run concluded."""
     options = block_options_of(run)
-    return summarize(run, options.block_ns, options.tolerances)
+    return summarize(run, options.block_ns, options.criteria)
 
 
 def facts_of(run: xr.Dataset) -> dict[str, Any]:
@@ -73,7 +88,7 @@ def metadata_of(run: xr.Dataset) -> dict[str, Any]:
     return json.loads(run.attrs["metadata"])
 
 
-def chosen_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:
+def chosen_block(run: xr.Dataset, block: int | None = None) -> int:
     """Block ``block`` of a run, by default its converged block; raises InputError when there is none."""
     if block is None:
         block = convergence_summary(run).converged_block
@@ -81,7 +96,20 @@ def chosen_block(run: xr.Dataset, block: int | None = None) -> xr.Dataset:
             raise InputError("The run did not converge: choose a block.")
     if block not in run.block:
         raise InputError(f"The run has blocks 0 to {run.sizes['block'] - 1}, not {block}.")
-    return run.sel(block=block)
+    return block
+
+
+def production_at(run: xr.Dataset, block: int) -> xr.Dataset:
+    """The production blocks as the check after ``block`` found them; raises InputError if that block has no check."""
+    start = run.production_start_block.sel(block=block)
+    if np.isnan(start):
+        raise InputError(f"Block {block} has no check: production needs at least two blocks.")
+    return run.sel(block=slice(int(start), block))
+
+
+def estimate_at(run: xr.Dataset, block: int) -> xr.Dataset:
+    """FP and hydration of the production blocks as the check after ``block`` found them."""
+    return production_estimate(production_at(run, block), hydration_options_of(run))
 
 
 def save_run(run: xr.Dataset, path: Path) -> None:

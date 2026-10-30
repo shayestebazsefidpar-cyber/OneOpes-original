@@ -17,8 +17,8 @@ monitor:
   xtc: build/prod.xtc
   outdir: outputs/convergence
   ligand-selection: resname MOL
-  block-ns: 5.0
-  n-stable: 3
+  block-ns: 1.0
+  min-blocks: 10
 
 select-block:
   tpr: build/prod.tpr

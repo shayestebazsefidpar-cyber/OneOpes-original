@@ -8,7 +8,7 @@ from MDAnalysis import Universe
 
 from oneopes.errors import InputError
 
-BLOCK_NS_DEFAULT = 5.0
+BLOCK_NS_DEFAULT = 1.0
 
 
 def frame_step_ps(u: Universe, n_frames: int | None = None) -> float:

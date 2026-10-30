@@ -1,14 +1,17 @@
-"""G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on: the selection rule from WaterFP, and
-its g1_g2.yaml file."""
+"""G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on: the selection rule from WaterFP, whether
+it is settled within the FP errors, and its g1_g2.yaml file."""
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import xarray as xr
 import yaml
 from MDAnalysis.core.groups import Atom, AtomGroup
 from pydantic import BaseModel
 from scipy.sparse import coo_array
 from scipy.sparse.csgraph import connected_components, shortest_path
 
+from oneopes.convergence import fp_samples
 from oneopes.errors import InputError
 
 SAME_FP_WITHIN = 0.2
@@ -56,6 +59,39 @@ def select_g1_g2(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int = 1) -
     g2 = bulk_partner(bonds_from_last)
     return G1G2Selection(G1=(AtomRef.of(atoms[first]), AtomRef.of(atoms[g1])),
                            G2=(AtomRef.of(atoms[last]), AtomRef.of(atoms[g2])))
+
+
+def selection_or_none(atoms: AtomGroup, fp: np.ndarray, fp_round_decimals: int) -> G1G2Selection | None:
+    """The G1/G2 selection, or None when a pair does not exist."""
+    try:
+        return select_g1_g2(atoms, fp, fp_round_decimals)
+    except InputError:
+        return None
+
+
+SELECTION_RESAMPLES = 1000
+"""FP vectors drawn to test whether a G1/G2 selection is settled."""
+
+
+@dataclass(frozen=True)
+class SettledSelection:
+    """FP drawn within its errors gives the estimate's G1/G2 selection in at least ``confidence`` of the draws."""
+    ligand: AtomGroup
+    confidence: float = 0.95
+    fp_round_decimals: int = 1
+
+    @property
+    def description(self) -> str:
+        return f"the same G1/G2 selection in at least {self.confidence:.0%} of FP draws within the errors"
+
+    def score(self, estimate: xr.Dataset) -> float:
+        """The fraction of FP draws within the estimate's errors that give the estimate's selection."""
+        chosen = selection_or_none(self.ligand, estimate.fp.values, self.fp_round_decimals)
+        draws = fp_samples(estimate, SELECTION_RESAMPLES, np.random.default_rng(0))
+        return float(np.mean([selection_or_none(self.ligand, fp, self.fp_round_decimals) == chosen for fp in draws]))
+
+    def met(self, score: float) -> bool:
+        return score >= self.confidence
 
 
 def bonds_from(atoms: AtomGroup, sources: list[int]) -> np.ndarray:

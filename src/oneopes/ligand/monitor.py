@@ -7,21 +7,23 @@ from pathlib import Path
 from typing import Annotated
 
 import MDAnalysis as mda
+import numpy as np
 import psutil
 import xarray as xr
 from cyclopts import Parameter
 from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 
-from oneopes.block_run import BlockOptions, block_run, chosen_block, convergence_summary
-from oneopes.convergence import converged_block
+from oneopes.block_run import BlockOptions, block_run, convergence_summary, estimate_at
+from oneopes.convergence import PrecisionGoal, check, converged_block
 from oneopes.errors import InputError
+from oneopes.ligand.g1_g2 import SettledSelection
 from oneopes.ligand.select import write_selection
 from oneopes.plots import write_charts
 from oneopes.provenance import provenance
 from oneopes.reports import write_run
 from oneopes.system import SystemOptions, SystemSelection, load_universe, select_system
-from oneopes.trajectory_blocks import Block, frame_step_ps, frame_time_ns, frames_per_block
+from oneopes.trajectory_blocks import Block, frame_step_ps, frame_time_ns, frames_per_block, stack_blocks
 from oneopes.waterfp import HydrationOptions, measure_hydration
 
 logger = logging.getLogger(__name__)
@@ -85,20 +87,20 @@ def stop_mdrun(pid: int | None) -> None:
 
 
 def log_progress(run: xr.Dataset) -> None:
-    """Log the latest transition of a block run."""
-    if run.sizes["block"] < 2:
-        return
+    """Log the check after the latest block of a block run."""
     latest = run.isel(block=-1)
-    logger.info("block %d (t=%.1f ns): max|dFP/FP|=%.3f max_nRMSD_RDF=%.3f spearman=%.3f stable=%s streak=%d",
-                latest.block, latest.t_end_ns, latest.fp_change, latest.rdf_nrmsd, latest.spearman_rho,
-                bool(latest.passed), latest.stable_in_a_row)
-
+    if np.isnan(latest.production_start_block):
+        return
+    logger.info("block %d (t=%.1f ns): production from %.1f ns (%d blocks), max drift z=%.2f (limit %.2f), "
+                "goal score=%.3f, passed=%s, in a row=%d", latest.block, latest.t_end_ns, latest.production_start_ns,
+                latest.n_production_blocks, latest.max_drift_z, latest.drift_limit, latest.goal_score,
+                bool(latest.passed), latest.passes_in_a_row)
 
 
 def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hydration_options: HydrationOptions,
-                           block_options: BlockOptions, outdir: Path, mdrun_pid: int | None,
+                           block_options: BlockOptions, goal: PrecisionGoal, outdir: Path, mdrun_pid: int | None,
                            poll_seconds: float) -> xr.Dataset:
-    """Measure, compare and write each block as mdrun writes it, until convergence or until mdrun stops.
+    """Measure, check and write each block as mdrun writes it, until convergence or until mdrun stops.
 
     Raises InputError when mdrun ends before the first block is complete.
     """
@@ -108,15 +110,17 @@ def follow_until_converged(u: mda.Universe, xtc: Path, sel: SystemSelection, hyd
     block_length = frames_per_block(block_options.block_ns, dt_ps)
     logger.info("dt/frame = %s ps -> %d frames/block (%s ns)", dt_ps, block_length, block_options.block_ns)
 
-    measured, run = [], None
+    measured, checks, run = [], [], None
     for frames in blocks_as_written(u, xtc, block_length, mdrun_pid, poll_seconds):
         block = Block.of(u, frames, dt_ps)
         measured.append(block.label(measure_hydration(ligand, water, block.frames, hydration_options)))
-        run = block_run(measured, block_options, hydration_options, ligand_selection=sel.ligand_selection,
-                        ligand_heavy_atoms=list(ligand.names))
+        blocks = stack_blocks(measured)
+        checks.append(check(blocks, block_options.criteria, hydration_options, goal))
+        run = block_run(blocks, checks, block_options, hydration_options, goal,
+                        ligand_selection=sel.ligand_selection, ligand_heavy_atoms=list(ligand.names))
         write_run(outdir, run)
         log_progress(run)
-        if converged_block(run, block_options.tolerances.n_stable) is not None:
+        if converged_block(run, block_options.criteria.n_passes) is not None:
             break
     if run is None:
         raise InputError("mdrun ended before the first block was complete; nothing to report.")
@@ -129,11 +133,12 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
             hydration_options: Annotated[HydrationOptions, Parameter(name="*")] = HydrationOptions(),
             block_options: Annotated[BlockOptions, Parameter(name="*")] = BlockOptions(),
             poll_seconds: Annotated[float, Parameter(validator=Number(gt=0))] = 30,
-            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
-    """Follow an unbiased ligand-in-water run block by block and stop it once its hydration has converged.
+            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1,
+            selection_confidence: Annotated[float, Parameter(validator=Number(gte=0, lte=1))] = 0.95) -> None:
+    """Follow an unbiased ligand-in-water run block by block and stop it once its G1/G2 selection is settled.
 
-    After --n-stable stable transitions in a row, sends SIGTERM to mdrun and writes the G1/G2 selection
-    of the converged block to --outdir/selection. docs/METHOD_RATIONALE.md explains the criteria.
+    After --n-passes passing checks in a row, sends SIGTERM to mdrun and writes the G1/G2 selection
+    of the production blocks to --outdir/selection. docs/METHOD_RATIONALE.md explains the checks.
 
     Parameters
     ----------
@@ -149,6 +154,8 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         Wait between polls for more trajectory frames.
     fp_round_decimals
         Decimals FP is rounded to when the G1/G2 selection compares atoms.
+    selection_confidence
+        Fraction of FP draws within the errors that must give the same G1/G2 selection.
     """
     if mdrun_pid is not None and not mdrun_running(mdrun_pid):
         raise InputError(f"pid {mdrun_pid} is not a running gmx mdrun; for a finished run, leave the pid out.")
@@ -163,7 +170,9 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
                 hydration_options.grid.rmax_nm, hydration_options.grid.n_bins, hydration_options.norm_tail_bins)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    run = follow_until_converged(u, xtc, sel, hydration_options, block_options, outdir, mdrun_pid, poll_seconds)
+    goal = SettledSelection(ligand, selection_confidence, fp_round_decimals)
+    run = follow_until_converged(u, xtc, sel, hydration_options, block_options, goal, outdir, mdrun_pid,
+                                 poll_seconds)
     summary = convergence_summary(run)
     if summary.converged_block is not None:
         logger.info("converged at block %d (%s ns)", summary.converged_block, summary.converged_ns)
@@ -173,7 +182,7 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
     trajectory_end_ns = frame_time_ns(u, n_complete_frames(u, mdrun_pid) - 1)
     options = {"system_options": system_options, "hydration_options": hydration_options,
                "block_options": block_options, "mdrun_pid": mdrun_pid, "poll_seconds": poll_seconds,
-               "fp_round_decimals": fp_round_decimals}
+               "fp_round_decimals": fp_round_decimals, "selection_confidence": selection_confidence}
     metadata = provenance({"tpr": tpr, "xtc": xtc}) | {
         "ligand_selection": sel.ligand_selection, "water_selection": sel.water_selection, "options": options}
     run = run.assign_attrs(trajectory_end_ns=trajectory_end_ns)
@@ -185,6 +194,6 @@ def monitor(mdrun_pid: int | None = None, /, *, tpr: ExistingFile = Path("prod.t
         return
 
     try:
-        write_selection(ligand, chosen_block(run), outdir / "selection", fp_round_decimals)
+        write_selection(ligand, estimate_at(run, summary.converged_block), outdir / "selection", fp_round_decimals)
     except InputError as e:
         logger.warning("no G1/G2 selection: %s", e)

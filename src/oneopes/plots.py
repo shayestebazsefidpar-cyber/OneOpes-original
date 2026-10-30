@@ -22,11 +22,17 @@ def per_atom(chart: alt.Chart | alt.LayerChart, run: xr.Dataset) -> alt.FacetCha
     return chart.properties(**PANEL_SIZE).facet(atoms, columns=PANELS_PER_ROW).resolve_axis(x="independent")
 
 
+def time_rule(ns: float, stroke_dash: list[int]) -> alt.Chart:
+    """A grey vertical line at ``ns`` in each panel."""
+    one_per_panel = alt.Chart().transform_aggregate(groupby=["atom"], points="count()")
+    return one_per_panel.mark_rule(strokeDash=stroke_dash, color="grey").encode(x=alt.datum(ns))
+
+
 def fp_chart(run: xr.Dataset) -> alt.FacetChart:
     """Each atom's FP against the blocks' mid time, as a change from its mean, on one shared scale.
 
-    A relative change, as the convergence criterion measures it, keeps atoms with very different FPs
-    comparable. A dashed line marks the end of the converged block.
+    A relative change keeps atoms with very different FPs comparable. A solid line marks where
+    production starts, as the last check found it, and a dashed line the end of the converged block.
     """
     data = run.fp.to_dataframe().reset_index()[["atom", "block", "t_mid_ns", "fp"]]
     mean_fp = data.groupby("atom")["fp"].transform("mean")
@@ -37,10 +43,11 @@ def fp_chart(run: xr.Dataset) -> alt.FacetChart:
         tooltip=["block:O", "t_mid_ns:Q", "fp:Q", alt.Tooltip("fp_change_pct:Q", format=".1f")],
     )
     layers = [fp]
-    converged_ns = convergence_summary(run).converged_ns
-    if converged_ns is not None:
-        one_per_panel = alt.Chart().transform_aggregate(groupby=["atom"], points="count()")
-        layers.append(one_per_panel.mark_rule(strokeDash=[4, 4], color="grey").encode(x=alt.datum(converged_ns)))
+    summary = convergence_summary(run)
+    if summary.production_start_ns is not None:
+        layers.append(time_rule(summary.production_start_ns, []))
+    if summary.converged_ns is not None:
+        layers.append(time_rule(summary.converged_ns, [4, 4]))
     return per_atom(alt.LayerChart(layer=layers, data=data), run)
 
 

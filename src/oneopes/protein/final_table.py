@@ -1,4 +1,4 @@
-"""The final per-atom table: FP, Contact and Bridge over the whole analysed trajectory, and static SASA."""
+"""The final per-atom table: FP with its error, Contact and Bridge over the production blocks, and static SASA."""
 
 import pandas as pd
 import xarray as xr
@@ -18,6 +18,8 @@ TABLE_NAMES = {
     "chain_id": "Chain_ID",
     "min_distance_to_ligand_A": "Min_distance_to_ligand_A",
     "fp": "FP",
+    "fp_se": "FP_SE",
+    "fp_uncorrected": "FP_uncorrected",
     "contact_occupancy": CONTACT_COLUMN,
     "bridge_occupancy": "Bridge_occupancy",
     "sasa": "SASA_A2",
@@ -27,9 +29,10 @@ TABLE_NAMES = {
 FINAL_COLUMNS = ["FP_Rank", *TABLE_NAMES.values()]
 
 
-def build_final_table(full: xr.Dataset) -> pd.DataFrame:
-    """One row per candidate atom, ranked by FP: its coordinates, FP, occupancies and SASA."""
-    table = full[["fp", "contact_occupancy", "bridge_occupancy", "sasa"]].to_dataframe().reset_index()
+def build_final_table(final: xr.Dataset) -> pd.DataFrame:
+    """One row per candidate atom, ranked by FP: its coordinates, FP with its error, occupancies and SASA."""
+    values = ["fp", "fp_se", "fp_uncorrected", "contact_occupancy", "bridge_occupancy", "sasa"]
+    table = final[values].to_dataframe().reset_index()
     table = table.rename(columns=TABLE_NAMES)
     table["FP_Rank"] = fp_ranks(table["FP"])
     return table[FINAL_COLUMNS].sort_values("FP_Rank").reset_index(drop=True)
@@ -38,6 +41,8 @@ def build_final_table(full: xr.Dataset) -> pd.DataFrame:
 MARKDOWN_DECIMALS = {
     "Min_distance_to_ligand_A": 2,
     "FP": 3,
+    "FP_SE": 3,
+    "FP_uncorrected": 3,
     CONTACT_COLUMN: 3,
     "Bridge_occupancy": 3,
     "SASA_A2": 2,

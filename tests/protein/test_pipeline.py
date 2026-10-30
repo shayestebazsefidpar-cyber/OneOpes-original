@@ -8,8 +8,9 @@ import pytest
 
 from cyclopts import ValidationError
 
-from oneopes.block_run import BlockOptions, load_run, metadata_of
+from oneopes.block_run import BlockOptions, estimate_at, load_run, metadata_of
 from oneopes.cli import app, main
+from oneopes.convergence import CHECK_VARIABLES, ConvergenceCriteria
 from oneopes.protein import analysis as analysis_module
 from oneopes.protein.analysis import AnalysisOptions, analysis_details, run_analysis, write_outputs
 from oneopes.provenance import to_json
@@ -96,23 +97,25 @@ def test_final_table_has_every_candidate_once(analysis):
     assert list(table["FP_Rank"]) == list(range(1, len(table) + 1)) and table["FP"].is_monotonic_increasing
 
 
-def test_final_values_cover_the_full_trajectory_not_one_block(tmp_path):
+def test_final_values_are_over_the_production_blocks_the_last_check_found(tmp_path):
     from oneopes.protein.contacts import Contacts
     from oneopes.waterfp import measure_hydration
 
-    n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame
+    n_frames = 13  # 6 blocks of 2 frames + 1 trailing frame, in no block
     u, _meta = _run(tmp_path, n_frames=n_frames)
     table = pd.read_csv(tmp_path / "final_per_atom_table.csv").set_index("Atom")
+    run = load_run(tmp_path / "blocks.nc")
+    production_frames = range(2 * int(run.production_start_block[-1]), 12)
     sel = select_system(u)
     labels = list(pd.read_csv(tmp_path / "candidate_atom_mapping.csv")["Atom"])
     idx = table.loc[labels, "Atom_index"].to_numpy()
-    fp_full = measure_hydration(u.atoms[idx], sel.water(u), range(n_frames)).fp
-    contacts = Contacts(u.atoms[idx], sel.ligand(u), sel.water(u)).run().results
-    np.testing.assert_allclose(table.loc[labels, "FP"], fp_full, rtol=1e-12)
+    fp = measure_hydration(u.atoms[idx], sel.water(u), production_frames).fp
+    contacts = Contacts(u.atoms[idx], sel.ligand(u), sel.water(u)).run(production_frames.start, 12).results
+    np.testing.assert_allclose(table.loc[labels, "FP_uncorrected"], fp, rtol=1e-12)
+    np.testing.assert_allclose(table.loc[labels, "FP"], estimate_at(run, 5).fp.sel(atom=labels))
     np.testing.assert_allclose(table.loc[labels, "Contact_occupancy_5A"], contacts.contact_occupancy)
     np.testing.assert_allclose(table.loc[labels, "Bridge_occupancy"], contacts.bridge_occupancy)
-    last_block = pd.read_csv(tmp_path / "fp_values_per_block.csv").query("block == block.max()").set_index("atom")
-    assert not np.allclose(table.loc[labels, "FP"], last_block.loc[labels, "FP"])  # not the last block
+    assert (table["FP_SE"] > 0).all()
 
 
 @pytest.mark.parametrize("n_frames, dt_ps, t0_ps", [(7, 1000.0, 0.0), (12, 1000.0, 0.0), (17, 1000.0, 0.0),
@@ -129,55 +132,46 @@ def test_arbitrary_lengths_blocks_and_transitions_derived_from_trajectory(tmp_pa
     assert summary["n_blocks"] == n_blocks
     assert meta["frames"].analysed.stop - meta["frames"].blocks[-1].frames.stop == n_frames - n_blocks * fpb
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
-    assert len(metrics) == n_blocks - 1
-    expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(1, n_blocks)]
+    assert len(metrics) == n_blocks
+    expected_ends = [t0_ps / 1000.0 + BLOCK_NS * (b + 1) for b in range(n_blocks)]
     np.testing.assert_allclose(metrics["t_end_ns"], expected_ends)
     np.testing.assert_allclose(metrics["t_start_ns"], np.array(expected_ends) - BLOCK_NS)
 
 
 def test_convergence_reported_retrospectively_and_analysis_continues(tmp_path):
-    # Near-static trajectory: every transition is stable, so sustained convergence is reached
-    # at the end of block 3 (third stable transition); all later blocks must still be analysed.
+    """A static trajectory: from four production blocks every check passes, so the run converges at block 4,
+    the second passing check; all later blocks are still analysed."""
     n_frames = 20  # 10 blocks
-    _run(tmp_path, n_frames=n_frames, noise=0.0)
+    options = AnalysisOptions(block_options=BlockOptions(block_ns=BLOCK_NS, criteria=ConvergenceCriteria(min_blocks=4)))
+    _run(tmp_path, options, n_frames=n_frames, noise=0.0)
     summary = json.loads((tmp_path / "convergence_summary.json").read_text())
     metrics = pd.read_csv(tmp_path / "convergence_metrics.csv")
-    assert metrics["passed"].all()
+    assert list(metrics["passed"]) == [False] * 3 + [True] * 7
     assert summary["converged"] is True
-    assert summary["converged_ns"] == pytest.approx(4 * BLOCK_NS)
-    assert summary["converged_block"] == 3
-    assert summary["n_blocks"] == 10 and len(metrics) == 9  # nothing truncated
-    assert summary["unstable_after_convergence"] == 0
+    assert summary["converged_ns"] == pytest.approx(5 * BLOCK_NS)
+    assert summary["converged_block"] == 4
+    assert summary["n_blocks"] == 10 and len(metrics) == 10  # nothing truncated
+    assert summary["failed_after_convergence"] == 0
     assert pd.read_csv(tmp_path / "fp_values_per_block.csv")["block"].max() == 9
-    assert list(metrics["stable_in_a_row"]) == list(range(1, 10))
+    assert list(metrics["passes_in_a_row"]) == [0, 0, 0, 1, 2, 3, 4, 5, 6, 7]
     assert summary["analysis_end_ns"] - summary["analysis_start_ns"] == pytest.approx((n_frames - 1) * DT_PS / 1000.0)
 
 
 def test_convergence_metrics_are_a_separate_table(analysis):
     _u, _meta, out = analysis
     metrics = pd.read_csv(out / "convergence_metrics.csv")
-    for col in ("block", "t_start_ns", "t_end_ns", "fp_change", "fp_pass", "rdf_nrmsd", "rdf_pass",
-                "spearman_rho", "spearman_pass", "passed", "stable_in_a_row"):
+    for col in ("block", "t_start_ns", "t_end_ns", *CHECK_VARIABLES, "passes_in_a_row"):
         assert col in metrics.columns, col
     table = pd.read_csv(out / "final_per_atom_table.csv")
     assert not set(metrics.columns) & set(table.columns)
 
 
-def test_worst_case_metrics_match_per_atom_block_data(analysis):
-    from oneopes.convergence import nrmsd
-
+def test_the_last_check_scores_the_final_values(analysis):
     _u, _meta, out = analysis
-    fp = pd.read_csv(out / "fp_values_per_block.csv")
-    rdf = pd.read_csv(out / "rdf_profiles_per_block.csv")
-    metrics = pd.read_csv(out / "convergence_metrics.csv").set_index("block")
-    last, prev = fp["block"].max(), fp["block"].max() - 1
-    f_last = fp[fp.block == last].set_index("atom")["FP"]
-    f_prev = fp[fp.block == prev].set_index("atom")["FP"]
-    rel = (f_last - f_prev).abs() / f_prev.abs().clip(lower=1e-6)
-    assert metrics.loc[last, "fp_change"] == pytest.approx(rel.max(), rel=1e-9)
-    g = rdf.set_index(["block", "atom", "r_nm"])["g_r"].to_xarray()
-    worst = float(nrmsd(g.sel(block=last), g.sel(block=prev)).max())
-    assert metrics.loc[last, "rdf_nrmsd"] == pytest.approx(worst, rel=1e-6)
+    last = pd.read_csv(out / "convergence_metrics.csv").iloc[-1]
+    table = pd.read_csv(out / "final_per_atom_table.csv")
+    assert last["max_drift_z"] == pytest.approx(estimate_at(load_run(out / "blocks.nc"), 5).drift_z.max())
+    assert last["goal_score"] == pytest.approx((table["FP_SE"] / table["FP"].abs()).max())
 
 
 def test_block_data_kept_for_every_block_and_atom(analysis):
@@ -191,7 +185,7 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
                                       "Atom_serial", "Atom_name", "Residue_name", "Residue_number", "Chain_ID",
                                       "Min_distance_to_ligand_A", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
     assert len(contacts) == n_blocks * n
-    assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks - 1
+    assert len(pd.read_csv(out / "convergence_metrics.csv")) == n_blocks
     assert len(meta["frames"].blocks) == n_blocks
     assert len(pd.read_csv(out / "rdf_profiles_per_block.csv")) == n_blocks * n * 2001
     ranks = pd.read_csv(out / "fp_ranking_by_block_wide.csv", index_col=0)
@@ -200,7 +194,7 @@ def test_block_data_kept_for_every_block_and_atom(analysis):
     assert ranks[last].idxmin() == values[last].idxmin()  # rank 1 = most negative in every file
     summary = json.loads((out / "convergence_summary.json").read_text())
     assert summary["n_blocks"] == n_blocks and summary["block_ns"] == BLOCK_NS
-    assert summary["tolerances"] == {"fp_rel_tol": 0.10, "rdf_nrmsd_tol": 0.15, "spearman_tol": 0.90, "n_stable": 3}
+    assert summary["criteria"] == {"min_blocks": 10, "drift_alpha": 0.05, "n_passes": 2}
 
 
 def test_cli_end_to_end_from_files(tmp_path):

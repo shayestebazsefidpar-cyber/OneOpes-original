@@ -32,7 +32,7 @@ def with_config(*tokens: Annotated[str, Parameter(show=False, allow_leading_hyph
     Parameters
     ----------
     config
-        YAML file with one section per subcommand, e.g. ``monitor: {block-ns: 2.0, n-stable: 4}``
+        YAML file with one section per subcommand, e.g. ``monitor: {block-ns: 2.0, min-blocks: 8}``
         (see configs/example.yaml).
     """
     app.config = () if config is None else Yaml(config, must_exist=True)
@@ -42,9 +42,11 @@ def with_config(*tokens: Annotated[str, Parameter(show=False, allow_leading_hyph
 def main(argv: Sequence[str] | None = None) -> None:
     """Run ``oneopes``, logging its progress (and other libraries' warnings) to stderr.
 
+    pymbar's import-time notices (no JAX; read statistical inefficiencies with care) are not logged.
     An InputError ends the run with its message and exit code 1; any other exception keeps its traceback.
     """
     logging.basicConfig(format="[%(module)s] %(message)s", level=logging.WARNING)
+    logging.getLogger("pymbar").setLevel(logging.ERROR)
     logger = logging.getLogger("oneopes")
     logger.setLevel(logging.INFO)
     try:

@@ -6,12 +6,13 @@ from oneopes.protein.final_table import FINAL_COLUMNS, build_final_table, final_
 
 REQUIRED = [
     "FP_Rank", "Atom", "Atom_index", "Atom_serial", "Atom_name", "Residue_name", "Residue_number",
-    "Chain_ID", "Min_distance_to_ligand_A", "FP", "Contact_occupancy_5A", "Bridge_occupancy", "SASA_A2",
+    "Chain_ID", "Min_distance_to_ligand_A", "FP", "FP_SE", "FP_uncorrected", "Contact_occupancy_5A",
+    "Bridge_occupancy", "SASA_A2",
 ]
 
 
 def _full():
-    """The full-range Dataset of three candidates: their values, SASA, and details as coordinates."""
+    """The final values of three candidates: their FP with its error, occupancies, SASA, and details as coordinates."""
     details = {
         "atom": ["GLY3_CA_id8", "SER4_OG_id15", "TRP9_NE1_id60"],
         "atom_index": ("atom", [7, 14, 59]), "atom_serial": ("atom", [8, 15, 60]),
@@ -19,7 +20,8 @@ def _full():
         "residue_number": ("atom", [3, 4, 9]), "chain_id": ("atom", ["", "", ""]),
         "min_distance_to_ligand_A": ("atom", [6.1, 2.9, 8.8]),
     }
-    return xr.Dataset({"fp": ("atom", [-5.0, -21.0, -0.7]), "contact_occupancy": ("atom", [0.2, 1.0, 0.0]),
+    return xr.Dataset({"fp": ("atom", [-5.0, -21.0, -0.7]), "fp_se": ("atom", [0.1, 0.4, 0.05]),
+                       "fp_uncorrected": ("atom", [-5.2, -21.5, -0.8]), "contact_occupancy": ("atom", [0.2, 1.0, 0.0]),
                        "bridge_occupancy": ("atom", [0.1, 0.4, 0.0]), "sasa": ("atom", [3.0, 11.5, 25.0])},
                       coords=details)
 

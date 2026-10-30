@@ -10,7 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from oneopes.block_run import convergence_summary, facts_of, save_run
-from oneopes.convergence import transitions
+from oneopes.convergence import ESTIMATE_VARIABLES, checks_of
 from oneopes.provenance import to_json
 
 
@@ -28,13 +28,13 @@ def fp_by_block(run: xr.Dataset) -> pd.DataFrame:
 
 
 def write_block_tables(outdir: Path, run: xr.Dataset) -> None:
-    """Write the block-wise CSVs: FP, g(r) and FP rank per block, and the transitions (convergence_metrics.csv)."""
+    """Write the block-wise CSVs: FP, g(r) and FP rank per block, and the checks (convergence_metrics.csv)."""
     run.fp.to_dataframe(name="FP").to_csv(outdir / "fp_values_per_block.csv")
     run.g.reset_coords(drop=True).to_dataframe(name="g_r").to_csv(outdir / "rdf_profiles_per_block.csv")
     fp_wide = fp_by_block(run)
     fp_wide.to_csv(outdir / "fp_values_by_block_wide.csv")
     fp_ranks(fp_wide).to_csv(outdir / "fp_ranking_by_block_wide.csv")
-    transitions(run).to_dataframe().to_csv(outdir / "convergence_metrics.csv")
+    checks_of(run).to_dataframe().to_csv(outdir / "convergence_metrics.csv")
 
 
 def write_summary(path: Path, run: xr.Dataset) -> None:
@@ -59,7 +59,11 @@ def write_run(outdir: Path, run: xr.Dataset, metadata: Mapping[str, Any] | None 
 
 
 def write_hydration_files(hydration: xr.Dataset, outdir: Path) -> None:
-    """Write rdf.csv (atom, r_nm, n_r: water-O density, waters/nm^3) and fingerprints.csv (atom, fp)."""
+    """Write rdf.csv (atom, r_nm, n_r: water-O density, waters/nm^3) and fingerprints.csv (atom, fp, ...).
+
+    fingerprints.csv holds the values of a production estimate that ``hydration`` has: at least fp.
+    """
     outdir.mkdir(parents=True, exist_ok=True)
     hydration.density.reset_coords(drop=True).to_dataframe(name="n_r").to_csv(outdir / "rdf.csv")
-    hydration.fp.reset_coords(drop=True).to_dataframe(name="fp").to_csv(outdir / "fingerprints.csv")
+    fingerprints = hydration[[name for name in ESTIMATE_VARIABLES if name in hydration]].reset_coords(drop=True)
+    fingerprints.to_dataframe().to_csv(outdir / "fingerprints.csv")

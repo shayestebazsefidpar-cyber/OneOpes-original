@@ -11,13 +11,13 @@ from oneopes.errors import InputError
 
 
 def test_a_tolerance_that_means_nothing_stops_the_run_with_one_line(tmp_path, caplog):
-    """The InputError comes from building Tolerances while the command line is read."""
+    """The InputError comes from building ConvergenceCriteria while the command line is read."""
     top, traj = ligand_in_water(tmp_path)
     with pytest.raises(SystemExit) as exit_info:
-        main(["monitor", "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out"), "--n-stable", "0"])
+        main(["monitor", "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out"), "--n-passes", "0"])
     assert exit_info.value.code == 1
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
-    assert errors == ["error: n_stable must be at least 1, got 0."]
+    assert errors == ["error: n_passes must be at least 1, got 0."]
     assert not (tmp_path / "out").exists()
 
 

@@ -11,7 +11,7 @@ from cyclopts.types import ExistingFile
 from cyclopts.validators import Number
 from MDAnalysis.core.groups import AtomGroup
 
-from oneopes.block_run import chosen_block, load_run
+from oneopes.block_run import chosen_block, estimate_at, load_run
 from oneopes.errors import InputError
 from oneopes.ligand.g1_g2 import select_g1_g2, write_g1_g2_yaml
 from oneopes.provenance import provenance
@@ -46,7 +46,7 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
            fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
     """Select G1/G2, the ligand heavy-atom pairs the ligand-side CV is built on, from WaterFP over a frame window.
 
-    The monitor already does this for its converged block; use this command for any other frame window.
+    The monitor already does this for its production blocks; use this command for any other frame window.
 
     Parameters
     ----------
@@ -77,9 +77,9 @@ def select(*, tpr: ExistingFile, xtc: ExistingFile, outdir: Path,
 
 def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: int | None = None,
                  fp_round_decimals: Annotated[int, Parameter(validator=Number(gte=0))] = 1) -> None:
-    """Select G1/G2 from one block of a saved block run, by default its converged block.
+    """Select G1/G2 from a saved block run: on the production blocks the check after a block found.
 
-    Reads the block's FP from --run, so the trajectory is not read again.
+    By default that block is the converged one. Reads the blocks from --run, so the trajectory is not read again.
 
     Parameters
     ----------
@@ -90,11 +90,13 @@ def select_block(*, tpr: ExistingFile, run: ExistingFile, outdir: Path, block: i
     outdir
         Directory for rdf.csv, fingerprints.csv, g1_g2.yaml and run_metadata.json.
     block
-        Block to select on (default: the converged block).
+        Block whose check found the production blocks (default: the converged block).
     fp_round_decimals
         Decimals FP is rounded to when comparing atoms.
     """
-    hydration = chosen_block(load_run(run), block)
+    saved = load_run(run)
+    chosen = chosen_block(saved, block)
+    hydration = estimate_at(saved, chosen)
     write_run_metadata(outdir, provenance({"tpr": tpr, "run": run}) | {
-        "block": int(hydration.block), "options": {"block": block, "fp_round_decimals": fp_round_decimals}})
+        "block": chosen, "options": {"block": block, "fp_round_decimals": fp_round_decimals}})
     write_selection(ligand_atoms(load_universe(tpr), hydration), hydration, outdir, fp_round_decimals)

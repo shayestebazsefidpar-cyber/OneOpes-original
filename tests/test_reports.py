@@ -4,7 +4,16 @@ import json
 
 import pandas as pd
 
-from oneopes.convergence import DEFAULT_TOLERANCES, Tolerances, compare_blocks, stable_in_a_row
+from oneopes.block_run import BlockOptions, block_run
+from oneopes.convergence import (
+    CHECK_VARIABLES,
+    UNCHECKED,
+    ConvergenceCriteria,
+    FpPrecision,
+    check_every_block,
+    production_estimate,
+    with_checks,
+)
 from oneopes.reports import (
     fp_ranks,
     write_block_tables,
@@ -13,52 +22,41 @@ from oneopes.reports import (
 )
 from oneopes.trajectory_blocks import stack_blocks
 from oneopes.waterfp import measure_hydration
-from synthetic_blocks import one_frame_blocks
+from synthetic_blocks import COARSE_OPTIONS, one_frame_blocks, water_blocks
 from water_systems import random_universe
-
-TOL = DEFAULT_TOLERANCES
-ALWAYS_STABLE = Tolerances(fp_rel_tol=float("inf"), rdf_nrmsd_tol=float("inf"), spearman_tol=-1.0)
 
 
 def _measured_blocks(n_blocks, labels=None, block_ns=1.0, start_ns=0.0):
-    """Hydration of three solute atoms in one-frame blocks of block_ns ns from start_ns."""
+    """Hydration of three solute atoms in one-frame blocks of block_ns ns from start_ns, not checked."""
     u = random_universe(n_frames=n_blocks)
     solute, water = u.atoms[:3], u.atoms[3:]
-    return stack_blocks([block.label(measure_hydration(solute, water, block.frames, labels=labels))
-                         for block in one_frame_blocks(n_blocks, block_ns, start_ns)])
+    blocks = stack_blocks([block.label(measure_hydration(solute, water, block.frames, labels=labels))
+                           for block in one_frame_blocks(n_blocks, block_ns, start_ns)])
+    return with_checks(blocks, [UNCHECKED] * n_blocks)
 
 
-def _write_block_tables(outdir, blocks):
-    write_block_tables(outdir, compare_blocks(blocks, TOL))
-
-
-def test_convergence_metrics_rows_and_times(tmp_path):
-    """Six blocks of 2.5 ns from 12.5 ns: one row per block after the first."""
-    _write_block_tables(tmp_path, _measured_blocks(6, block_ns=2.5, start_ns=12.5))
+def test_convergence_metrics_has_the_check_after_each_block(tmp_path):
+    """Six blocks of 2.5 ns from 12.5 ns: one row per block."""
+    write_block_tables(tmp_path, _measured_blocks(6, block_ns=2.5, start_ns=12.5))
     table = pd.read_csv(tmp_path / "convergence_metrics.csv")
-    assert list(table.columns) == [
-        "block", "fp_change", "rdf_nrmsd", "spearman_rho", "fp_pass", "rdf_pass", "spearman_pass", "passed",
-        "stable_in_a_row", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns"]
-    assert list(table["block"]) == [1, 2, 3, 4, 5]
-    assert list(table["t_end_ns"]) == [17.5, 20.0, 22.5, 25.0, 27.5]
-    assert list(table["stable_in_a_row"]) == stable_in_a_row(list(table["passed"]))
-
-
-def test_a_single_block_has_no_transitions_but_keeps_the_header(tmp_path):
-    _write_block_tables(tmp_path, _measured_blocks(1))
-    assert (tmp_path / "convergence_metrics.csv").read_text().startswith("block,fp_change,")
-    assert pd.read_csv(tmp_path / "convergence_metrics.csv").empty
+    assert list(table.columns) == ["block", *CHECK_VARIABLES, "passes_in_a_row", "t_start_ns", "t_end_ns", "n_frames",
+                                   "t_mid_ns"]
+    assert list(table["block"]) == [0, 1, 2, 3, 4, 5]
+    assert list(table["t_end_ns"]) == [15.0, 17.5, 20.0, 22.5, 25.0, 27.5]
 
 
 def test_write_summary_adds_the_run_facts_to_the_summary(tmp_path):
-    blocks = _measured_blocks(4)
-    run = compare_blocks(blocks, ALWAYS_STABLE).assign_attrs(block_ns=1.0, **dataclasses.asdict(ALWAYS_STABLE),
-                                                             ligand_heavy_atoms=["C1", "O1"])
+    options = BlockOptions(criteria=ConvergenceCriteria(min_blocks=4))
+    goal = FpPrecision(rel_se_tol=1.0)
+    blocks = water_blocks([0.5] * 6)
+    run = block_run(blocks, check_every_block(blocks, options.criteria, COARSE_OPTIONS, goal), options,
+                    COARSE_OPTIONS, goal, ligand_heavy_atoms=["C1", "O1"])
     write_summary(tmp_path / "summary.json", run)
     written = json.loads((tmp_path / "summary.json").read_text())
-    assert written["tolerances"] == dataclasses.asdict(ALWAYS_STABLE)
-    assert written["converged_block"] == 3 and written["ligand_heavy_atoms"] == ["C1", "O1"]
-    assert "block_ns" in written and "n_stable" not in written
+    assert written["criteria"] == dataclasses.asdict(options.criteria)
+    assert written["converged_block"] == 4 and written["ligand_heavy_atoms"] == ["C1", "O1"]
+    assert written["goal"] == goal.description
+    assert "block_ns" in written and "n_passes" not in written
 
 
 def test_fp_rank_one_is_the_most_negative_fp():
@@ -73,14 +71,13 @@ def test_fp_ranks_per_block_with_ties_in_atom_order():
 
 def test_write_block_tables(tmp_path):
     """Five CSVs; wide tables keep the atoms' order (not alphabetical) and rank each block's FP."""
-    blocks = _measured_blocks(4, labels=["c", "a", "b"])
-    write_block_tables(tmp_path, compare_blocks(blocks, TOL))
+    write_block_tables(tmp_path, _measured_blocks(4, labels=["c", "a", "b"]))
 
     fp_long = pd.read_csv(tmp_path / "fp_values_per_block.csv")
     assert list(fp_long.columns) == ["block", "atom", "atom_index", "t_start_ns", "t_end_ns", "n_frames", "t_mid_ns",
                                      "FP"]
     assert len(fp_long) == 4 * 3
-    assert len(pd.read_csv(tmp_path / "convergence_metrics.csv")) == 3
+    assert len(pd.read_csv(tmp_path / "convergence_metrics.csv")) == 4
     rdf = pd.read_csv(tmp_path / "rdf_profiles_per_block.csv")
     assert list(rdf.columns) == ["block", "atom", "r_nm", "g_r"]
     assert rdf["block"].nunique() == 4
@@ -101,3 +98,9 @@ def test_write_hydration_files(tmp_path):
     fingerprints = pd.read_csv(tmp_path / "selection" / "fingerprints.csv")
     assert list(fingerprints.columns) == ["atom", "fp"]
     assert list(fingerprints["atom"]) == ["c", "a", "b"]
+
+
+def test_the_fingerprints_of_a_production_estimate_have_its_errors(tmp_path):
+    write_hydration_files(production_estimate(water_blocks([0.5] * 4), COARSE_OPTIONS), tmp_path)
+    fingerprints = pd.read_csv(tmp_path / "fingerprints.csv")
+    assert list(fingerprints.columns) == ["atom", "fp", "fp_se", "fp_uncorrected", "drift_z"]
