@@ -304,8 +304,7 @@ trajectory (length detected from the input)
 * **Candidates**: protein (MDAnalysis `protein`) heavy atoms (topology mass
   ≥ 1.5, not H) whose minimum distance to any ligand heavy atom in
   `--complex` is ≤ the cutoff. Computed once; never filtered afterwards.
-* **WaterFP / RDF**: reused from `ligand_waterfp` (`make_bins`,
-  `compute_density_profile`, `fp_from_density_profile`): water-oxygen number
+* **WaterFP / RDF**: the shared `waterfp.WaterFP` analysis: water-oxygen number
   density 0–2.001 nm in 0.001 nm bins, bulk norm from the last 500 bins.
 * **Contact**: fraction of frames with the candidate within 5 Å of any ligand
   heavy atom. **Bridge**: fraction of frames with ≥1 water oxygen within

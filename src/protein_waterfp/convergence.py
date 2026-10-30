@@ -1,11 +1,9 @@
 """
-Block-wise WaterFP for the candidate atoms and the convergence verdict.
+Convergence verdict over the blocks' WaterFP results.
 
-Reuses the tracked ligand-side implementation unchanged:
+Reuses the shared implementations unchanged:
 
-* RDF: ``ligand_waterfp.waterfp.calculate_rdf.make_bins`` /
-  ``compute_density_profile`` (water-O number density, 0-2.001 nm, 0.001 nm bins).
-* FP: ``ligand_waterfp.waterfp.calculate_fingerprint.fp_from_density_profile``.
+* FP and g(r) of each block: ``waterfp.WaterFP`` (run by ``cli.run_analysis``).
 * Stability of one block transition:
   ``ligand_waterfp.convergence.monitor_convergence.check_stability`` with
   ``Tolerances`` (FP relative change, RDF nRMSD, Spearman; all three must pass).
@@ -23,16 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import numpy as np
 import pandas as pd
+from MDAnalysis.analysis.results import Results
 from ligand_waterfp.convergence.monitor_convergence import Tolerances, check_stability
-from ligand_waterfp.waterfp.calculate_fingerprint import NORM_TAIL_BINS_DEFAULT, fp_from_density_profile
-from ligand_waterfp.waterfp.calculate_rdf import (
-    RDF_BINWIDTH_NM_DEFAULT,
-    RDF_RMAX_NM_DEFAULT,
-    compute_density_profile,
-    make_bins,
-)
 
 DEFAULT_TOLERANCES = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
 
@@ -60,14 +51,12 @@ class ConvergenceTracker:
     first_converged_block: int | None = None
     first_converged_ns: float | None = None
     rows: list = field(default_factory=list)
-    _prev: tuple | None = None
+    _prev: Results | None = None
 
-    def add_block(self, block: int, t_start_ns: float, t_end_ns: float, fp: dict, g: dict,
-                  order: list[str]) -> None:
-        rank = fp_ranks(fp, order)
+    def add_block(self, block: int, t_start_ns: float, t_end_ns: float, current: Results) -> None:
+        """Score the transition from the previous block to ``current`` (a block's WaterFP results)."""
         if self._prev is not None:
-            prev_fp, prev_g, prev_rank = self._prev
-            res = check_stability(fp, g, rank, prev_fp, prev_g, prev_rank, self.tol)
+            res = check_stability(current, self._prev, self.tol)
             self.streak = self.streak + 1 if res.block_stable else 0
             if self.streak >= self.tol.n_stable and self.first_converged_block is None:
                 self.first_converged_block = block
@@ -88,7 +77,7 @@ class ConvergenceTracker:
                 "stable_transition_count": self.streak,
                 "convergence_reached": self.first_converged_block is not None,
             })
-        self._prev = (fp, g, rank)
+        self._prev = current
 
     @property
     def status(self) -> str:
@@ -105,17 +94,3 @@ class ConvergenceTracker:
         return {"n_transitions_after_first_convergence": len(later),
                 "n_unstable_transitions_after_first_convergence": unstable,
                 "remained_stable_after_first_convergence": unstable == 0}
-
-
-def block_waterfp(u, start: int, end: int, cand_idx, water_o_idx, labels: list[str],
-                  rmax_nm: float = RDF_RMAX_NM_DEFAULT, binwidth_nm: float = RDF_BINWIDTH_NM_DEFAULT,
-                  norm_tail_bins: int = NORM_TAIL_BINS_DEFAULT):
-    """FP and g(r) of each candidate over frames [start, end) (ligand-side WaterFP code)."""
-    _edges_nm, centers_nm, edges_a, shell_vol = make_bins(rmax_nm, binwidth_nm)
-    n_r = compute_density_profile(u, np.asarray(cand_idx), np.asarray(water_o_idx), start, end, edges_a, shell_vol)
-    fp, g = {}, {}
-    for i, name in enumerate(labels):
-        value, g_i, _norm = fp_from_density_profile(n_r[i], centers_nm, binwidth_nm, norm_tail_bins)
-        fp[name] = float(value)
-        g[name] = g_i
-    return fp, g, centers_nm

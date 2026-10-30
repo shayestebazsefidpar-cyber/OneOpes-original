@@ -27,9 +27,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from waterfp import WaterFP
 
 from . import __version__
-from .convergence import DEFAULT_TOLERANCES, ConvergenceTracker, block_waterfp, fp_ranks
+from .convergence import DEFAULT_TOLERANCES, ConvergenceTracker, fp_ranks
 from .final_table import build_final_table, final_table_markdown
 from .sasa import static_sasa
 from .selection import (
@@ -100,34 +101,30 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
         f"{len(plan.blocks) - 1} transitions; {plan.unused_tail_frames} trailing frame(s) not in a complete block")
 
     tracker = ConvergenceTracker(tol=DEFAULT_TOLERANCES)
-    fp_rows, contact_rows = [], []
+    fp_tables, contact_rows = [], []
     rdf_path = outdir / "rdf_profiles_per_block.csv"
-    if rdf_path.exists():
-        rdf_path.unlink()
-    n = len(cand_idx)
+    candidate_atoms = u_traj.atoms[cand_idx]
+    water_oxygens = u_traj.atoms[sel.water_oxygens]
     for b, (start, end) in enumerate(plan.blocks):
         t_start = _frame_time_ns(u_traj, start)
         t_end = t_start + block_len_ns
-        fp, g, r_nm = block_waterfp(u_traj, start, end, cand_idx, sel.water_oxygens, labels)
+        block = WaterFP(candidate_atoms, water_oxygens).run(start=start, stop=end)
         st = structural_block(u_traj, start, end, cand_idx, sel.ligand_heavy, sel.water_oxygens)
-        tracker.add_block(b, t_start, t_end, fp, g, labels)
+        tracker.add_block(b, t_start, t_end, block.results)
+
+        fp_table = block.fp_table(labels).assign(block=b, t_start_ns=t_start, t_end_ns=t_end,
+                                                 t_mid_ns=0.5 * (t_start + t_end))
+        fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
+        rdf_table = block.profile_table(labels).assign(block=b)[["block", "atom", "r_nm", "g_r"]]
+        rdf_table.to_csv(rdf_path, mode="w" if b == 0 else "a", header=(b == 0), index=False)
         for i, a in enumerate(labels):
-            fp_rows.append({"block": b, "t_start_ns": t_start, "t_end_ns": t_end,
-                            "t_mid_ns": 0.5 * (t_start + t_end), "atom": a, "FP": fp[a]})
             contact_rows.append({"block": b, "t_start_ns": t_start, "t_end_ns": t_end, "atom": a,
                                  "Contact_occupancy_5A": float(st.contact_occupancy[i]),
                                  "Bridge_occupancy": float(st.bridge_occupancy[i]), "n_frames": st.n_frames})
-        rdf_block = pd.DataFrame({
-            "block": b,
-            "atom": np.repeat(labels, len(r_nm)),
-            "r_nm": np.tile(r_nm, n),
-            "g_r": np.concatenate([g[a] for a in labels]),
-        })
-        rdf_block.to_csv(rdf_path, mode="a", header=(b == 0), index=False)
         streak_txt = tracker.rows[-1]["stable_transition_count"] if tracker.rows else "-"
         log(f"[protein-waterfp] block {b} ({t_start:g}-{t_end:g} ns) done; stable transitions in a row: {streak_txt}")
 
-    fp_df = pd.DataFrame(fp_rows)
+    fp_df = pd.concat(fp_tables, ignore_index=True)
     _write_csv(fp_df, outdir / "fp_values_per_block.csv")
     _write_csv(pd.DataFrame(contact_rows), outdir / "contact_occupancy_per_block.csv")
     _write_csv(pd.DataFrame(tracker.rows), outdir / "convergence_metrics.csv")
@@ -139,12 +136,12 @@ def run_analysis(u_complex, u_traj, options: AnalysisOptions, outdir, log=print,
 
     # Final values: the same WaterFP / Contact / Bridge code applied to the whole analysed range.
     log(f"[protein-waterfp] full-trajectory pass over frames {first}-{last - 1}")
-    fp_full, _g_full, _r = block_waterfp(u_traj, first, last, cand_idx, sel.water_oxygens, labels)
+    fp_full = WaterFP(candidate_atoms, water_oxygens).run(start=first, stop=last).results.fp
     st_full = structural_block(u_traj, first, last, cand_idx, sel.ligand_heavy, sel.water_oxygens)
 
     sasa = static_sasa(u_complex, sel.protein_all, sel.ligand_all, cand_idx)
     table = build_final_table(
-        candidates, fp_full,
+        candidates, dict(zip(labels, fp_full.tolist())),
         dict(zip(labels, st_full.contact_occupancy.tolist())),
         dict(zip(labels, st_full.bridge_occupancy.tolist())),
         sasa, final_analysis_time_ns, tracker.first_converged_ns,

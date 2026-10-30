@@ -1,18 +1,24 @@
 """Convergence: the ligand-side all-three rule, 3 consecutive transitions, reported retrospectively."""
 
 import numpy as np
+from MDAnalysis.analysis.results import Results
 
 from protein_waterfp.convergence import DEFAULT_TOLERANCES, ConvergenceTracker, fp_ranks
 
-ATOMS = [f"a{i}" for i in range(6)]
-G = {a: np.linspace(0.0, 2.0, 50) for a in ATOMS}
+N_ATOMS = 6
+G = np.tile(np.linspace(0.0, 2.0, 50), (N_ATOMS, 1))  # same g(r) for every atom
 
 
 def _fp(scale=1.0, swap=False):
-    base = [-30.0, -22.0, -15.0, -9.0, -4.0, -1.0]
+    base = np.array([-30.0, -22.0, -15.0, -9.0, -4.0, -1.0])
     if swap:
         base = base[::-1]
-    return {a: v * scale for a, v in zip(ATOMS, base)}
+    return base * scale
+
+
+def _block(fp, g=G):
+    """A block's WaterFP results, as ConvergenceTracker.add_block() receives them."""
+    return Results(fp=fp, g=g)
 
 
 def test_reused_ligand_side_thresholds():
@@ -23,9 +29,9 @@ def test_reused_ligand_side_thresholds():
 def test_three_consecutive_stable_transitions_required():
     tr = ConvergenceTracker()
     for b in range(3):  # 2 stable transitions only
-        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _fp(), G, ATOMS)
+        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _block(_fp()))
     assert tr.status == "NOT_CONVERGED"
-    tr.add_block(3, 15.0, 20.0, _fp(), G, ATOMS)  # third stable transition
+    tr.add_block(3, 15.0, 20.0, _block(_fp()))  # third stable transition
     assert tr.status == "CONVERGED" and tr.first_converged_block == 3
 
 
@@ -33,7 +39,7 @@ def test_all_three_criteria_required_fp_change_alone_breaks_stability():
     tr = ConvergenceTracker()
     for b in range(6):
         scale = 1.15 ** b  # same ranking, same g(r), FP changes 15% per block
-        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _fp(scale), G, ATOMS)
+        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _block(_fp(scale)))
     assert all(r["Spearman_pass"] and r["RDF_pass"] and not r["FP_pass"] for r in tr.rows)
     assert tr.status == "NOT_CONVERGED"
 
@@ -41,15 +47,15 @@ def test_all_three_criteria_required_fp_change_alone_breaks_stability():
 def test_rdf_change_alone_breaks_stability():
     tr = ConvergenceTracker()
     for b in range(6):
-        g = {a: np.linspace(0.0, 2.0, 50) * (1.0 + 0.5 * (b % 2)) for a in ATOMS}
-        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _fp(), g, ATOMS)
+        g = G * (1.0 + 0.5 * (b % 2))
+        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _block(_fp(), g))
     assert any(not r["RDF_pass"] for r in tr.rows) and tr.status == "NOT_CONVERGED"
 
 
 def test_spearman_only_stability_is_insufficient():
     tr = ConvergenceTracker()
     for b in range(8):
-        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _fp(1.0 + 0.3 * b), G, ATOMS)
+        tr.add_block(b, 5.0 * b, 5.0 * (b + 1), _block(_fp(1.0 + 0.3 * b)))
     assert all(r["Spearman_rho"] >= 0.9 for r in tr.rows)
     assert tr.status == "NOT_CONVERGED"
 
@@ -62,7 +68,7 @@ def test_rank_one_is_most_negative_fp():
 def _run(fps, t0=0.0, block_ns=5.0):
     tr = ConvergenceTracker()
     for b, fp in enumerate(fps):
-        tr.add_block(b, t0 + block_ns * b, t0 + block_ns * (b + 1), fp, G, ATOMS)
+        tr.add_block(b, t0 + block_ns * b, t0 + block_ns * (b + 1), _block(fp))
     return tr
 
 

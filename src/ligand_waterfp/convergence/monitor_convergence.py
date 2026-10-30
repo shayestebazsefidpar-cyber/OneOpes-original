@@ -5,12 +5,9 @@ ligand-in-water unbiased MD run.
 This script owns only the ONLINE, BLOCK-WISE, CONVERGENCE-TESTING logic
 (splitting an accumulating trajectory into blocks, comparing consecutive
 blocks, deciding when to stop). The actual RDF and WaterFP math is not
-duplicated here - it is imported from the sibling `waterfp` subpackage,
-which implements those calculations independently of any
-convergence/blocking concept:
-
-  - waterfp.calculate_rdf.compute_density_profile()   - per-atom water density n(r)
-  - waterfp.calculate_fingerprint.fp_from_density_profile() - n(r) -> FP, g(r)
+duplicated here - each block is analysed with the shared `waterfp.WaterFP`
+analysis (FP and g(r) per atom), which has no notion of convergence or
+blocks.
 
 For each block of --block-ns newly-accumulated nanoseconds, this script
 tracks, per ligand heavy atom:
@@ -42,11 +39,12 @@ Usage (after `pip install -e .` from the package root):
 The computational/reporting pieces main() used to do inline are pulled out
 into their own functions, each returning data rather than printing it:
 
-    analyze_block()    - one block's trajectory data -> FP/g(r)/ranking
-    check_stability()  - two blocks' FP/g(r)/ranking -> stability verdict
+    check_stability()  - two blocks' FP/g(r) -> stability verdict
     plot_atom()        - one atom's accumulated history -> two PNG files
     write_reports()    - the full run's accumulated history -> summary
                           dict + the wide-format CSVs/JSON/TXT report files
+
+Each block itself is analysed directly with `waterfp.WaterFP`.
 
 main() itself only coordinates: it owns the block-polling loop (which
 needs live state - a growing trajectory, streak counters, accumulator
@@ -72,13 +70,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import MDAnalysis as mda
+from MDAnalysis.analysis.results import Results
 from scipy.stats import spearmanr
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ..waterfp.calculate_rdf import make_bins, compute_density_profile
-from ..waterfp.calculate_fingerprint import fp_from_density_profile, NORM_TAIL_BINS_DEFAULT
+from waterfp import NORM_TAIL_BINS_DEFAULT, RadialGrid, WaterFP
 
 FP_METHOD_TEXT = (
     "WaterFP (github.com/valeriorizzi/WaterFP, Scripts/fp.py): "
@@ -140,8 +138,8 @@ def parse_args():
                          "e.g. some topologies name the same water residue WAT/HOH with oxygen "
                          "atom name OW instead of SOL/O. Check your own .tpr before trusting the "
                          "defaults on a new system.")
-    p.add_argument("--rmax-nm", type=float, default=2.001)
-    p.add_argument("--binwidth-nm", type=float, default=0.001)
+    p.add_argument("--rmax-nm", type=float, default=RadialGrid.rmax_nm)
+    p.add_argument("--binwidth-nm", type=float, default=RadialGrid.binwidth_nm)
     p.add_argument("--norm-tail-bins", type=int, default=NORM_TAIL_BINS_DEFAULT)
     p.add_argument("--block-ns", type=float, default=5.0,
                     help="Trajectory block size in ns (default: 5.0)")
@@ -174,55 +172,24 @@ def nrmsd(g_a, g_b):
     return rmsd / norm
 
 
-def analyze_block(u, heavy_indices, heavy_names, water_indices, start_frame, end_frame,
-                   edges_a, shell_vol_nm3, centers_nm, binwidth_nm, norm_tail_bins):
-    """Compute the FP, g(r), and FP-based ranking for one trajectory block
-    (frames start_frame:end_frame), one value per ligand heavy atom.
+def write_block_rows(table: pd.DataFrame, path: Path, first_block: bool) -> None:
+    """Write one block's rows to ``path``: a new file (with header) for the first block, appended after."""
+    table.to_csv(path, mode="w" if first_block else "a", header=first_block, index=False)
 
-    Returns (fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns):
-    fp_this_block/g_this_block are {atom_name: value}; rank_now is the
-    FP-descending rank check_stability() compares block to block.
+
+def check_stability(current: Results, previous: Results, tol: Tolerances) -> StabilityResult:
+    """Compare two consecutive blocks' WaterFP results (same atoms, same order)
+    against `tol`'s three criteria (FP relative change, RDF nRMSD, Spearman
+    rank correlation of the FP values) and return the resulting
+    StabilityResult. Streak bookkeeping across transitions stays in main().
     """
-    t_start_ns = u.trajectory[start_frame].time / 1000.0
-    t_end_ns = u.trajectory[end_frame - 1].time / 1000.0
-
-    n_r = compute_density_profile(u, heavy_indices, water_indices, start_frame, end_frame,
-                                   edges_a, shell_vol_nm3)
-
-    fp_this_block = {}
-    g_this_block = {}
-    for ai, name in enumerate(heavy_names):
-        fp_val, g_val, _norm = fp_from_density_profile(n_r[ai], centers_nm, binwidth_nm, norm_tail_bins)
-        fp_this_block[name] = float(fp_val)
-        g_this_block[name] = g_val
-
-    rank_now = pd.Series(fp_this_block).rank(ascending=False)
-
-    return fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns
-
-
-def check_stability(fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank,
-                     tol: Tolerances):
-    """Compare the current block to the previous one against `tol`'s three
-    criteria (FP relative change, RDF nRMSD, Spearman rank correlation)
-    and return the resulting StabilityResult. Streak bookkeeping across
-    transitions stays in main(), not here.
-    """
-    heavy_names = list(fp_this_block.keys())
-
-    rel_changes = {
-        name: abs(fp_this_block[name] - prev_fp[name]) / max(abs(prev_fp[name]), 1e-6)
-        for name in heavy_names
-    }
-    max_rel_change = max(rel_changes.values())
-
-    nrmsds = {name: nrmsd(g_this_block[name], prev_g[name]) for name in heavy_names}
-    max_nrmsd = max(nrmsds.values())
-
-    rho, _ = spearmanr(rank_now.values, prev_rank.values)
+    fp, prev_fp = current.fp, previous.fp
+    max_rel_change = float(np.max(np.abs(fp - prev_fp) / np.maximum(np.abs(prev_fp), 1e-6)))
+    max_nrmsd = float(max(nrmsd(g, prev_g) for g, prev_g in zip(current.g, previous.g)))
+    rho, _ = spearmanr(fp, prev_fp)  # ranks the FP values itself
 
     value_ok = max_rel_change <= tol.fp_rel_tol
-    rank_ok = rho >= tol.spearman_tol
+    rank_ok = bool(rho >= tol.spearman_tol)
     rdf_ok = max_nrmsd <= tol.rdf_nrmsd_tol
     block_stable = value_ok and rank_ok and rdf_ok
 
@@ -244,9 +211,9 @@ def plot_atom(atom_name, fp_df, rdf_df, outdir):
     printing; returns the two paths written so callers (or tests) can
     check them.
 
-    fp_df: the accumulated fp_rows DataFrame (columns include t_mid_ns,
-    atom, FP). rdf_df: the accumulated rdf_rows DataFrame (columns
-    include block, atom, r_nm, g_r). outdir may be a str or a Path.
+    fp_df: all blocks' FP rows (columns include t_mid_ns, atom, FP).
+    rdf_df: all blocks' g(r) rows (columns include block, atom, r_nm,
+    g_r). outdir may be a str or a Path.
     """
     outdir = Path(outdir)
     fp_plot_path = outdir / "fp_plots" / f"FP_vs_time_{atom_name}.png"
@@ -367,8 +334,6 @@ def main():
     (outdir / "rdf_plots").mkdir(parents=True, exist_ok=True)
     (outdir / "fp_plots").mkdir(parents=True, exist_ok=True)
 
-    edges_nm, centers_nm, edges_a, shell_vol_nm3 = make_bins(args.rmax_nm, args.binwidth_nm)
-
     def get_universe():
         return mda.Universe(str(tpr_path), str(xtc_path))
 
@@ -393,17 +358,16 @@ def main():
     print(f"[monitor] {n_heavy} ligand heavy atoms (resname={args.ligand_resname}): {heavy_names}")
     print(f"[monitor] {len(water_O_idx)} water oxygens "
           f"(resname={args.water_resname}, atom name={args.water_atom_name})")
-    print(f"[monitor] RDF: rmax={args.rmax_nm} nm, bins={len(centers_nm)}, "
+    grid = RadialGrid(rmax_nm=args.rmax_nm, binwidth_nm=args.binwidth_nm)
+    print(f"[monitor] RDF: rmax={grid.rmax_nm} nm, bins={grid.n_bins}, "
           f"norm=mean of last {args.norm_tail_bins} bins (WaterFP fp.py convention)")
 
     ts_per_frame_ps = None
-    fp_rows = []
-    rdf_rows = []
+    fp_tables = []   # one table per block: fp_values_per_block.csv rows
+    rdf_tables = []  # one table per block: rdf_profiles_per_block.csv rows
     metric_rows = []
 
-    prev_fp = None
-    prev_g = None
-    prev_rank = None
+    previous = None  # the previous block's WaterFP analysis
     stable_streak = 0
     block_idx = 0
     converged = False
@@ -442,23 +406,18 @@ def main():
         start_f = block_idx * frames_per_block
         end_f = needed
 
-        fp_this_block, g_this_block, rank_now, t_start_ns, t_end_ns = analyze_block(
-            u, heavy_indices, heavy_names, water_O_idx, start_f, end_f,
-            edges_a, shell_vol_nm3, centers_nm, args.binwidth_nm, args.norm_tail_bins,
-        )
+        block = WaterFP(u.atoms[heavy_indices], u.atoms[water_O_idx], grid=grid,
+                        norm_tail_bins=args.norm_tail_bins)
+        block.run(start=start_f, stop=end_f)
+        t_start_ns, t_end_ns = block.times[0] / 1000.0, block.times[-1] / 1000.0
 
-        for name in heavy_names:
-            fp_rows.append(
-                {"block": block_idx, "t_start_ns": t_start_ns, "t_end_ns": t_end_ns,
-                 "t_mid_ns": 0.5 * (t_start_ns + t_end_ns), "atom": name, "FP": fp_this_block[name]}
-            )
-            for rbin, gval in zip(centers_nm, g_this_block[name]):
-                rdf_rows.append({"block": block_idx, "atom": name, "r_nm": rbin, "g_r": gval})
+        fp_table = block.fp_table().assign(block=block_idx, t_start_ns=t_start_ns, t_end_ns=t_end_ns,
+                                           t_mid_ns=0.5 * (t_start_ns + t_end_ns))
+        fp_tables.append(fp_table[["block", "t_start_ns", "t_end_ns", "t_mid_ns", "atom", "FP"]])
+        rdf_tables.append(block.profile_table().assign(block=block_idx)[["block", "atom", "r_nm", "g_r"]])
 
-        if prev_fp is not None:
-            stability = check_stability(
-                fp_this_block, g_this_block, rank_now, prev_fp, prev_g, prev_rank, tol,
-            )
+        if previous is not None:
+            stability = check_stability(block.results, previous.results, tol)
             block_stable = stability.block_stable
             stable_streak = stable_streak + 1 if block_stable else 0
 
@@ -490,20 +449,18 @@ def main():
                 stop_time_ns = t_end_ns
                 stop_block = block_idx
 
-        pd.DataFrame(fp_rows).to_csv(outdir / "fp_values_per_block.csv", index=False)
-        pd.DataFrame(rdf_rows).to_csv(outdir / "rdf_profiles_per_block.csv", index=False)
+        write_block_rows(fp_tables[-1], outdir / "fp_values_per_block.csv", first_block=block_idx == 0)
+        write_block_rows(rdf_tables[-1], outdir / "rdf_profiles_per_block.csv", first_block=block_idx == 0)
         pd.DataFrame(metric_rows).to_csv(outdir / "convergence_metrics.csv", index=False)
 
-        prev_fp = fp_this_block
-        prev_g = g_this_block
-        prev_rank = rank_now
+        previous = block
         block_idx += 1
 
         if converged:
             break
 
-    fp_df = pd.DataFrame(fp_rows)
-    rdf_df = pd.DataFrame(rdf_rows)
+    fp_df = pd.concat(fp_tables, ignore_index=True)
+    rdf_df = pd.concat(rdf_tables, ignore_index=True)
 
     for name in heavy_names:
         plot_atom(name, fp_df, rdf_df, outdir)
@@ -523,7 +480,3 @@ def main():
             os.kill(args.mdrun_pid, signal.SIGTERM)
         except OSError as e:
             print(f"[monitor] failed to signal mdrun pid {args.mdrun_pid}: {e}")
-
-
-if __name__ == "__main__":
-    main()
