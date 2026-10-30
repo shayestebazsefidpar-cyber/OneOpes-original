@@ -1,36 +1,85 @@
 [project]
-name = "ligand-waterfp"
+name = "oneopes"
 version = "0.1.0"
-description = "Ligand-only WaterFP hydration-CV workflow: unbiased MD -> WaterFP -> convergence -> official atom selection -> G1/G2 -> ligand-side CV"
+description = "Hydration (WaterFP) and funnel collective variables for OneOPES, from unbiased MD"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "MDAnalysis>=2.0",
+    "MDAnalysis>=2.8",
     "numpy>=2",
     "pandas",
-    "scipy",
+    "scipy>=1.11",
     "matplotlib",
-    "networkx",
     "freesasa",
     "PyYAML",
-    "Pillow",
+    "cyclopts>=5.3.2",
+    "pydantic>=2.14.1",
+    "tabulate>=0.10.0",
+    "xarray>=2026.9.0",
+    "h5netcdf[h5py]>=1.8.2",
+    "psutil>=7.2.2",
+    "altair>=6.3.0",
+    "vl-convert-python>=1.9.0.post1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
-# stage 7 rendering needs a PyMOL or Chimera install, invoked by path
-# (pymol -cq .../render_selected_atoms.py -- ...), not via console_scripts -
-# see visualization/README.md. Nothing extra to pip-install here.
+dev = [
+    "networkx>=3.6.1",
+    "pandas-stubs>=3.0.5.260914",
+    "pyright[nodejs]>=1.1.414",
+    "pytest>=7",
+    "ruff>=0.17.3",
+    "scipy-stubs>=1.17.1.5",
+]
+notebooks = [
+    "marimo>=0.25.2",
+]
+# Not pip-installable: PyMOL, which `oneopes render` runs (docs/render.md), and BioSimSpace, which
+# oneopes.funnel needs (conda-only).
 
 [project.scripts]
-ligand-waterfp-prepare-system = "ligand_waterfp.system_setup.prepare_ligand_system:main"
-ligand-waterfp-monitor = "ligand_waterfp.convergence.monitor_convergence:main"
-ligand-waterfp-run-waterfp = "ligand_waterfp.waterfp.run_waterfp:main"
-ligand-waterfp-prepare-ranking-csv = "ligand_waterfp.official_selection.prepare_ranking_csv:main"
-ligand-waterfp-select = "ligand_waterfp.official_selection.run_official_selection:main"
-ligand-waterfp-build-cv = "ligand_waterfp.ligand_cv.build_ligand_cv:main"
-ligand-waterfp-add-legend = "ligand_waterfp.visualization.add_legend:main"
+oneopes = "oneopes.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.6,<0.13.0"]
 build-backend = "uv_build"
+
+# Code checks: `uv run ruff check` and `uv run pyright`.
+[tool.ruff]
+line-length = 120
+# The vendored upstream code is kept verbatim.
+extend-exclude = ["tests/reference"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "UP", "SIM", "C4", "PIE", "RET", "PTH", "N", "RUF"]
+ignore = [
+    "N802", "N803", "N806", "N815",  # unit suffixes such as cutoff_A, and the published names G1 / G2
+    "N813",  # import MDAnalysis as mda, MDAnalysis' own convention
+]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/*" = ["B018"]  # a marimo cell displays its last expression
+
+[tool.ruff.lint.flake8-bugbear]
+# Frozen option dataclasses: safe as defaults of arguments and of other option dataclasses.
+extend-immutable-calls = [
+    "oneopes.system.SystemOptions", "oneopes.trajectory_blocks.FrameWindow",
+    "oneopes.waterfp.HydrationOptions", "oneopes.block_run.BlockOptions",
+    "oneopes.protein.analysis.AnalysisOptions",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # The synthetic test structures leave out PDB fields; MDAnalysis warns and fills in defaults.
+    "ignore:Found no information for attr:UserWarning:MDAnalysis",
+    "ignore:Found missing chainIDs:UserWarning:MDAnalysis",
+    "ignore:Element information is missing:UserWarning:MDAnalysis",
+]
+
+[tool.pyright]
+include = ["src"]
+venvPath = "."
+venv = ".venv"
+# Trust only libraries that publish types (numpy, pandas-stubs, scipy-stubs, pydantic, cyclopts):
+# MDAnalysis has no type information, and guessing it from its source gives false errors.
+useLibraryCodeForTypes = false

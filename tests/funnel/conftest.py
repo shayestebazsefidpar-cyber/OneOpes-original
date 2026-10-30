@@ -1,0 +1,60 @@
+"""Shared fixtures for comparisons against BioSimSpace (public API only).
+
+Validation systems are only test inputs; nothing in ``src/`` depends on them.
+They are located (read-only) from, in order:
+
+1. ``ONEOPES_FUNNEL_REF_DIRS`` (os.pathsep-separated directories, each with
+   ``top.top`` + ``npt*.gro`` + ``whole.pdb``), or
+2. the OneOPES repository's ``original/`` tree, searched upwards from this
+   file (``<repo>/original``, or a sibling ``OneOpes-original`` checkout
+   during local development).
+
+BioSimSpace-dependent tests skip when BioSimSpace or the systems are missing.
+"""
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+
+VALIDATION_SYSTEMS = ("HSP90/OneOPES/lig1", "BRD4/OneOPES/lig1")
+
+
+def _find_original_tree():
+    for parent in Path(__file__).resolve().parents:
+        for candidate in (parent / "original", parent / "OneOpes-original" / "original"):
+            if (candidate / VALIDATION_SYSTEMS[0]).is_dir():
+                return candidate
+    return None
+
+
+def _reference_dirs():
+    env = os.environ.get("ONEOPES_FUNNEL_REF_DIRS")
+    if env:
+        return [d for d in env.split(os.pathsep) if d]
+    tree = _find_original_tree()
+    return [str(tree / s) for s in VALIDATION_SYSTEMS] if tree else ["<no validation systems found>"]
+
+
+REF_DIRS = _reference_dirs()
+
+
+@dataclass
+class RefSystem:
+    """A validation system: BSS System (from top.top + npt*.gro) and its directory."""
+
+    system: object
+    directory: str
+
+
+@pytest.fixture(scope="session", params=REF_DIRS, ids=lambda d: "/".join(d.rstrip("/").split("/")[-3:]))
+def ref(request):
+    pytest.importorskip("BioSimSpace")
+    from oneopes.funnel.bss import read_system
+
+    top = Path(request.param) / "top.top"
+    gros = sorted(Path(request.param).glob("npt*.gro"))
+    if not (top.exists() and gros):
+        pytest.skip(f"validation system (top.top + npt*.gro) not found in {request.param}")
+    return RefSystem(system=read_system(top, gros[0]), directory=request.param)

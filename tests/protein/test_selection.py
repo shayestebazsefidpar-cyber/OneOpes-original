@@ -1,0 +1,129 @@
+"""Candidate selection and the checks on the analysis inputs."""
+
+import MDAnalysis as mda
+import numpy as np
+import pytest
+from oneopes.cli import app
+from oneopes.errors import InputError
+from oneopes.protein import analysis
+from oneopes.protein.candidates import CANDIDATE_CUTOFF_A_DEFAULT, select_candidates
+from oneopes.protein.inputs import protein_system, structure_chain_ids, validate_same_atoms
+from oneopes.system import SystemDefinitionError, SystemOptions, select_system
+from protein_systems import build_universe, protein_args, simple_protein
+
+
+def _min_dist(u, sel, idx):
+    lig = sel.ligand(u).positions
+    return np.min(np.linalg.norm(lig - u.atoms[idx].position, axis=1))
+
+
+def test_default_cutoff_is_exactly_7_A():
+    assert CANDIDATE_CUTOFF_A_DEFAULT == 7.0
+    assert analysis.AnalysisOptions().candidate_cutoff_A == 7.0
+
+
+@pytest.mark.parametrize("value", [7.0, 10.0])
+def test_explicit_cli_cutoff_overrides_default(tmp_path, value):
+    _command, bound, _ = app.parse_args([*protein_args(tmp_path), "--candidate-cutoff-A", str(value)])
+    assert bound.arguments["options"].candidate_cutoff_A == value
+
+
+@pytest.mark.parametrize("value", ["0", "-3"])
+def test_cli_rejects_a_cutoff_that_is_not_positive(tmp_path, value):
+    with pytest.raises(InputError, match="candidate_cutoff_A must be > 0"):
+        app.parse_args([*protein_args(tmp_path), "--candidate-cutoff-A", value], exit_on_error=False,
+                       print_error=False)
+
+
+def test_a_system_without_protein_is_rejected():
+    u = build_universe([], [("C1", "C", (12.0, 15.0, 10.0)), ("C2", "C", (13.0, 15.0, 10.0))], n_waters=5)
+    with pytest.raises(SystemDefinitionError, match="no protein"):
+        protein_system(u, u)
+
+
+def test_atoms_within_cutoff_are_included_and_beyond_excluded(small_system):
+    u = small_system
+    system = protein_system(u, u)
+    sel = system.selection
+    cand = select_candidates(system)
+    chosen = set(cand.atom_index.values)
+    for i in sel.protein_heavy:
+        d = _min_dist(u, sel, i)
+        assert (i in chosen) == (d <= CANDIDATE_CUTOFF_A_DEFAULT), (i, d)
+    assert 0 < len(chosen) < len(sel.protein_heavy)
+    expected = [_min_dist(u, sel, i) for i in cand.atom_index.values]
+    np.testing.assert_allclose(cand["min_distance_to_ligand_A"], expected, atol=1e-4)
+
+
+def test_cutoff_is_a_parameter(small_system):
+    system = protein_system(small_system, small_system)
+    nearest = min(_min_dist(small_system, system.selection, i) for i in system.selection.protein_heavy)
+    small = select_candidates(system, cutoff_A=nearest + 1.0)
+    large = select_candidates(system, cutoff_A=nearest + 8.0)
+    assert set(small.atom_index.values) < set(large.atom_index.values)
+    assert (small["min_distance_to_ligand_A"] <= nearest + 1.0).all()
+
+
+def test_pool_has_only_protein_heavy_atoms(small_system):
+    u = small_system
+    system = protein_system(u, u)
+    cand = select_candidates(system, cutoff_A=50.0)
+    atoms = u.atoms[cand.atom_index.values]
+    assert set(atoms.resnames) == {"ALA"}
+    assert "H" not in set(atoms.elements) and (atoms.masses >= 1.5).all()
+    assert not set(cand.atom_index.values) & set(system.selection.ligand_heavy)
+
+
+def test_ambiguous_ligand_requires_explicit_selection():
+    other = ("ZZY", [("X1", "C", (40.0, 40.0, 40.0)), ("X2", "C", (41.0, 40.0, 40.0))])
+    u = build_universe(simple_protein(4), [("C1", "C", (12.0, 15.0, 10.0)), ("C2", "C", (13.0, 15.0, 10.0))],
+                       n_waters=5, extra_residues=[other])
+    with pytest.raises(SystemDefinitionError, match="ligand"):
+        select_system(u)
+    assert len(select_system(u, SystemOptions(ligand_selection="resname QZX")).ligand_heavy) == 2
+
+
+def test_topology_atom_mismatch_fails(small_system):
+    other = build_universe(simple_protein(3), [("C1", "C", (12.0, 15.0, 10.0))], n_waters=2)
+    with pytest.raises(SystemDefinitionError, match="atoms"):
+        validate_same_atoms(small_system, other, "complex")
+
+
+def test_renamed_atoms_fail_and_the_first_one_is_named(small_system):
+    other = small_system.copy()
+    other.atoms[[5, 9]].names = ["XX", "YY"]
+    with pytest.raises(SystemDefinitionError, match=r"\(2 atoms; first at index 5: 'XX' vs"):
+        validate_same_atoms(small_system, other, "complex")
+    validate_same_atoms(small_system, other, "complex", indices=np.array([0, 1, 2]))
+
+
+def test_no_atom_within_the_cutoff_is_an_error(small_system):
+    with pytest.raises(SystemDefinitionError, match=r"No protein heavy atom lies within 0\.5 A of the ligand"):
+        select_candidates(protein_system(small_system, small_system), 0.5)
+
+
+def test_a_structure_without_chain_ids_gives_none():
+    no_chains = mda.Universe.empty(3, trajectory=True)
+    assert structure_chain_ids(no_chains) is None
+
+
+def test_chain_id_never_taken_from_topology_molecule_type_names(small_system):
+    """With a GROMACS .tpr, MDAnalysis puts molecule-type names (e.g. "Protein") in chainIDs."""
+    small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
+    cand = select_candidates(protein_system(small_system, small_system), 10.0)
+    assert set(cand.chain_id.values) == {""}
+
+
+def test_chain_id_taken_from_complex_structure_file(small_system, tmp_path):
+    small_system.atoms.chainIDs = ["K"] * len(small_system.atoms)
+    small_system.atoms.write(tmp_path / "complex.pdb")
+    small_system.atoms.chainIDs = ["Protein"] * len(small_system.atoms)
+    complex_alone = mda.Universe(str(tmp_path / "complex.pdb"))
+    cand = select_candidates(protein_system(small_system, small_system, complex_alone), 10.0)
+    assert set(cand.chain_id.values) == {"K"}
+
+
+def test_blank_chain_ids_in_structure_stay_empty(small_system):
+    small_system.atoms.chainIDs = [" "] * len(small_system.atoms)
+    cand = select_candidates(protein_system(small_system, small_system, small_system), 10.0)
+    assert set(cand.chain_id.values) == {""}

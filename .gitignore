@@ -32,11 +32,12 @@ venv/
 *.py~
 
 # Do NOT blanket-ignore *.top, *.itp, or *.mdp - the mdp/ templates in
-# src/ligand_waterfp/system_setup/mdp/ are legitimate, generic
+# src/oneopes/ligand/mdp/ are legitimate, generic
 # reproducibility inputs and must stay tracked (and are bundled into the
 # built package - see pyproject.toml). Per-system topologies you build
-# with prepare_ligand_system.py belong under outputs/ (already ignored
+# with `oneopes prepare-system` belong under outputs/ (already ignored
 # above), not this tree.
 
-# pytest
+# pytest and coverage
 .pytest_cache/
+.coverage

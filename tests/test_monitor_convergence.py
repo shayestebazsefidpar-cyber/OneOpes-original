@@ -1,275 +1,212 @@
-"""
-Unit tests for the pure/reusable pieces extracted from
-ligand_waterfp.convergence.monitor_convergence's main() (code-review
-Rules 2, 3 and 5) - check_stability() (now returning a frozen
-StabilityResult dataclass instead of a dict), the consecutive-streak
-requirement built from it, write_reports() (now taking a Tolerances
-dataclass), and plot_atom(). All synthetic data, no real
-trajectory/MDAnalysis needed - the per-block waterfp.WaterFP analysis in
-main() needs a real .tpr/.xtc and is covered by tests/test_waterfp.py.
+"""The ligand convergence monitor: `oneopes monitor` end to end on a synthetic ligand in water, and following mdrun."""
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+import time
+from dataclasses import asdict
+from itertools import islice
 
-check_stability() takes two blocks' WaterFP results: fp of shape (n_atoms,)
-and g of shape (n_atoms, n_bins), atoms in the same order in both blocks.
-
-Tolerances used below (fp_rel_tol=0.10, rdf_nrmsd_tol=0.15,
-spearman_tol=0.90, n_stable=3) are the actual defaults from
-monitor_convergence.parse_args() / configs/ligand_waterfp.yaml - not
-invented values.
-"""
-import dataclasses
-
-import numpy as np
+import MDAnalysis as mda
 import pandas as pd
+import psutil
 import pytest
-from MDAnalysis.analysis.results import Results
 
-from ligand_waterfp.convergence.monitor_convergence import (
-    check_stability,
-    write_reports,
-    plot_atom,
-    StabilityResult,
-    Tolerances,
-)
+from ligand_systems import ligand_in_water
+from oneopes.block_run import convergence_summary, facts_of, load_run, metadata_of
+from oneopes.cli import main
+from oneopes.ligand.g1_g2 import read_g1_g2_yaml, select_g1_g2
+from oneopes.ligand import monitor as monitor_module
+from oneopes.errors import InputError
+from oneopes.ligand.monitor import blocks_as_written, mdrun_running, stop_mdrun, wait_for_frames
 
-FP_REL_TOL = 0.10
-RDF_NRMSD_TOL = 0.15
-SPEARMAN_TOL = 0.90
-N_STABLE = 3
-TOL = Tolerances(
-    fp_rel_tol=FP_REL_TOL,
-    rdf_nrmsd_tol=RDF_NRMSD_TOL,
-    spearman_tol=SPEARMAN_TOL,
-    n_stable=N_STABLE,
-)
+N_FRAMES = 10
+BLOCK = ["--block-ns", "0.002"]  # 2 frames of 1 ps: 5 blocks
+ALWAYS_STABLE = ["--fp-rel-tol", "100", "--rdf-nrmsd-tol", "100", "--spearman-tol", "-1"]
+NEVER_STABLE = ["--fp-rel-tol", "0"]
 
 
-def _same_g(n_atoms):
-    """Identical g(r) for every atom (and, reused across blocks, nRMSD = 0)."""
-    return np.tile([0.0, 0.5, 1.0, 1.0, 1.0], (n_atoms, 1))
+def run_monitor(tmp_path, *options: str):
+    """Run `oneopes monitor` (no mdrun PID) on the synthetic ligand; return the output directory."""
+    top, traj = ligand_in_water(tmp_path, n_frames=N_FRAMES)
+    outdir = tmp_path / "out"
+    main(["monitor", "--tpr", top, "--xtc", traj, "--outdir", str(outdir), *BLOCK, *options])
+    return outdir
 
 
-def _block(fp, g):
-    """A block's WaterFP results, as check_stability() receives them."""
-    return Results(fp=np.asarray(fp), g=np.asarray(g))
+def test_stops_at_convergence_and_selects_g1_g2_on_the_converged_block(tmp_path):
+    """With every transition stable, two in a row converge at block 2; blocks 3 and 4 are never read."""
+    outdir = run_monitor(tmp_path, *ALWAYS_STABLE, "--n-stable", "2", "--fp-round-decimals", "3")
+
+    summary = json.loads((outdir / "convergence_summary.json").read_text())
+    assert (summary["converged"], summary["converged_block"], summary["n_blocks"]) == (True, 2, 3)
+    assert summary["ligand_heavy_atoms"] == [f"C{i}" for i in range(6)]
+    assert set(pd.read_csv(outdir / "fp_values_per_block.csv")["block"]) == {0, 1, 2}
+    assert len(pd.read_csv(outdir / "convergence_metrics.csv")) == 2
+    assert (outdir / "fp_vs_time.png").exists() and (outdir / "g_per_block.png").exists()
+
+    fingerprints = pd.read_csv(outdir / "selection" / "fingerprints.csv")
+    block_2 = pd.read_csv(outdir / "fp_values_per_block.csv").query("block == 2")
+    assert list(fingerprints["fp"]) == list(block_2["FP"])
+    ligand = mda.Universe(str(tmp_path / "top.pdb")).select_atoms("resname MOL")
+    expected = select_g1_g2(ligand, fingerprints["fp"].to_numpy(), fp_round_decimals=3)
+    assert read_g1_g2_yaml(outdir / "selection" / "g1_g2.yaml") == expected
+
+    again = tmp_path / "again"
+    main(["select-block", "--tpr", str(tmp_path / "top.pdb"), "--run", str(outdir / "blocks.nc"),
+          "--outdir", str(again), "--fp-round-decimals", "3"])
+    for name in ("g1_g2.yaml", "fingerprints.csv", "rdf.csv"):
+        assert (again / name).read_text() == (outdir / "selection" / name).read_text(), name
+    metadata = json.loads((again / "run_metadata.json").read_text())
+    assert (metadata["block"], metadata["inputs"]["run"]["file"]) == (2, "blocks.nc")
+    assert metadata["options"] == {"block": None, "fp_round_decimals": 3}
 
 
-def test_stable_transition_passes_all_three_criteria():
-    prev_fp = np.array([-10.0, -8.0, -5.0])
-    fp_this = np.array([-10.5, -8.3, -5.1])  # 5%, 3.75%, 2% changes - same order
-    g = _same_g(3)
-
-    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
-
-    assert isinstance(result, StabilityResult)
-    assert result.value_stable
-    assert result.rdf_stable
-    assert result.rank_stable
-    assert result.block_stable
-    assert result.max_fp_relative_change == pytest.approx(0.05)
-    assert result.max_rdf_nrmsd == pytest.approx(0.0)
-    assert result.spearman_rank_corr == pytest.approx(1.0)
+def test_select_block_picks_any_block_of_a_saved_run(tmp_path):
+    outdir = run_monitor(tmp_path, *NEVER_STABLE)
+    main(["select-block", "--tpr", str(tmp_path / "top.pdb"), "--run", str(outdir / "blocks.nc"),
+          "--outdir", str(tmp_path / "block3"), "--block", "3"])
+    fingerprints = pd.read_csv(tmp_path / "block3" / "fingerprints.csv")
+    block_3 = pd.read_csv(outdir / "fp_values_per_block.csv").query("block == 3")
+    assert list(fingerprints["fp"]) == list(block_3["FP"])
+    assert (tmp_path / "block3" / "g1_g2.yaml").exists()
 
 
-def test_fp_change_above_threshold_makes_transition_unstable():
-    prev_fp = np.array([-10.0, -8.0, -5.0])
-    fp_this = np.array([-11.5, -8.1, -5.05])  # first atom changed 15% > 10% tol; order unchanged
-    g = _same_g(3)
+def test_reads_every_block_and_selects_nothing_without_convergence(tmp_path):
+    outdir = run_monitor(tmp_path, *NEVER_STABLE)
 
-    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
-
-    assert not result.value_stable
-    assert result.rdf_stable     # isolate: only FP failed
-    assert result.rank_stable
-    assert not result.block_stable
-    assert result.max_fp_relative_change == pytest.approx(0.15)
-
-
-def test_rdf_nrmsd_above_threshold_makes_transition_unstable():
-    prev_fp = np.array([-10.0, -8.0, -5.0])
-    fp_this = np.array([-10.2, -8.1, -5.05])  # small changes, order unchanged
-    prev_g = _same_g(3)
-    # the first atom's g(r) shape changes a lot between blocks -> large nRMSD
-    g_this = prev_g.copy()
-    g_this[0] = [1.0, 1.0, 1.0, 0.5, 0.0]
-
-    result = check_stability(_block(fp_this, g_this), _block(prev_fp, prev_g), TOL)
-
-    assert result.value_stable
-    assert not result.rdf_stable    # isolate: only RDF failed
-    assert result.rank_stable
-    assert not result.block_stable
-    assert result.max_rdf_nrmsd > RDF_NRMSD_TOL
+    summary = json.loads((outdir / "convergence_summary.json").read_text())
+    assert (summary["converged"], summary["converged_block"], summary["n_blocks"]) == (False, None, 5)
+    assert summary["trajectory_end_ns"] == (N_FRAMES - 1) / 1000
+    assert len(pd.read_csv(outdir / "convergence_metrics.csv")) == 4
+    run = load_run(outdir / "blocks.nc")
+    assert run.sizes["block"] == 5 and facts_of(run)["trajectory_end_ns"] == summary["trajectory_end_ns"]
+    assert asdict(convergence_summary(run)) == {name: summary[name] for name in asdict(convergence_summary(run))}
+    metadata = json.loads((outdir / "run_metadata.json").read_text())
+    assert metadata_of(run) == metadata
+    assert {role: entry["file"] for role, entry in metadata["inputs"].items()} == {"tpr": "top.pdb", "xtc": "traj.xtc"}
+    assert metadata["options"]["block_options"]["tolerances"]["fp_rel_tol"] == 0
+    assert "metadata" not in summary
+    assert not (outdir / "selection").exists()
 
 
-def test_ranking_instability_makes_transition_unstable():
-    # Closely-spaced FP values so small (<=10%) per-atom wiggles can still
-    # fully reverse the relative order between blocks.
-    prev_fp = np.array([-10.0, -10.1, -10.2, -10.3])
-    fp_this = np.array([-10.25, -10.15, -10.05, -9.95])  # order reversed
-    g = _same_g(4)
+class GrowingTrajectory:
+    """A universe whose trajectory, read again with ``load_new``, has the next of ``n_frames`` frames."""
 
-    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
+    def __init__(self, *n_frames):
+        self.lengths = iter(n_frames)
+        self.trajectory = range(0)
 
-    # sanity: every individual atom's own relative change stayed under 10%
-    assert np.all(np.abs(fp_this - prev_fp) / np.abs(prev_fp) <= FP_REL_TOL)
-
-    assert result.value_stable
-    assert result.rdf_stable
-    assert not result.rank_stable   # isolate: only ranking failed
-    assert not result.block_stable
-    assert result.spearman_rank_corr == pytest.approx(-1.0)  # full reversal
+    def load_new(self, _path):
+        self.trajectory = range(next(self.lengths))
 
 
-def test_requires_n_stable_consecutive_transitions():
-    """Replicates main()'s own streak bookkeeping
-    (stable_streak = stable_streak + 1 if block_stable else 0;
-    converged once stable_streak >= n_stable) around check_stability(),
-    using N_STABLE=3 - the actual configured value, not an invented one.
-    A single unstable transition partway through must reset the streak,
-    so convergence is only reached after a genuinely fresh run of 3
-    consecutive stable transitions."""
-    g = _same_g(2)
-
-    # block FP values: 0,1,2 stable; 2->3 unstable (big jump); 3,4,5,6 stable again
-    blocks_fp = np.array([
-        [-10.0, -5.0],   # block 0 (baseline)
-        [-10.1, -5.05],  # block 1: stable vs 0
-        [-10.2, -5.1],   # block 2: stable vs 1
-        [-14.0, -5.15],  # block 3: UNSTABLE vs 2 (first atom changed >10%)
-        [-14.1, -5.2],   # block 4: stable vs 3 -> streak resets to 1
-        [-14.2, -5.25],  # block 5: stable vs 4 -> streak 2
-        [-14.3, -5.3],   # block 6: stable vs 5 -> streak 3 -> CONVERGED here
-    ])
-
-    stable_streak = 0
-    streak_history = []
-    converged_at = None
-    prev_fp = blocks_fp[0]
-
-    for block_idx in range(1, len(blocks_fp)):
-        fp_this = blocks_fp[block_idx]
-        result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
-        stable_streak = stable_streak + 1 if result.block_stable else 0
-        streak_history.append(stable_streak)
-        if converged_at is None and stable_streak >= N_STABLE:
-            converged_at = block_idx
-        prev_fp = fp_this
-
-    # transitions 0->1, 1->2 stable (streak 1, 2); 2->3 unstable (streak resets to 0);
-    # 3->4, 4->5 stable (streak 1, 2); 5->6 stable (streak 3 -> converged at block 6)
-    assert streak_history == [1, 2, 0, 1, 2, 3]
-    assert converged_at == 6
+SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
 
 
-def test_stability_result_matches_previous_dict_implementation_values():
-    """check_stability() used to return a dict with these exact 7
-    key/value pairs (PR2); this pins the StabilityResult dataclass (PR3)
-    to produce the identical numerical/boolean values for the same
-    inputs - the refactor changed the container, not the computation."""
-    prev_fp = np.array([-10.0, -8.0, -5.0])
-    fp_this = np.array([-10.5, -8.3, -5.1])
-    g = _same_g(3)
-
-    result = check_stability(_block(fp_this, g), _block(prev_fp, g), TOL)
-
-    expected = {
-        "max_fp_relative_change": pytest.approx(0.05),
-        "max_rdf_nrmsd": pytest.approx(0.0),
-        "spearman_rank_corr": pytest.approx(1.0),
-        "value_stable": True,
-        "rdf_stable": True,
-        "rank_stable": True,
-        "block_stable": True,
-    }
-    for field, expected_value in expected.items():
-        assert getattr(result, field) == expected_value
+@pytest.fixture
+def fake_mdrun():
+    """A running process with mdrun on its command line."""
+    process = subprocess.Popen([*SLEEPER, "mdrun"])
+    yield process.pid
+    process.kill()
+    process.wait()
 
 
-def test_stability_result_is_frozen():
-    block = _block([-10.0, -5.0], _same_g(2))
-    result = check_stability(block, block, TOL)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        result.block_stable = False
+def test_while_mdrun_runs_a_block_waits_for_the_frame_after_it(tmp_path, fake_mdrun):
+    """The last frame may be half-written, so a block is complete once a later frame exists."""
+    (tmp_path / "prod.xtc").touch()
+    u = GrowingTrajectory(2, 3, 4, 5, 7)
+    blocks = blocks_as_written(u, tmp_path / "prod.xtc", 2, fake_mdrun, poll_seconds=0)
+    assert [(frames, len(u.trajectory)) for frames in islice(blocks, 3)] == [
+        (range(2), 3), (range(2, 4), 5), (range(4, 6), 7)]
 
 
-def test_tolerances_dataclass_reproduces_configured_defaults_behavior():
-    """Constructing Tolerances explicitly from the documented config
-    defaults (fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90,
-    n_stable=3) and running it through check_stability() must behave
-    identically to passing the 4 values independently (the pre-PR3 call
-    convention) - same stability verdict, same threshold comparisons."""
-    tol = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
-    assert tol.fp_rel_tol == FP_REL_TOL
-    assert tol.rdf_nrmsd_tol == RDF_NRMSD_TOL
-    assert tol.spearman_tol == SPEARMAN_TOL
-    assert tol.n_stable == N_STABLE
-
-    prev_fp = np.array([-10.0, -8.0])
-    fp_this = np.array([-11.5, -8.1])  # first atom changed 15% > 10% tol
-    g = _same_g(2)
-
-    result = check_stability(_block(fp_this, g), _block(prev_fp, g), tol)
-    assert not result.value_stable
-    assert not result.block_stable
+def test_a_trajectory_mdrun_has_not_created_yet_is_waited_for(tmp_path, fake_mdrun, monkeypatch):
+    """Just after mdrun starts, the trajectory may not exist; here it appears at the first poll."""
+    xtc = tmp_path / "prod.xtc"
+    monkeypatch.setattr(monitor_module.time, "sleep", lambda _seconds: xtc.touch())
+    u = GrowingTrajectory(3)
+    wait_for_frames(u, xtc, 2, fake_mdrun, poll_seconds=0)
+    assert len(u.trajectory) == 3
 
 
-def test_tolerances_is_frozen():
-    tol = Tolerances(fp_rel_tol=0.10, rdf_nrmsd_tol=0.15, spearman_tol=0.90, n_stable=3)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        tol.n_stable = 5
+def test_a_trajectory_that_no_mdrun_will_write_is_an_error(tmp_path):
+    with pytest.raises(InputError, match="does not exist, and no mdrun is running"):
+        wait_for_frames(GrowingTrajectory(), tmp_path / "prod.xtc", 2, None, poll_seconds=0)
 
 
-def test_write_reports_preserves_schema_and_field_values(tmp_path):
-    fp_df = pd.DataFrame([
-        {"block": 0, "atom": "A", "FP": -10.0},
-        {"block": 1, "atom": "A", "FP": -10.1},
-        {"block": 0, "atom": "B", "FP": -5.0},
-        {"block": 1, "atom": "B", "FP": -5.1},
-    ])
-
-    summary = write_reports(
-        outdir=str(tmp_path), fp_df=fp_df, converged=True, stop_reason="test reason",
-        stop_block=1, stop_time_ns=10.0, block_ns=5.0, tol=TOL,
-        ligand_resname="MOL", heavy_names=["A", "B"], n_blocks_completed=2,
-    )
-
-    assert summary["converged"] is True
-    assert summary["stop_block"] == 1
-    assert summary["n_stable_transitions_required"] == N_STABLE
-    assert summary["thresholds"]["FP_relative_change_tol"] == FP_REL_TOL
-    assert summary["ligand_heavy_atoms"] == ["A", "B"]
-
-    json_path = tmp_path / "convergence_summary.json"
-    txt_path = tmp_path / "convergence_summary.txt"
-    wide_fp_path = tmp_path / "fp_values_by_block_wide.csv"
-    wide_rank_path = tmp_path / "fp_ranking_by_block_wide.csv"
-    for p in (json_path, txt_path, wide_fp_path, wide_rank_path):
-        assert p.exists()
-
-    assert "Converged: True" in txt_path.read_text()
-    wide_fp = pd.read_csv(wide_fp_path, index_col="atom")
-    assert list(wide_fp.columns) == ["0", "1"]
-    assert wide_fp.loc["A", "0"] == pytest.approx(-10.0)
+def test_without_a_pid_the_trajectory_must_exist(tmp_path, caplog):
+    top, _ = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["monitor", "--tpr", top, "--xtc", str(tmp_path / "missing.xtc"), "--outdir", str(tmp_path / "out")])
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == [f"error: {tmp_path / 'missing.xtc'} does not exist; to follow an mdrun that will write it, "
+                      "give its pid."]
 
 
-def test_plot_atom_writes_expected_files(tmp_path):
-    (tmp_path / "fp_plots").mkdir()
-    (tmp_path / "rdf_plots").mkdir()
+def test_an_ended_mdrun_is_not_running_even_before_it_is_reaped():
+    child = subprocess.Popen([sys.executable, "-c", "pass", "mdrun"])
+    try:
+        for _ in range(200):
+            if psutil.Process(child.pid).status() == psutil.STATUS_ZOMBIE:
+                break
+            time.sleep(0.05)
+        assert not mdrun_running(child.pid)
+    finally:
+        child.wait()
 
-    fp_df = pd.DataFrame([
-        {"t_mid_ns": 2.5, "atom": "A", "FP": -10.0},
-        {"t_mid_ns": 7.5, "atom": "A", "FP": -10.1},
-    ])
-    rdf_df = pd.DataFrame([
-        {"block": 0, "atom": "A", "r_nm": 0.1, "g_r": 0.0},
-        {"block": 0, "atom": "A", "r_nm": 0.2, "g_r": 1.0},
-        {"block": 1, "atom": "A", "r_nm": 0.1, "g_r": 0.0},
-        {"block": 1, "atom": "A", "r_nm": 0.2, "g_r": 1.0},
-    ])
 
-    fp_plot_path, rdf_plot_path = plot_atom("A", fp_df, rdf_df, str(tmp_path))
+def test_mdrun_is_recognised_by_its_program_name():
+    named = subprocess.Popen(["/opt/gromacs/bin/mdrun_mpi", *SLEEPER[1:]], executable=sys.executable)
+    other = subprocess.Popen(SLEEPER)
+    try:
+        assert mdrun_running(named.pid) and not mdrun_running(other.pid)
+    finally:
+        for process in (named, other):
+            process.kill()
+            process.wait()
 
-    assert fp_plot_path == tmp_path / "fp_plots" / "FP_vs_time_A.png"
-    assert rdf_plot_path == tmp_path / "rdf_plots" / "RDF_per_block_A.png"
-    assert (tmp_path / "fp_plots" / "FP_vs_time_A.png").exists()
-    assert (tmp_path / "rdf_plots" / "RDF_per_block_A.png").exists()
+
+def test_a_pid_that_is_not_mdrun_stops_the_monitor_before_it_starts(tmp_path, caplog):
+    top, traj = ligand_in_water(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["monitor", str(os.getpid()), "--tpr", top, "--xtc", traj, "--outdir", str(tmp_path / "out")])
+    assert not (tmp_path / "out").exists()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == [f"error: pid {os.getpid()} is not a running gmx mdrun; for a finished run, leave the pid out."]
+
+
+def test_mdrun_is_stopped_before_the_reports_are_written(tmp_path, monkeypatch):
+    stopped = []
+
+    def failing_charts(*_):
+        raise RuntimeError("charts failed")
+
+    monkeypatch.setattr(monitor_module, "stop_mdrun", stopped.append)
+    monkeypatch.setattr(monitor_module, "write_charts", failing_charts)
+    with pytest.raises(RuntimeError, match="charts failed"):
+        run_monitor(tmp_path, *ALWAYS_STABLE, "--n-stable", "2")
+    assert stopped == [None]
+
+
+def test_only_an_mdrun_process_is_stopped():
+    other = subprocess.Popen(SLEEPER)
+    mdrun = subprocess.Popen([*SLEEPER, "mdrun"])
+    try:
+        stop_mdrun(other.pid)
+        stop_mdrun(mdrun.pid)
+        assert mdrun.wait(timeout=10) == -signal.SIGTERM
+        assert other.poll() is None
+    finally:
+        other.kill()
+        mdrun.kill()
+        other.wait()
+
+
+def test_once_mdrun_has_stopped_every_frame_is_complete(tmp_path):
+    (tmp_path / "prod.xtc").touch()
+    u = GrowingTrajectory(4, 4, 4)
+    assert list(blocks_as_written(u, tmp_path / "prod.xtc", 2, None, poll_seconds=0)) == [range(2), range(2, 4)]

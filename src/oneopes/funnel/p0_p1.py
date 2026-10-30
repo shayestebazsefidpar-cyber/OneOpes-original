@@ -1,0 +1,65 @@
+"""
+P0 / P1: the atoms BioSimSpace ``makeFunnel()`` selects, and their average positions (A).
+
+``atoms0`` are alpha carbons deep in the protein (the funnel's origin), ``atoms1`` alpha carbons
+around the ligand (its inflection side).
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from oneopes.errors import InputError
+from oneopes.funnel.bss import BssMolecule, BssSystem, PropertyMap, atom_position_A, require_biosimspace
+
+ALPHA_CARBON_NAME = "CA"
+MIN_AXIS_LENGTH_A = 1e-6
+
+
+@dataclass(frozen=True)
+class FunnelAxis:
+    """The funnel axis P0 -> P1 (A), and the makeFunnel atoms it is derived from."""
+
+    atoms0: tuple[int, ...]
+    """0-based system indices of the P0 (funnel origin) atoms."""
+    atoms1: tuple[int, ...]
+    """0-based system indices of the P1 (inflection side) atoms."""
+    p0: np.ndarray
+    """Average position of ``atoms0``."""
+    p1: np.ndarray
+    """Average position of ``atoms1``."""
+
+    def __post_init__(self) -> None:
+        if not self.length >= MIN_AXIS_LENGTH_A:
+            raise InputError(f"P0 {self.p0} and P1 {self.p1} must be distinct points to define the funnel axis.")
+
+    @property
+    def length(self) -> float:
+        """|P1 - P0|."""
+        return float(np.linalg.norm(self.p1 - self.p0))
+
+    @property
+    def direction(self) -> np.ndarray:
+        """Unit vector P0 -> P1."""
+        return (self.p1 - self.p0) / self.length
+
+
+def funnel_axis(
+    system: BssSystem,
+    protein: int | BssMolecule | None = None,
+    ligand: int | BssMolecule | None = None,
+    alpha_carbon_name: str = ALPHA_CARBON_NAME,
+    property_map: PropertyMap | None = None,
+) -> FunnelAxis:
+    """atoms0/atoms1 from BioSimSpace ``makeFunnel()``, which gets the arguments unchanged, and P0/P1."""
+    require_biosimspace()
+    from BioSimSpace.Metadynamics.CollectiveVariable import makeFunnel  # pyright: ignore[reportMissingImports]
+
+    property_map = property_map or {}
+    atoms0, atoms1 = makeFunnel(
+        system, protein=protein, ligand=ligand, alpha_carbon_name=alpha_carbon_name, property_map=property_map
+    )
+    positions0 = np.array([atom_position_A(system, i, property_map) for i in atoms0])
+    positions1 = np.array([atom_position_A(system, i, property_map) for i in atoms1])
+    return FunnelAxis(atoms0=tuple(int(i) for i in atoms0), atoms1=tuple(int(i) for i in atoms1),
+                      p0=positions0.mean(axis=0), p1=positions1.mean(axis=0))
