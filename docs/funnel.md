@@ -1,6 +1,6 @@
 # Funnel CV (`oneopes.funnel`)
 
-A Python API around the public BioSimSpace funnel API (no `oneopes` command uses it yet).
+A Python API around the public BioSimSpace funnel API, and the `oneopes funnel` command that runs it.
 BioSimSpace's `makeFunnel()` picks the P0/P1 atoms and `Funnel` defines the CV; this package
 only derives P0/P1 (the mean position of each atom set) and exposes the CV as plain numbers.
 
@@ -22,6 +22,25 @@ f.cv.getCorrection()                        # anything else: the BioSimSpace Fun
 needs to find the protein and ligand; `read_system` takes the molecules from the topology and
 the positions from the structure (rounded to 0.01 Å, through a `.gro`). `molecule_sizes(system)`
 shows which molecules those are. See `notebooks/funnel_check.py`.
+
+## `oneopes funnel`
+
+BioSimSpace is conda-only, so the command (in the `oneopes` environment) builds the funnel in a
+separate Python that has it, given with `--python`:
+
+```bash
+echo 0 | gmx trjconv -f npt.gro -s npt.tpr -pbc mol -o whole.pdb
+oneopes funnel --topology complex.top --coordinates npt.gro --structure whole.pdb \
+    --protein 0 --ligand 1 --python ~/miniforge3/envs/biosimspace/bin/python
+```
+
+`--protein` and `--ligand` are 0-based indices in the topology's `[ molecules ]`. Without them
+`makeFunnel()` takes the largest and second-largest molecules, which in a membrane system makes a
+lipid the ligand. Each run writes a new directory (`--outdir`, default `funnel_YYYYMMDD_HHMMSS`,
+which must not exist) with `funnel.json` (atoms0/atoms1 as GROMACS serials, P0, P1, axis,
+parameters and radius along the axis), `funnel_summary.txt` and `run_metadata.json`. Check the
+axis against the pocket before using it: `makeFunnel()` points it from the protein CA atoms near
+the ligand, not necessarily out through the pocket entrance.
 
 Lengths are in Å, CV parameters in nm. BioSimSpace is conda-only; without it the tests in
 `tests/funnel/` are skipped. They find the validation systems in the repository's `original/`

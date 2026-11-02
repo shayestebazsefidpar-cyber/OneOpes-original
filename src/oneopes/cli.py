@@ -9,6 +9,7 @@ from cyclopts import App, Parameter
 from cyclopts.config import Yaml
 
 from oneopes.errors import InputError
+from oneopes.funnel.command import funnel
 from oneopes.ligand.monitor import monitor
 from oneopes.ligand.plumed_cv import build_cv
 from oneopes.ligand.select import select, select_block
@@ -18,7 +19,7 @@ from oneopes.render.figure import render
 
 app = App(name="oneopes", help="Hydration and funnel collective variables for OneOPES, from unbiased MD.",
           result_action="return_value")
-WORKFLOW = (prepare_system, monitor, select, select_block, build_cv, render, protein)
+WORKFLOW = (prepare_system, monitor, select, select_block, build_cv, render, protein, funnel)
 """The commands in the order they are used, which is also their order in ``oneopes --help``."""
 for position, command in enumerate(WORKFLOW):
     app.command(command, sort_key=position)

@@ -41,3 +41,11 @@ protein:
   trajectory: prod.xtc
   output-dir: outputs/protein
   candidate-cutoff-A: 7.0
+
+funnel:
+  topology: complex.top
+  coordinates: npt.gro
+  structure: whole.pdb
+  protein: 0
+  ligand: 1
+  python: /path/to/envs/biosimspace/bin/python

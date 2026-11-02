@@ -14,7 +14,7 @@ pip install -e ".[dev]"   # then: pytest
 ```
 
 Also needed: GROMACS on `PATH` (stage 1); PyMOL only for the renders;
-BioSimSpace (conda) only for `oneopes.funnel`.
+BioSimSpace (conda) only for `oneopes funnel`, in its own Python (`--python`).
 
 ## Run
 
@@ -38,6 +38,7 @@ Every analysis command writes `run_metadata.json` (input hashes, options, versio
 | `build-cv` | PLUMED fragment for G1/G2 (review before use) | [plumed_cv.md](docs/plumed_cv.md) |
 | `render` | figure of G1/G2 on the bound complex (PyMOL), with a legend | [render.md](docs/render.md) |
 | `protein` | WaterFP, contacts and SASA of protein atoms near the ligand | [protein.md](docs/protein.md) |
+| `funnel` | funnel CV atoms, axis and parameters (BioSimSpace `makeFunnel()`) | [funnel.md](docs/funnel.md) |
 
 Why the method works as it does: [docs/METHOD_RATIONALE.md](docs/METHOD_RATIONALE.md).
 
